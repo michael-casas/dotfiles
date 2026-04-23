@@ -30,7 +30,9 @@ setup.sh                    # Symlink installer
 ## Key Migrations
 - **nvim**: Migrated from old vimscript init.vim + lsp.lua to LazyVim (lua-based)
 - **shell**: Migrated from zsh to fish; translated PATH, aliases, and env vars
-- **tmux**: Config uses TPM with resurrect + continuum
+- **tmux**: Config uses TPM with resurrect + continuum + tmux-fzf + tmux2k
+- **tmux2k**: Gruvbox-themed status bar with session, git, cpu, ram, battery, time
+- **tmux default shell**: Changed from zsh to fish for all new panes/windows
 
 ## Machine-Specific Configs
 - Android SDK paths (`~/Library/Android/sdk`)
@@ -43,7 +45,7 @@ setup.sh                    # Symlink installer
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install fish starship pyenv nvm fzf
+brew install fish starship pyenv nvm fzf bash
 
 # Activate dotfiles
 bash ~/.dotfiles/setup.sh
@@ -61,6 +63,10 @@ chsh -s /opt/homebrew/bin/fish
 - `a7905b7` feat: add starship prompt config — Install Starship via Homebrew, add Gruvbox-themed starship.toml, wire into setup.sh
 - `09e8c31` feat(tmux): direct Option key window navigation — Add M-0/1/2/3 for window switching, M-m toggle, lower escape-time
 - `9680f28` feat(tmux): pane traversal, resize, and split keybindings — Add M-hjkl, C-M-arrows, C-M-h/v
+- `ee12504` feat(nvim): Option bracket buffer cycling
+- `96e78b1` feat(nvim): neo-tree width reduction + explicit split keymaps
+- `6cf8712` feat(tmux): add tmux-fzf session manager popup
+- `TBD` feat(tmux): add tmux2k status bar + default-shell fish
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
