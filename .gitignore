@@ -1,1 +1,30 @@
+# --- Personal / Secrets ---
 personal/*.env
+
+# --- OS Files ---
+.DS_Store
+
+# --- Fish ---
+fish/fish_variables
+fish/completions/
+fish/functions/
+fish/conf.d/
+
+# --- Neovim ---
+nvim/.git
+nvim/.tests
+nvim/doc/tags
+nvim/debug
+nvim/.repro
+nvim/foo.*
+nvim/*.log
+nvim/data
+nvim/tt.*
+
+# --- Tmux ---
+tmux/plugins/
+
+# --- General ---
+*.bak
+*.swp
+*.swo
