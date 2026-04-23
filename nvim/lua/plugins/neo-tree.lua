@@ -1,12 +1,18 @@
 return {
   -- Disable neo-tree; use snacks.nvim explorer instead
   { "nvim-neo-tree/neo-tree.nvim", enabled = false },
-  -- Ensure snacks explorer is enabled
+  -- Configure snacks.nvim explorer to show hidden files
   {
     "folke/snacks.nvim",
-    opts = function(_, opts)
-      opts.explorer = opts.explorer or {}
-      opts.explorer.enabled = true
-    end,
+    opts = {
+      picker = {
+        sources = {
+          explorer = {
+            hidden = true,
+            ignored = true,
+          },
+        },
+      },
+    },
   },
 }
