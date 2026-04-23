@@ -66,7 +66,7 @@ chsh -s /opt/homebrew/bin/fish
 - `ee12504` feat(nvim): Option bracket buffer cycling
 - `96e78b1` feat(nvim): neo-tree width reduction + explicit split keymaps
 - `6cf8712` feat(tmux): add tmux-fzf session manager popup
-- `TBD` feat(tmux): add tmux2k status bar + default-shell fish
+- `69dc8dc` feat(tmux): add tmux2k status bar + default-shell fish
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
