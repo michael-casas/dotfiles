@@ -56,6 +56,18 @@ chsh -s /opt/homebrew/bin/fish
 ## Commit History
 - `5ea1313` feat!: symlinks and base config restored — Initial migration from zsh to fish, LazyVim annex, tmux.conf fix, setup.sh creation
 - `a7905b7` feat: add starship prompt config — Install Starship via Homebrew, add Gruvbox-themed starship.toml, wire into setup.sh
+- `09e8c31` feat(tmux): direct Option key window navigation — Add M-0/1/2/3 for window switching, M-m toggle, lower escape-time
+- `9680f28` feat(tmux): pane traversal, resize, and split keybindings — Add M-hjkl, C-M-arrows, C-M-h/v
+
+## Tmux Keybinding Layers
+| Modifier | Key | Action |
+|---|---|---|
+| `M-0/1/2/3` | number | Switch to window 0/1/2/3 |
+| `M-m` | letter | Toggle window 0 ↔ last-window |
+| `M-h/j/k/l` | vim | Pane traversal |
+| `C-M-↑/↓/←/→` | arrows | Resize pane by 2 cells |
+| `C-M-h` | letter | Horizontal split |
+| `C-M-v` | letter | Vertical split |
 
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)
