@@ -80,6 +80,9 @@ chsh -s /opt/homebrew/bin/fish
 | `C-M-h` | letter | Horizontal split |
 | `C-M-v` | letter | Vertical split |
 
+## Conventions
+- **Commitlint syntax**: `feat` reserved for new plugins/features only. Default to `fix`, `refactor`, `docs`, or `style` for adjustments.
+
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)
 - Old shell/config.fish preserved in git history but replaced by fish/config.fish
