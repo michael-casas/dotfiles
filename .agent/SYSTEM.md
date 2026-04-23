@@ -33,6 +33,7 @@ setup.sh                    # Symlink installer
 - **tmux**: Config uses TPM with resurrect + continuum + tmux-fzf + tmux2k
 - **tmux2k**: Gruvbox-themed status bar with session, git, cpu, ram, battery, time
 - **tmux default shell**: Changed from zsh to fish for all new panes/windows
+- **nvim colorscheme**: Gruvbox Dark Hard (`ellisonleao/gruvbox.nvim`)
 
 ## Machine-Specific Configs
 - Android SDK paths (`~/Library/Android/sdk`)
@@ -67,6 +68,7 @@ chsh -s /opt/homebrew/bin/fish
 - `96e78b1` feat(nvim): neo-tree width reduction + explicit split keymaps
 - `6cf8712` feat(tmux): add tmux-fzf session manager popup
 - `69dc8dc` feat(tmux): add tmux2k status bar + default-shell fish
+- `2b3fb42` feat(nvim): set Gruvbox Dark Hard as LazyVim colorscheme
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
