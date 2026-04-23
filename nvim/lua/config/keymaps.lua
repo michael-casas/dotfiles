@@ -10,3 +10,16 @@ vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
 
 -- Terminal mode: ESC exits to Normal mode
 vim.keymap.set("t", "<Esc>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
+
+-- Reload nvim config on the fly (best-effort)
+vim.keymap.set("n", "<M-S-r>", function()
+  -- Clear Lua cache for user config modules
+  for name, _ in pairs(package.loaded) do
+    if name:match("^config") or name:match("^plugins") then
+      package.loaded[name] = nil
+    end
+  end
+  -- Re-source init.lua
+  dofile(vim.env.MYVIMRC)
+  vim.notify("Config reloaded", vim.log.levels.INFO)
+end, { desc = "Reload Neovim config" })
