@@ -75,6 +75,16 @@
     },
     {
       "app": "tmux",
+      "key": "M-b",
+      "action": "select-window -t 5",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 5 (browser)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~18"
+    },
+    {
+      "app": "tmux",
       "key": "M-m",
       "action": "if -F '#{==:#{window_index},0}' 'last-window' 'select-window -t 0'",
       "context": "global",
@@ -285,7 +295,7 @@
     }
   ],
   "free_keys": {
-    "tmux_unclaimed_meta": ["M-a", "M-b", "M-c", "M-d", "M-e", "M-f", "M-g", "M-i", "M-n", "M-o", "M-p", "M-q", "M-r", "M-s", "M-t", "M-u", "M-w", "M-x", "M-y", "M-z"],
+    "tmux_unclaimed_meta": ["M-a", "M-c", "M-d", "M-e", "M-f", "M-g", "M-i", "M-n", "M-o", "M-p", "M-q", "M-r", "M-s", "M-t", "M-u", "M-w", "M-x", "M-y", "M-z"],
     "tmux_unclaimed_ctrl_meta": ["C-M-a", "C-M-b", "C-M-c", "C-M-d", "C-M-e", "C-M-f", "C-M-g", "C-M-i", "C-M-j", "C-M-k", "C-M-l", "C-M-m", "C-M-n", "C-M-o", "C-M-p", "C-M-q", "C-M-r", "C-M-s", "C-M-t", "C-M-u", "C-M-w", "C-M-x", "C-M-y", "C-M-z"],
     "notes": "Free for nvim or future tmux bindings. Check terminal compatibility before assigning M- combinations."
   }
