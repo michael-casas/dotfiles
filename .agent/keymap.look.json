@@ -202,6 +202,26 @@
       "description": "Exit terminal mode to Normal mode",
       "file": "nvim/lua/config/keymaps.lua",
       "line_ref": "~12"
+    },
+    {
+      "app": "nvim",
+      "key": "s",
+      "action": "open_split",
+      "context": "neo-tree",
+      "mode": "n",
+      "description": "Open file in horizontal split from neo-tree",
+      "file": "nvim/lua/plugins/neo-tree.lua",
+      "line_ref": "~16"
+    },
+    {
+      "app": "nvim",
+      "key": "v",
+      "action": "open_vsplit",
+      "context": "neo-tree",
+      "mode": "n",
+      "description": "Open file in vertical split from neo-tree",
+      "file": "nvim/lua/plugins/neo-tree.lua",
+      "line_ref": "~17"
     }
   ],
   "external_bindings": [
