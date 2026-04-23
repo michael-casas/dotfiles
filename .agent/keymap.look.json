@@ -205,7 +205,7 @@
     },
     {
       "app": "nvim",
-      "key": "Esc",
+      "key": "C-.",
       "action": "<C-\\><C-n>",
       "context": "terminal",
       "mode": "t",

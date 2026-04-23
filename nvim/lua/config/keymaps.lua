@@ -8,8 +8,8 @@
 vim.keymap.set("n", "<M-[>", "<cmd>bprevious<cr>", { desc = "Previous buffer" })
 vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
 
--- Terminal mode: ESC exits to Normal mode
-vim.keymap.set("t", "<Esc>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
+-- Terminal mode: Ctrl+. exits to Normal mode
+vim.keymap.set("t", "<C-.>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
 
 -- Reload nvim config on the fly (best-effort)
 vim.keymap.set("n", "<M-S-r>", function()

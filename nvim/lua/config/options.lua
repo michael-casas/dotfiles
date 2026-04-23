@@ -5,5 +5,5 @@
 -- Use system clipboard for all yank/delete/paste operations
 vim.opt.clipboard = "unnamedplus"
 
--- Eliminate ESC delay in terminal mode (default ttimeoutlen falls back to 1000ms)
-vim.o.ttimeoutlen = 0
+-- Terminal key sequence timeout: 500ms balance between responsiveness and sequence detection
+vim.o.ttimeoutlen = 500
