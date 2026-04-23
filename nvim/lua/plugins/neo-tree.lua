@@ -17,5 +17,6 @@ return {
     },
   },
   -- Disable mini.files so it doesn't fight with neo-tree
-  { "echasnovski/mini.files", enabled = false },
+  -- NOTE: Plugin renamed from echasnovski/mini.files to nvim-mini/mini.files
+  { "nvim-mini/mini.files", enabled = false },
 }
