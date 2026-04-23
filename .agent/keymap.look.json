@@ -1,0 +1,243 @@
+{
+  "meta": {
+    "schema_version": "1.0.0",
+    "generated_at": "2026-04-23",
+    "apps_tracked": ["tmux", "nvim"],
+    "description": "Cross-application keybinding registry for collision detection and lookup"
+  },
+  "apps": {
+    "tmux": {
+      "prefix": {
+        "current": "C-b",
+        "proposed": null,
+        "notes": "Default prefix; user wants C-Space but blocked by nvim-cmp collision"
+      },
+      "config_file": "tmux/tmux.conf",
+      "escape_time_ms": 10
+    },
+    "nvim": {
+      "distro": "LazyVim",
+      "config_dir": "nvim/",
+      "leader": "Space",
+      "localleader": "Space"
+    }
+  },
+  "keymaps": [
+    {
+      "app": "tmux",
+      "key": "M-0",
+      "action": "select-window -t 0",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 0 (neovim)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~13"
+    },
+    {
+      "app": "tmux",
+      "key": "M-1",
+      "action": "select-window -t 1",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 1 (opencode)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~14"
+    },
+    {
+      "app": "tmux",
+      "key": "M-2",
+      "action": "select-window -t 2",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 2 (codex)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~15"
+    },
+    {
+      "app": "tmux",
+      "key": "M-3",
+      "action": "select-window -t 3",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 3 (claude-code)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~16"
+    },
+    {
+      "app": "tmux",
+      "key": "M-m",
+      "action": "if -F '#{==:#{window_index},0}' 'last-window' 'select-window -t 0'",
+      "context": "global",
+      "mode": "root",
+      "description": "Toggle between window 0 and last active window",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~19"
+    },
+    {
+      "app": "tmux",
+      "key": "M-h",
+      "action": "select-pane -L",
+      "context": "global",
+      "mode": "root",
+      "description": "Move to left pane",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~22"
+    },
+    {
+      "app": "tmux",
+      "key": "M-j",
+      "action": "select-pane -D",
+      "context": "global",
+      "mode": "root",
+      "description": "Move to pane below",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~23"
+    },
+    {
+      "app": "tmux",
+      "key": "M-k",
+      "action": "select-pane -U",
+      "context": "global",
+      "mode": "root",
+      "description": "Move to pane above",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~24"
+    },
+    {
+      "app": "tmux",
+      "key": "M-l",
+      "action": "select-pane -R",
+      "context": "global",
+      "mode": "root",
+      "description": "Move to right pane",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~25"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-Up",
+      "action": "resize-pane -U 2",
+      "context": "global",
+      "mode": "root",
+      "description": "Resize pane up by 2 cells",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~28"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-Down",
+      "action": "resize-pane -D 2",
+      "context": "global",
+      "mode": "root",
+      "description": "Resize pane down by 2 cells",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~29"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-Left",
+      "action": "resize-pane -L 2",
+      "context": "global",
+      "mode": "root",
+      "description": "Resize pane left by 2 cells",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~30"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-Right",
+      "action": "resize-pane -R 2",
+      "context": "global",
+      "mode": "root",
+      "description": "Resize pane right by 2 cells",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~31"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-h",
+      "action": "split-window -h -c '#{pane_current_path}'",
+      "context": "global",
+      "mode": "root",
+      "description": "Horizontal split (panes side by side)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~36"
+    },
+    {
+      "app": "tmux",
+      "key": "C-M-v",
+      "action": "split-window -v -c '#{pane_current_path}'",
+      "context": "global",
+      "mode": "root",
+      "description": "Vertical split (panes stacked)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~37"
+    },
+    {
+      "app": "nvim",
+      "key": "M-[",
+      "action": "bprevious",
+      "context": "normal",
+      "mode": "n",
+      "description": "Previous buffer",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~8"
+    },
+    {
+      "app": "nvim",
+      "key": "M-]",
+      "action": "bnext",
+      "context": "normal",
+      "mode": "n",
+      "description": "Next buffer",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~9"
+    }
+  ],
+  "external_bindings": [
+    {
+      "app": "nvim",
+      "key": "C-Space",
+      "action": "cmp.mapping.complete()",
+      "context": "insert",
+      "source": "LazyVim default (nvim-cmp)",
+      "notes": "Triggers completion menu. Blocks tmux prefix if changed to C-Space."
+    },
+    {
+      "app": "nvim",
+      "key": "Space",
+      "action": "leader",
+      "context": "normal/visual",
+      "source": "LazyVim default",
+      "notes": "Global leader key. Not claimed by tmux."
+    },
+    {
+      "app": "tmux",
+      "key": "C-b",
+      "action": "prefix",
+      "context": "global",
+      "source": "tmux default",
+      "notes": "Current tmux prefix. Not claimed by nvim."
+    }
+  ],
+  "collision_log": [
+    {
+      "id": "COLL-001",
+      "key": "C-Space",
+      "apps_involved": ["tmux", "nvim"],
+      "severity": "blocking",
+      "description": "Tmux prefix C-Space would intercept nvim-cmp's insert-mode completion trigger",
+      "resolution_options": [
+        "Use double-tap passthrough: bind C-Space send-prefix in tmux",
+        "Rebind nvim-cmp completion trigger to M-Space or Tab",
+        "Choose different tmux prefix"
+      ],
+      "status": "open"
+    }
+  ],
+  "free_keys": {
+    "tmux_unclaimed_meta": ["M-a", "M-b", "M-c", "M-d", "M-e", "M-f", "M-g", "M-i", "M-n", "M-o", "M-p", "M-q", "M-r", "M-s", "M-t", "M-u", "M-w", "M-x", "M-y", "M-z"],
+    "tmux_unclaimed_ctrl_meta": ["C-M-a", "C-M-b", "C-M-c", "C-M-d", "C-M-e", "C-M-f", "C-M-g", "C-M-i", "C-M-j", "C-M-k", "C-M-l", "C-M-m", "C-M-n", "C-M-o", "C-M-p", "C-M-q", "C-M-r", "C-M-s", "C-M-t", "C-M-u", "C-M-w", "C-M-x", "C-M-y", "C-M-z"],
+    "notes": "Free for nvim or future tmux bindings. Check terminal compatibility before assigning M- combinations."
+  }
+}
