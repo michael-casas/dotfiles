@@ -45,6 +45,14 @@ if [[ -f "$DOTFILES_DIR/starship/starship.toml" ]]; then
     ln -sf "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
 fi
 
+# --- Ghostty (macOS) ---
+if [[ -f "$DOTFILES_DIR/ghostty/config" ]] && [[ "$OSTYPE" == darwin* ]]; then
+    echo "==> Linking ghostty config..."
+    GHOSTTY_DIR="$HOME/Library/Application Support/com.mitchellh.ghostty"
+    mkdir -p "$GHOSTTY_DIR"
+    ln -sf "$DOTFILES_DIR/ghostty/config" "$GHOSTTY_DIR/config"
+fi
+
 echo "==> Done!"
 echo ""
 echo "Next steps:"
