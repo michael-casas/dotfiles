@@ -69,3 +69,9 @@ end
 
 # --- Greeting ---
 set fish_greeting
+
+# --- Key Bindings ---
+# Accept autosuggestion (gray text) with Tab instead of Right Arrow
+# Note: This overrides the default Tab completion pager.
+# Use Ctrl+F to trigger completions when needed.
+bind \t accept-autosuggestion
