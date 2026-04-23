@@ -43,7 +43,7 @@ setup.sh                    # Symlink installer
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install fish starship pyenv nvm
+brew install fish starship pyenv nvm fzf
 
 # Activate dotfiles
 bash ~/.dotfiles/setup.sh
@@ -51,6 +51,9 @@ bash ~/.dotfiles/setup.sh
 # Set fish as default shell
 sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
 chsh -s /opt/homebrew/bin/fish
+
+# Install tmux plugins (after adding new ones to tmux.conf)
+# Press prefix + I (capital I) inside tmux
 ```
 
 ## Commit History
