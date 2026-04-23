@@ -14,8 +14,9 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via a b
 
 ## Repository Structure
 ```
-.fish/config.fish          -> ~/.config/fish/config.fish
+fish/config.fish            -> ~/.config/fish/config.fish
 nvim/                       -> ~/.config/nvim (LazyVim-based)
+  lua/plugins/opencode.lua  # Multi-tool AI session manager (OpenCode, Codex, Claude, Kiro)
 tmux/tmux.conf              -> ~/.tmux.conf
 git/.gitconfig              -> ~/.gitconfig
 starship/starship.toml      -> ~/.config/starship.toml
@@ -34,6 +35,7 @@ setup.sh                    # Symlink installer
 - **tmux2k**: Gruvbox-themed status bar with session, git, cpu, ram, battery, time
 - **tmux default shell**: Changed from zsh to fish for all new panes/windows
 - **nvim colorscheme**: Gruvbox Dark Hard (`ellisonleao/gruvbox.nvim`)
+- **nvim + AI Session Manager**: Higher-order `snacks.nvim` picker factory supporting OpenCode, Codex, Claude, and Kiro with buffer tracking and unified tool selector
 
 ## Machine-Specific Configs
 - Android SDK paths (`~/Library/Android/sdk`)
@@ -70,6 +72,46 @@ chsh -s /opt/homebrew/bin/fish
 - `69dc8dc` feat(tmux): add tmux2k status bar + default-shell fish
 - `2b3fb42` feat(nvim): set Gruvbox Dark Hard as LazyVim colorscheme
 - `a540f56` style(ghostty): apply Gruvbox Dark Hard theme and terminal settings
+
+## AI Session Manager (nvim)
+Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameterizes session management for any CLI tool. Each tool gets its own picker source (`{tool}_sessions`) plus a unified tool selector (`ai_tools`).
+
+### Supported Tools
+| Tool | Binary | List API | Attach | Delete |
+|---|---|---|---|---|
+| **OpenCode** | `~/.opencode/bin/opencode` | `session list --format json` | `-s <id>` | `session delete <id>` |
+| **Codex** | `codex` | Read `~/.codex/session_index.jsonl` | `resume <id>` | Not supported |
+| **Claude** | `claude` | Read `~/.claude/sessions/*.json` | `-r <id>` | Not supported |
+| **Kiro** | `kiro-cli` | `chat --list-sessions -f json` | `chat --resume-id <id>` | `chat --delete-session <id>` |
+
+### Architecture
+- **Factory**: `ai_session_picker(config)` returns a full `snacks.picker.Config` table
+- **Buffer tracking**: Each tool uses a namespaced buffer variable (`b:{tool}_session_id`)
+- **Visual state**: `[BUF]` = already open in a buffer; `[SES]` = available but not open
+- **Window behavior**: New sessions open in `vsplit | enew` so code buffer remains visible
+
+### Entry Points
+| Trigger | Action |
+|---|---|
+| `:AI` | Open AI tool selector |
+| `<leader>oai` | Open AI tool selector |
+| `:OpenCode` / `<leader>oc` | OpenCode sessions |
+| `:Codex` / `<leader>od` | Codex sessions |
+| `:Claude` / `<leader>ol` | Claude sessions |
+| `:Kiro` / `<leader>ok` | Kiro sessions |
+
+### Picker Actions (per-tool)
+| Key | Action |
+|---|---|
+| `<CR>` | Jump to existing buffer, or open new terminal for session |
+| `<C-d>` | Delete selected session (if tool supports it) |
+
+### Sorting
+Sessions are sorted by `updated` descending (most recent first) across all tools. The factory normalizes timestamps:
+- **Numeric ms** (OpenCode, Claude) — used directly
+- **ISO 8601 strings** (Codex) — parsed via `vim.fn.strptime`
+- **String numbers** — coerced via `tonumber`
+- Missing/invalid dates sink to the bottom.
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |

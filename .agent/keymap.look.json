@@ -223,6 +223,56 @@
       "file": "nvim/lua/config/keymaps.lua",
       "line_ref": "~12"
     },
+    {
+      "app": "nvim",
+      "key": "<leader>oc",
+      "action": "Snacks.picker.opencode_sessions()",
+      "context": "normal",
+      "mode": "n",
+      "description": "OpenCode session manager (buffers + sessions)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>od",
+      "action": "Snacks.picker.codex_sessions()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Codex session manager (buffers + sessions)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>ol",
+      "action": "Snacks.picker.claude_sessions()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Claude session manager (buffers + sessions)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>ok",
+      "action": "Snacks.picker.kiro_sessions()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Kiro session manager (buffers + sessions)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>oai",
+      "action": "Snacks.picker.ai_tools()",
+      "context": "normal",
+      "mode": "n",
+      "description": "AI tool selector (OpenCode / Codex / Claude / Kiro)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
   ],
   "external_bindings": [
     {
@@ -256,6 +306,46 @@
       "context": "global",
       "source": "tmux default",
       "notes": "Former default prefix. Now free."
+    },
+    {
+      "app": "nvim",
+      "key": ":AI",
+      "action": "Snacks.picker.ai_tools()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for AI tool selector"
+    },
+    {
+      "app": "nvim",
+      "key": ":OpenCode",
+      "action": "Snacks.picker.opencode_sessions()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for OpenCode session manager"
+    },
+    {
+      "app": "nvim",
+      "key": ":Codex",
+      "action": "Snacks.picker.codex_sessions()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for Codex session manager"
+    },
+    {
+      "app": "nvim",
+      "key": ":Claude",
+      "action": "Snacks.picker.claude_sessions()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for Claude session manager"
+    },
+    {
+      "app": "nvim",
+      "key": ":Kiro",
+      "action": "Snacks.picker.kiro_sessions()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for Kiro session manager"
     }
   ],
   "collision_log": [
