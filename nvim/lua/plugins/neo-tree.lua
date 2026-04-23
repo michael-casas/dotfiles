@@ -16,7 +16,12 @@ return {
       },
     },
   },
-  -- Disable mini.files so it doesn't fight with neo-tree
-  -- NOTE: Plugin renamed from echasnovski/mini.files to nvim-mini/mini.files
-  { "nvim-mini/mini.files", enabled = false },
+  -- Disable snacks.nvim explorer so only neo-tree shows
+  {
+    "folke/snacks.nvim",
+    opts = function(_, opts)
+      opts.explorer = opts.explorer or {}
+      opts.explorer.enabled = false
+    end,
+  },
 }
