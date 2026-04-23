@@ -59,6 +59,16 @@ if [[ -f "$DOTFILES_DIR/postgres/.psqlrc" ]]; then
     ln -sf "$DOTFILES_DIR/postgres/.psqlrc" "$HOME/.psqlrc"
 fi
 
+# --- OpenCode ---
+if [[ -d "$DOTFILES_DIR/opencode" ]]; then
+    echo "==> Linking opencode config..."
+    if [[ -d "$HOME/.config/opencode" && ! -L "$HOME/.config/opencode" ]]; then
+        echo "    Backing up existing ~/.config/opencode to ~/.config/opencode.backup"
+        mv "$HOME/.config/opencode" "$HOME/.config/opencode.backup"
+    fi
+    ln -sfn "$DOTFILES_DIR/opencode" "$HOME/.config/opencode"
+fi
+
 echo "==> Done!"
 echo ""
 echo "Next steps:"

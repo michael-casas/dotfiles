@@ -1,0 +1,68 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "Conduit": {
+      "options": {
+        "temperature": 0,
+        "top_p": 1,
+        "n": 1
+      },
+    },
+    "emitter": {
+      "model": "opencode-go/minimax-m2.5",
+      "description": "Deterministic WorkEvent emission primitive. Validate a fully formed payload, invoke agent:emit:work-event exactly once, and return success or failure only.",
+      "mode": "subagent",
+      "hidden": true,
+      "steps": 1,
+      "prompt": "{file:./god-lock/emitter.md}",
+      "permission": {
+        "write": "deny",
+        "edit": "deny",
+        "patch": "deny",
+        "read": "deny",
+        "list": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "lsp": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "question": "deny",
+        "skill": "deny",
+        "todoread": "deny",
+        "todowrite": "deny",
+        "task": {
+          "*": "deny"
+        },
+        "bash": {
+          "*": "deny",
+          "agent:emit:work-event*": "allow",
+          "bun run agent:emit:work-event*": "allow",
+          "npm run agent:emit:work-event*": "allow",
+          "pnpm agent:emit:work-event*": "allow"
+        }
+      }
+    },
+    "build": {
+      "disable": true
+    },
+    "plan": {
+      "disable": true
+    },
+    "general": {
+      "disable": true
+    },
+  },
+  "provider": {
+    "ollama": {
+      "options": {
+        "npm": "@ai-sdk/openai-compatible",
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "llama3.1:latest": {
+          "name": "Llama 3.1"
+        }
+      }
+    }
+  }
+}
