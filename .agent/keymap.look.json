@@ -8,9 +8,9 @@
   "apps": {
     "tmux": {
       "prefix": {
-        "current": "C-b",
-        "proposed": null,
-        "notes": "Default prefix; user wants C-Space but blocked by nvim-cmp collision"
+        "current": "C-\\",
+        "previous": "C-b",
+        "notes": "Changed from C-b to avoid default and free C-b for other uses. C-Space was considered but blocked by nvim-cmp."
       },
       "config_file": "tmux/tmux.conf",
       "escape_time_ms": 10
@@ -192,6 +192,16 @@
       "description": "Next buffer",
       "file": "nvim/lua/config/keymaps.lua",
       "line_ref": "~9"
+    },
+    {
+      "app": "nvim",
+      "key": "Esc",
+      "action": "<C-\\><C-n>",
+      "context": "terminal",
+      "mode": "t",
+      "description": "Exit terminal mode to Normal mode",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~12"
     }
   ],
   "external_bindings": [
@@ -213,11 +223,19 @@
     },
     {
       "app": "tmux",
-      "key": "C-b",
+      "key": "C-\\",
       "action": "prefix",
       "context": "global",
+      "source": "tmux config",
+      "notes": "Active tmux prefix. Not claimed by nvim."
+    },
+    {
+      "app": "tmux",
+      "key": "C-b",
+      "action": "prefix (former)",
+      "context": "global",
       "source": "tmux default",
-      "notes": "Current tmux prefix. Not claimed by nvim."
+      "notes": "Former default prefix. Now free."
     }
   ],
   "collision_log": [
@@ -232,7 +250,8 @@
         "Rebind nvim-cmp completion trigger to M-Space or Tab",
         "Choose different tmux prefix"
       ],
-      "status": "open"
+      "resolution": "Chose different tmux prefix (C-\\)",
+      "status": "resolved"
     }
   ],
   "free_keys": {

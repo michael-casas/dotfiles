@@ -7,3 +7,6 @@
 -- If you experience issues, switch to M-( and M-) or M-p/M-n.
 vim.keymap.set("n", "<M-[>", "<cmd>bprevious<cr>", { desc = "Previous buffer" })
 vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
+
+-- Terminal mode: ESC exits to Normal mode
+vim.keymap.set("t", "<Esc>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
