@@ -69,6 +69,7 @@ chsh -s /opt/homebrew/bin/fish
 - `6cf8712` feat(tmux): add tmux-fzf session manager popup
 - `69dc8dc` feat(tmux): add tmux2k status bar + default-shell fish
 - `2b3fb42` feat(nvim): set Gruvbox Dark Hard as LazyVim colorscheme
+- `a540f56` style(ghostty): apply Gruvbox Dark Hard theme and terminal settings
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
