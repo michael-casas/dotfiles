@@ -53,6 +53,12 @@ if [[ -f "$DOTFILES_DIR/ghostty/config" ]] && [[ "$OSTYPE" == darwin* ]]; then
     ln -sf "$DOTFILES_DIR/ghostty/config" "$GHOSTTY_DIR/config"
 fi
 
+# --- PostgreSQL ---
+if [[ -f "$DOTFILES_DIR/postgres/.psqlrc" ]]; then
+    echo "==> Linking psql config..."
+    ln -sf "$DOTFILES_DIR/postgres/.psqlrc" "$HOME/.psqlrc"
+fi
+
 echo "==> Done!"
 echo ""
 echo "Next steps:"

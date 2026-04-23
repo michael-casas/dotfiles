@@ -1,0 +1,29 @@
+-- ~/.psqlrc
+-- PostgreSQL interactive terminal settings
+
+-- Show query execution time
+\timing on
+
+-- Use table format with borders for expanded output automatically when needed
+\pset format aligned
+\pset border 2
+\pset linestyle unicode
+\pset pager on
+
+-- Show nulls as [NULL] instead of empty space
+\pset null '[NULL]'
+
+-- Verbose error reports
+\set VERBOSITY verbose
+
+-- History settings
+\set HISTFILE ~/.psql_history
+\set HISTSIZE 10000
+\set HISTCONTROL ignoredups
+
+-- Prompt: user@host database=>
+\set PROMPT1 '%n@%m %/%R%# '
+\set PROMPT2 '%n@%m %/%R%# '
+
+-- Autocomplete settings
+\set COMP_KEYWORD_CASE upper
