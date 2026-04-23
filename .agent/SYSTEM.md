@@ -18,8 +18,14 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via a b
 nvim/                       -> ~/.config/nvim (LazyVim-based)
 tmux/tmux.conf              -> ~/.tmux.conf
 git/.gitconfig              -> ~/.gitconfig
+starship/starship.toml      -> ~/.config/starship.toml
 setup.sh                    # Symlink installer
 ```
+
+## Prompt
+- **Starship** (Rust-based, cross-shell prompt)
+- Config: `starship/starship.toml` with Gruvbox Dark palette
+- Auto-detects git, language versions, Docker context, conda envs
 
 ## Key Migrations
 - **nvim**: Migrated from old vimscript init.vim + lsp.lua to LazyVim (lua-based)
@@ -46,6 +52,10 @@ bash ~/.dotfiles/setup.sh
 sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
 chsh -s /opt/homebrew/bin/fish
 ```
+
+## Commit History
+- `5ea1313` feat!: symlinks and base config restored — Initial migration from zsh to fish, LazyVim annex, tmux.conf fix, setup.sh creation
+- `TBD` feat: add starship prompt config — Install Starship via Homebrew, add Gruvbox-themed starship.toml, wire into setup.sh
 
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)

@@ -39,6 +39,12 @@ if [[ -f "$DOTFILES_DIR/git/.gitconfig" ]]; then
     ln -sf "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
 fi
 
+# --- Starship ---
+if [[ -f "$DOTFILES_DIR/starship/starship.toml" ]]; then
+    echo "==> Linking starship config..."
+    ln -sf "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
+fi
+
 echo "==> Done!"
 echo ""
 echo "Next steps:"
