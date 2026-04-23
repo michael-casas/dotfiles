@@ -11,6 +11,8 @@ return {
             -- Explicit split keymaps for clarity
             ["s"] = "open_split",
             ["v"] = "open_vsplit",
+            -- n: add new file in selected directory
+            ["n"] = "add",
           },
         },
       },
