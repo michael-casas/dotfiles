@@ -8,8 +8,10 @@
 vim.keymap.set("n", "<M-[>", "<cmd>bprevious<cr>", { desc = "Previous buffer" })
 vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
 
--- Terminal mode: Ctrl+. exits to Normal mode
-vim.keymap.set("t", "<C-.>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
+-- Terminal mode: Alt+. exits to Normal mode
+-- NOTE: Ctrl+. is not detectable in terminals (sends same byte as ".").
+-- Alt+. works reliably because terminals send ESC prefix + key.
+vim.keymap.set("t", "<M-.>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
 
 -- Reload nvim config on the fly (best-effort)
 vim.keymap.set("n", "<M-S-r>", function()

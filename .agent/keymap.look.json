@@ -215,11 +215,11 @@
     },
     {
       "app": "nvim",
-      "key": "C-.",
+      "key": "M-.",
       "action": "<C-\\><C-n>",
       "context": "terminal",
       "mode": "t",
-      "description": "Exit terminal mode to Normal mode",
+      "description": "Exit terminal mode to Normal mode (Alt+. — Ctrl+. is not terminal-detectable)",
       "file": "nvim/lua/config/keymaps.lua",
       "line_ref": "~12"
     },
