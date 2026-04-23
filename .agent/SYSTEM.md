@@ -55,7 +55,7 @@ chsh -s /opt/homebrew/bin/fish
 
 ## Commit History
 - `5ea1313` feat!: symlinks and base config restored — Initial migration from zsh to fish, LazyVim annex, tmux.conf fix, setup.sh creation
-- `TBD` feat: add starship prompt config — Install Starship via Homebrew, add Gruvbox-themed starship.toml, wire into setup.sh
+- `a7905b7` feat: add starship prompt config — Install Starship via Homebrew, add Gruvbox-themed starship.toml, wire into setup.sh
 
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)
