@@ -65,6 +65,16 @@
     },
     {
       "app": "tmux",
+      "key": "M-4",
+      "action": "select-window -t 4",
+      "context": "global",
+      "mode": "root",
+      "description": "Switch to window 4 (psql)",
+      "file": "tmux/tmux.conf",
+      "line_ref": "~17"
+    },
+    {
+      "app": "tmux",
       "key": "M-m",
       "action": "if -F '#{==:#{window_index},0}' 'last-window' 'select-window -t 0'",
       "context": "global",
