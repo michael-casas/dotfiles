@@ -47,3 +47,30 @@
 # # which is explained in the docs for that config option.
 # # Just for example:
 # resize-overlay-duration = 4s 200ms
+
+# --- Theme ---
+theme = "Gruvbox Dark Hard"
+
+# --- Font ---
+font-family = "JetBrainsMono Nerd Font"
+font-size = 14
+
+# --- Window ---
+window-padding-x = 4
+window-padding-y = 4
+window-theme = dark
+macos-titlebar-style = tabs
+
+# --- Shell ---
+# Use fish as the default shell
+command = /opt/homebrew/bin/fish
+
+# --- Scrollback ---
+scrollback-limit = 10000000
+
+# --- Mouse ---
+mouse-scroll-multiplier = 3
+
+# --- Keybindings ---
+# Option as Meta for tmux compatibility
+macos-option-as-alt = left
