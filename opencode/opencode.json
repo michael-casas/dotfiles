@@ -8,40 +8,6 @@
         "n": 1
       },
     },
-    "emitter": {
-      "model": "opencode-go/minimax-m2.5",
-      "description": "Deterministic WorkEvent emission primitive. Validate a fully formed payload, invoke agent:emit:work-event exactly once, and return success or failure only.",
-      "mode": "subagent",
-      "hidden": true,
-      "steps": 1,
-      "prompt": "{file:./god-lock/emitter.md}",
-      "permission": {
-        "write": "deny",
-        "edit": "deny",
-        "patch": "deny",
-        "read": "deny",
-        "list": "deny",
-        "glob": "deny",
-        "grep": "deny",
-        "lsp": "deny",
-        "webfetch": "deny",
-        "websearch": "deny",
-        "question": "deny",
-        "skill": "deny",
-        "todoread": "deny",
-        "todowrite": "deny",
-        "task": {
-          "*": "deny"
-        },
-        "bash": {
-          "*": "deny",
-          "agent:emit:work-event*": "allow",
-          "bun run agent:emit:work-event*": "allow",
-          "npm run agent:emit:work-event*": "allow",
-          "pnpm agent:emit:work-event*": "allow"
-        }
-      }
-    },
     "build": {
       "disable": true
     },

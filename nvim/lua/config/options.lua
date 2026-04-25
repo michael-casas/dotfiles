@@ -5,5 +5,8 @@
 -- Use system clipboard for all yank/delete/paste operations
 vim.opt.clipboard = "unnamedplus"
 
--- Terminal key sequence timeout: 500ms balance between responsiveness and sequence detection
-vim.o.ttimeoutlen = 500
+-- Terminal key sequence timeout: 10ms so <Esc> is processed immediately.
+-- With higher values (e.g. 500ms), pressing <Esc> then j/k quickly combines
+-- into <M-j>/<M-k> (Alt-j/Alt-k) because terminals encode Alt-chords as <Esc>+char.
+-- 10ms is imperceptible but breaks the sequence before the next keystroke arrives.
+vim.o.ttimeoutlen = 10

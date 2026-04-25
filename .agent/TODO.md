@@ -1,29 +1,31 @@
 # Deferred Tasks
 
-## Session Manager Extension for AI CLIs
+All currently tracked tasks are completed. This file is kept for future deferred work.
 
-**Status:** Deferred  
-**Requested:** 2026-04-23
+---
 
-### Context
-Currently using `tmux-fzf` for tmux session/window/pane switching. Want to extend fzf to also surface and attach to existing sessions inside AI CLI tools.
+## Completed: Session Manager Extension for AI CLIs
 
-### Requested Tools
-- **OpenCode**: `opencode` sessions
-- **Claude Code**: `claude` sessions
-- **Codex**: `codex` sessions
+**Status:** ✅ Completed via `nvim/lua/plugins/opencode.lua` (Neovim + snacks.nvim)  
+**Completed:** 2026-04-24  
+**Commit:** `159a353` — `feat(nvim) - AI TUI Plugin created and working`
 
-### Desired Behavior
-1. Press a keybinding (e.g., `prefix + Shift+A` for "AI sessions")
-2. Fzf popup lists all *existing* sessions across the three tools
-3. Selecting a session attaches to it inside that tool's TUI
-4. If no session exists, option to create a new one
+### What was built
+Higher-order `snacks.nvim` picker factory (`ai_session_picker`) parameterizing session management for any CLI tool. Each tool gets its own picker source plus a unified tool selector.
 
-### Open Questions
-- How does each tool expose its session list? (CLI flags? socket files? state dirs?)
-- Should this be a custom script or a tmux-fzf extension?
-- What happens when a session is already attached elsewhere?
+### Supported Tools
+- **OpenCode** — `opencode session list --format json`
+- **Codex** — reads `~/.codex/session_index.jsonl`
+- **Claude** — reads `~/.claude/sessions/*.json`
+- **Kiro** — `kiro-cli chat --list-sessions -f json`
 
-### Next Steps
-- Research each tool's session persistence mechanism
-- Decide if this belongs in tmux-fzf, a standalone script, or a custom tmux keybinding
+### Entry Points
+- `:AI` / `<leader>oai` — AI tool selector
+- `:OpenCode` / `<leader>oc` — OpenCode sessions
+- `:Codex` / `<leader>od` — Codex sessions
+- `:Claude` / `<leader>ol` — Claude sessions
+- `:Kiro` / `<leader>ok` — Kiro sessions
+
+### Original Plan vs. Reality
+- **Planned:** tmux-fzf extension with `prefix + Shift+A`
+- **Actual:** Neovim-native snacks.nvim picker with buffer tracking, date-descending sort, and `vsplit | enew` terminal spawning

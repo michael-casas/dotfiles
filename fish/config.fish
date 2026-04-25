@@ -54,10 +54,11 @@ end
 alias ws="cd ~/Documents/repos/github.com"
 alias kiroc="kiro-cli"
 alias pip="python3 -m pip"
+alias v="nvim"
 
 # --- Editor ---
-set -gx EDITOR "nvim"
-set -gx VISUAL "nvim"
+set -gx EDITOR nvim
+set -gx VISUAL nvim
 
 # --- Pager ---
 set -gx GLOW_PAGER "nvim -R -"

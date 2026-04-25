@@ -113,6 +113,11 @@ Sessions are sorted by `updated` descending (most recent first) across all tools
 - **String numbers** — coerced via `tonumber`
 - Missing/invalid dates sink to the bottom.
 
+## LazyVim Keymap Regression Fix (2026-04-24)
+**Issue:** After pressing `<Esc>` to exit insert mode, quickly pressing `j`/`k` moved the current line instead of moving the cursor. Spamming `<Esc>` prevented it.  
+**Root cause:** `ttimeoutlen = 500` in `options.lua`. Terminals encode `Alt-j` as the byte sequence `<Esc>j`. With a 500ms timeout, Neovim waited after `<Esc>` to see if more characters followed. If `j` arrived within that window, Neovim interpreted `<Esc>j` as `<M-j>` — which LazyVim binds to "move line down".  
+**Fix:** Reduced `ttimeoutlen` from `500` to `10` in `lua/config/options.lua`. This makes `<Esc>` process immediately, breaking the sequence before the next keystroke arrives. The 10ms delay is imperceptible but sufficient to distinguish standalone `<Esc>` from terminal escape sequences.
+
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
 |---|---|---|
