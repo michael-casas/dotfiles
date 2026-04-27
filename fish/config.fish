@@ -55,6 +55,7 @@ alias ws="cd ~/Documents/repos/github.com"
 alias kiroc="kiro-cli"
 alias pip="python3 -m pip"
 alias v="nvim"
+alias claude-opus="~/.local/bin/claude-opus"
 
 # --- Editor ---
 set -gx EDITOR nvim

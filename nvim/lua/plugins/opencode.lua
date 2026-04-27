@@ -316,7 +316,52 @@ return {
       delete_session = nil, -- claude CLI has no delete command
     })
 
-    -- 4. Kiro
+    -- 4. Opus (isolated claude-code)
+    local opus_bin = "claude-opus"
+    opts.picker.sources.opus_sessions = ai_session_picker({
+      name = "opus",
+      label = "Opus",
+      bin = opus_bin,
+      buf_var = "opus_session_id",
+      list_sessions = function(_)
+        local session_dir = vim.fn.expand("~/.claude-opus/sessions")
+        local ret = {}
+        local handle = vim.uv.fs_scandir(session_dir)
+        if not handle then
+          return ret
+        end
+        while true do
+          local name, t = vim.uv.fs_scandir_next(handle)
+          if not name then
+            break
+          end
+          if t == "file" and name:match("%.json$") then
+            local path = session_dir .. "/" .. name
+            local fd = io.open(path, "r")
+            if fd then
+              local content = fd:read("*a")
+              fd:close()
+              local ok, s = pcall(vim.json.decode, content)
+              if ok and s and s.sessionId then
+                table.insert(ret, {
+                  id = s.sessionId,
+                  title = "Session " .. s.sessionId:sub(1, 8),
+                  directory = s.cwd or "",
+                  updated = s.startedAt or nil,
+                })
+              end
+            end
+          end
+        end
+        return ret
+      end,
+      attach_cmd = function(bin, sid, _)
+        return { bin, "-r", sid }
+      end,
+      delete_session = nil, -- claude-opus CLI has no delete command
+    })
+
+    -- 5. Kiro
     local kiro_bin = "kiro-cli"
     opts.picker.sources.kiro_sessions = ai_session_picker({
       name = "kiro",
@@ -373,6 +418,12 @@ return {
       bin = claude_bin,
     })
 
+    opts.picker.sources.opus_mode = ai_tool_mode_picker({
+      name = "opus",
+      label = "Opus",
+      bin = opus_bin,
+    })
+
     opts.picker.sources.kiro_mode = ai_tool_mode_picker({
       name = "kiro",
       label = "Kiro",
@@ -394,6 +445,7 @@ return {
         { text = "OpenCode", tool = "opencode", icon = "󰆍 " },
         { text = "Codex", tool = "codex", icon = "󰊕 " },
         { text = "Claude", tool = "claude", icon = "󰋦 " },
+        { text = "Opus", tool = "opus", icon = "󰌆 " },
         { text = "Kiro", tool = "kiro", icon = "󰧑 " },
       },
 
@@ -442,6 +494,14 @@ return {
         Snacks.picker.claude_mode()
       end,
       desc = "Claude",
+    },
+    {
+      "<leader>oo",
+      function()
+        split_cmd = "enew"
+        Snacks.picker.opus_mode()
+      end,
+      desc = "Opus",
     },
     {
       "<leader>ok",
@@ -515,6 +575,11 @@ return {
       split_cmd = "enew"
       Snacks.picker.claude_mode()
     end, { desc = "Claude session manager" })
+
+    vim.api.nvim_create_user_command("Opus", function()
+      split_cmd = "enew"
+      Snacks.picker.opus_mode()
+    end, { desc = "Opus session manager" })
 
     vim.api.nvim_create_user_command("Kiro", function()
       split_cmd = "enew"

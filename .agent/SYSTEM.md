@@ -12,6 +12,13 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via a b
 - **Current**: fish (installed via Homebrew at `/opt/homebrew/bin/fish`)
 - Rationale: fish has better UX out of the box; zshrc was bloated with Oh My Zsh boilerplate
 
+### Set fish as default shell
+```bash
+sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
+chsh -s /opt/homebrew/bin/fish
+```
+> Run both commands, then open a new terminal. `exec fish` will no longer be needed.
+
 ## Repository Structure
 ```
 fish/config.fish            -> ~/.config/fish/config.fish
@@ -82,6 +89,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | **OpenCode** | `~/.opencode/bin/opencode` | `session list --format json` | `-s <id>` | `session delete <id>` |
 | **Codex** | `codex` | Read `~/.codex/session_index.jsonl` | `resume <id>` | Not supported |
 | **Claude** | `claude` | Read `~/.claude/sessions/*.json` | `-r <id>` | Not supported |
+| **Opus** | `claude-opus` | Read `~/.claude-opus/sessions/*.json` | `-r <id>` | Not supported |
 | **Kiro** | `kiro-cli` | `chat --list-sessions -f json` | `chat --resume-id <id>` | `chat --delete-session <id>` |
 
 ### Architecture
@@ -89,6 +97,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 - **Buffer tracking**: Each tool uses a namespaced buffer variable (`b:{tool}_session_id`)
 - **Visual state**: `[BUF]` = already open in a buffer; `[SES]` = available but not open
 - **Window behavior**: New sessions open in a full-page terminal buffer (`enew`) taking the current window
+- **Split variants**: `split_cmd` variable controls window split — `vsplit`, `split`, or `enew`
 
 ### Entry Points
 | Trigger | Action |
@@ -103,6 +112,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:OpenCode` / `<leader>oc` | OpenCode mode menu |
 | `:Codex` / `<leader>od` | Codex mode menu |
 | `:Claude` / `<leader>ol` | Claude mode menu |
+| `:Opus` / `<leader>oo` | Opus mode menu |
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
 
 ### Flow
@@ -146,6 +156,27 @@ Sessions are sorted by `updated` descending (most recent first) across all tools
 
 ## Conventions
 - **Commitlint syntax**: `feat` reserved for new plugins/features only. Default to `fix`, `refactor`, `docs`, or `style` for adjustments.
+
+## Isolated Claude Code Instance (Opus)
+A fully isolated `claude-code` instance named **Opus** runs alongside the main `claude` CLI without config collision.
+
+### Mechanism
+`claude-code` is a native macOS binary that hardcodes `~/.claude/` as its config directory. True isolation is achieved via a **fake `$HOME` wrapper**:
+
+1. **`~/.claude-opus/`** — isolated config directory (copied `.credentials.json`, `settings.json`)
+2. **`~/.claude-opus-home/`** — fake home containing a symlink `.claude -> ~/.claude-opus`
+3. **`~/.local/bin/claude-opus`** — wrapper script:
+   ```bash
+   exec env HOME="${FAKE_HOME}" /opt/homebrew/bin/claude "$@"
+   ```
+4. **Fish alias**: `claude-opus` → `~/.local/bin/claude-opus`
+
+### Why this works
+The binary resolves `~` via `$HOME` at runtime. By substituting `$HOME` with `~/.claude-opus-home`, the binary finds `.claude` inside that directory, which symlinks to the truly isolated `~/.claude-opus/`. The real `~/.claude/` is never touched.
+
+### Limitations
+- Both instances share the same bearer token (copied from main `.credentials.json`)
+- Session state is fully isolated: main sessions live in `~/.claude/sessions/`, opus sessions in `~/.claude-opus/sessions/`
 
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)
