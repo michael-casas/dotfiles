@@ -1,3 +1,5 @@
+local split_cmd = "enew"
+
 return {
   "folke/snacks.nvim",
   opts = function(_, opts)
@@ -110,7 +112,7 @@ return {
             local bin = config.bin
             local cmd = config.attach_cmd(bin, item.session_id, item.directory)
 
-            vim.cmd("enew")
+            vim.cmd(split_cmd)
             vim.fn.termopen(cmd, { cwd = item.directory })
             vim.cmd("startinsert")
 
@@ -182,7 +184,7 @@ return {
             if item.action == "new" then
               local bin = config.bin
               local cmd = config.new_cmd and config.new_cmd(bin) or { bin }
-              vim.cmd("enew")
+              vim.cmd(split_cmd)
               vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
               vim.cmd("startinsert")
             elseif item.action == "resume" then
@@ -420,6 +422,7 @@ return {
     {
       "<leader>oc",
       function()
+        split_cmd = "enew"
         Snacks.picker.opencode_mode()
       end,
       desc = "OpenCode",
@@ -427,6 +430,7 @@ return {
     {
       "<leader>od",
       function()
+        split_cmd = "enew"
         Snacks.picker.codex_mode()
       end,
       desc = "Codex",
@@ -434,6 +438,7 @@ return {
     {
       "<leader>ol",
       function()
+        split_cmd = "enew"
         Snacks.picker.claude_mode()
       end,
       desc = "Claude",
@@ -441,6 +446,7 @@ return {
     {
       "<leader>ok",
       function()
+        split_cmd = "enew"
         Snacks.picker.kiro_mode()
       end,
       desc = "Kiro",
@@ -448,30 +454,70 @@ return {
     {
       "<leader>oai",
       function()
+        split_cmd = "enew"
         Snacks.picker.ai_tools()
       end,
       desc = "AI Tool Selector",
+    },
+    {
+      "<leader>oaiv",
+      function()
+        split_cmd = "vsplit"
+        Snacks.picker.ai_tools()
+      end,
+      desc = "AI Tool Selector (vsplit)",
+    },
+    {
+      "<leader>oaih",
+      function()
+        split_cmd = "split"
+        Snacks.picker.ai_tools()
+      end,
+      desc = "AI Tool Selector (hsplit)",
+    },
+    {
+      "<leader>oaic",
+      function()
+        split_cmd = "enew"
+        Snacks.picker.ai_tools()
+      end,
+      desc = "AI Tool Selector (current)",
     },
   },
 
   init = function()
     vim.api.nvim_create_user_command("AI", function()
+      split_cmd = "enew"
       Snacks.picker.ai_tools()
     end, { desc = "AI tool selector" })
 
+    vim.api.nvim_create_user_command("vAI", function()
+      split_cmd = "vsplit"
+      Snacks.picker.ai_tools()
+    end, { desc = "AI tool selector (vsplit)" })
+
+    vim.api.nvim_create_user_command("hAI", function()
+      split_cmd = "split"
+      Snacks.picker.ai_tools()
+    end, { desc = "AI tool selector (hsplit)" })
+
     vim.api.nvim_create_user_command("OpenCode", function()
+      split_cmd = "enew"
       Snacks.picker.opencode_mode()
     end, { desc = "OpenCode session manager" })
 
     vim.api.nvim_create_user_command("Codex", function()
+      split_cmd = "enew"
       Snacks.picker.codex_mode()
     end, { desc = "Codex session manager" })
 
     vim.api.nvim_create_user_command("Claude", function()
+      split_cmd = "enew"
       Snacks.picker.claude_mode()
     end, { desc = "Claude session manager" })
 
     vim.api.nvim_create_user_command("Kiro", function()
+      split_cmd = "enew"
       Snacks.picker.kiro_mode()
     end, { desc = "Kiro session manager" })
   end,

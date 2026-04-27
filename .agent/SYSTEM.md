@@ -93,8 +93,13 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 ### Entry Points
 | Trigger | Action |
 |---|---|
-| `:AI` | Open AI tool selector |
-| `<leader>oai` | Open AI tool selector |
+| `:AI` | Open AI tool selector (current window) |
+| `:vAI` | Open AI tool selector (vertical split) |
+| `:hAI` | Open AI tool selector (horizontal split) |
+| `<leader>oai` | Open AI tool selector (current window) |
+| `<leader>oaiv` | Open AI tool selector (vertical split) |
+| `<leader>oaih` | Open AI tool selector (horizontal split) |
+| `<leader>oaic` | Open AI tool selector (current window) |
 | `:OpenCode` / `<leader>oc` | OpenCode mode menu |
 | `:Codex` / `<leader>od` | Codex mode menu |
 | `:Claude` / `<leader>ol` | Claude mode menu |
@@ -104,6 +109,12 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 1. **Tool Selector** (`:AI`) → pick tool
 2. **Mode Menu** → pick `Create New Session` or `Resume Session`
 3. **Resume** → session list picker (same as before)
+
+### Window Split Behavior
+A shared `split_cmd` variable controls how new terminal buffers are opened. All entry points explicitly set it before launching the picker:
+- **Current window** (`enew`) — default for `:AI`, `<leader>oai`, `<leader>oaic`, and direct tool shortcuts
+- **Vertical split** (`vsplit`) — `:vAI`, `<leader>oaiv`
+- **Horizontal split** (`split`) — `:hAI`, `<leader>oaih`
 
 ### Picker Actions (session list)
 | Key | Action |
