@@ -29,6 +29,17 @@
           "name": "Llama 3.1"
         }
       }
+    },
+    "lmstudio": {
+      "options": {
+        "npm": "@ai-sdk/openai-compatible",
+        "baseURL": "http://localhost:1234/v1"
+      },
+      "models": {
+        "local": {
+          "name": "LM Studio Local"
+        }
+      }
     }
   }
 }

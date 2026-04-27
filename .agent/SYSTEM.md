@@ -50,6 +50,7 @@ setup.sh                    # Symlink installer
 - nvm (`~/.nvm` via Homebrew)
 - Bun (`~/.bun`)
 - OpenCode (`~/.opencode`)
+- LM Studio (`~/.lmstudio`, local API at `localhost:1234`)
 - LM Studio (`~/.lmstudio`)
 
 ## Setup Commands
