@@ -103,8 +103,8 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | Trigger | Action |
 |---|---|
 | `:AI` | Open AI tool selector (current window) |
-| `:vAI` | Open AI tool selector (vertical split) |
-| `:hAI` | Open AI tool selector (horizontal split) |
+| `:AIV` | Open AI tool selector (vertical split) |
+| `:AIH` | Open AI tool selector (horizontal split) |
 | `<leader>oai` | Open AI tool selector (current window) |
 | `<leader>oaiv` | Open AI tool selector (vertical split) |
 | `<leader>oaih` | Open AI tool selector (horizontal split) |

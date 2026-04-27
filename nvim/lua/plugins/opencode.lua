@@ -551,12 +551,12 @@ return {
       Snacks.picker.ai_tools()
     end, { desc = "AI tool selector" })
 
-    vim.api.nvim_create_user_command("vAI", function()
+    vim.api.nvim_create_user_command("AIV", function()
       split_cmd = "vsplit"
       Snacks.picker.ai_tools()
     end, { desc = "AI tool selector (vsplit)" })
 
-    vim.api.nvim_create_user_command("hAI", function()
+    vim.api.nvim_create_user_command("AIH", function()
       split_cmd = "split"
       Snacks.picker.ai_tools()
     end, { desc = "AI tool selector (hsplit)" })
