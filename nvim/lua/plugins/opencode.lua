@@ -110,7 +110,7 @@ return {
             local bin = config.bin
             local cmd = config.attach_cmd(bin, item.session_id, item.directory)
 
-            vim.cmd("vsplit | enew")
+            vim.cmd("enew")
             vim.fn.termopen(cmd, { cwd = item.directory })
             vim.cmd("startinsert")
 
@@ -148,6 +148,48 @@ return {
             picker:find({ refresh = true })
           end,
         }, config.extra_actions or {}),
+      }
+    end
+
+    -- ── Higher-order factory for AI tool mode pickers (New / Resume) ───────
+    local function ai_tool_mode_picker(config)
+      return {
+        prompt = config.label .. " ",
+        layout = { preset = "select", layout = { max_width = 50 } },
+        show_empty = true,
+        focus = "list",
+        main = { current = true },
+
+        items = {
+          { text = "Create New Session", action = "new", icon = "󰐕 " },
+          { text = "Resume Session", action = "resume", icon = "󰁯 " },
+        },
+
+        format = function(item)
+          return {
+            { item.icon, "Special" },
+            { item.text, "Normal" },
+          }
+        end,
+
+        confirm = function(picker, item)
+          picker:close()
+          if not item then
+            return
+          end
+
+          vim.schedule(function()
+            if item.action == "new" then
+              local bin = config.bin
+              local cmd = config.new_cmd and config.new_cmd(bin) or { bin }
+              vim.cmd("enew")
+              vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
+              vim.cmd("startinsert")
+            elseif item.action == "resume" then
+              Snacks.picker[config.name .. "_sessions"]()
+            end
+          end)
+        end,
       }
     end
 
@@ -310,6 +352,34 @@ return {
       end,
     })
 
+    -- Mode pickers (New / Resume gateway)
+    opts.picker.sources.opencode_mode = ai_tool_mode_picker({
+      name = "opencode",
+      label = "OpenCode",
+      bin = opencode_bin,
+    })
+
+    opts.picker.sources.codex_mode = ai_tool_mode_picker({
+      name = "codex",
+      label = "Codex",
+      bin = codex_bin,
+    })
+
+    opts.picker.sources.claude_mode = ai_tool_mode_picker({
+      name = "claude",
+      label = "Claude",
+      bin = claude_bin,
+    })
+
+    opts.picker.sources.kiro_mode = ai_tool_mode_picker({
+      name = "kiro",
+      label = "Kiro",
+      bin = kiro_bin,
+      new_cmd = function(bin)
+        return { bin, "chat" }
+      end,
+    })
+
     -- ── AI Tool selector (top-level) ──────────────────────────────────────
     opts.picker.sources.ai_tools = {
       prompt = "AI Tool ",
@@ -338,7 +408,7 @@ return {
           return
         end
         vim.schedule(function()
-          Snacks.picker[item.tool .. "_sessions"]()
+          Snacks.picker[item.tool .. "_mode"]()
         end)
       end,
     }
@@ -350,30 +420,30 @@ return {
     {
       "<leader>oc",
       function()
-        Snacks.picker.opencode_sessions()
+        Snacks.picker.opencode_mode()
       end,
-      desc = "OpenCode Sessions",
+      desc = "OpenCode",
     },
     {
       "<leader>od",
       function()
-        Snacks.picker.codex_sessions()
+        Snacks.picker.codex_mode()
       end,
-      desc = "Codex Sessions",
+      desc = "Codex",
     },
     {
       "<leader>ol",
       function()
-        Snacks.picker.claude_sessions()
+        Snacks.picker.claude_mode()
       end,
-      desc = "Claude Sessions",
+      desc = "Claude",
     },
     {
       "<leader>ok",
       function()
-        Snacks.picker.kiro_sessions()
+        Snacks.picker.kiro_mode()
       end,
-      desc = "Kiro Sessions",
+      desc = "Kiro",
     },
     {
       "<leader>oai",
@@ -390,19 +460,19 @@ return {
     end, { desc = "AI tool selector" })
 
     vim.api.nvim_create_user_command("OpenCode", function()
-      Snacks.picker.opencode_sessions()
+      Snacks.picker.opencode_mode()
     end, { desc = "OpenCode session manager" })
 
     vim.api.nvim_create_user_command("Codex", function()
-      Snacks.picker.codex_sessions()
+      Snacks.picker.codex_mode()
     end, { desc = "Codex session manager" })
 
     vim.api.nvim_create_user_command("Claude", function()
-      Snacks.picker.claude_sessions()
+      Snacks.picker.claude_mode()
     end, { desc = "Claude session manager" })
 
     vim.api.nvim_create_user_command("Kiro", function()
-      Snacks.picker.kiro_sessions()
+      Snacks.picker.kiro_mode()
     end, { desc = "Kiro session manager" })
   end,
 }

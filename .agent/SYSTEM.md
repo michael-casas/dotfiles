@@ -88,19 +88,24 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 - **Factory**: `ai_session_picker(config)` returns a full `snacks.picker.Config` table
 - **Buffer tracking**: Each tool uses a namespaced buffer variable (`b:{tool}_session_id`)
 - **Visual state**: `[BUF]` = already open in a buffer; `[SES]` = available but not open
-- **Window behavior**: New sessions open in `vsplit | enew` so code buffer remains visible
+- **Window behavior**: New sessions open in a full-page terminal buffer (`enew`) taking the current window
 
 ### Entry Points
 | Trigger | Action |
 |---|---|
 | `:AI` | Open AI tool selector |
 | `<leader>oai` | Open AI tool selector |
-| `:OpenCode` / `<leader>oc` | OpenCode sessions |
-| `:Codex` / `<leader>od` | Codex sessions |
-| `:Claude` / `<leader>ol` | Claude sessions |
-| `:Kiro` / `<leader>ok` | Kiro sessions |
+| `:OpenCode` / `<leader>oc` | OpenCode mode menu |
+| `:Codex` / `<leader>od` | Codex mode menu |
+| `:Claude` / `<leader>ol` | Claude mode menu |
+| `:Kiro` / `<leader>ok` | Kiro mode menu |
 
-### Picker Actions (per-tool)
+### Flow
+1. **Tool Selector** (`:AI`) → pick tool
+2. **Mode Menu** → pick `Create New Session` or `Resume Session`
+3. **Resume** → session list picker (same as before)
+
+### Picker Actions (session list)
 | Key | Action |
 |---|---|
 | `<CR>` | Jump to existing buffer, or open new terminal for session |
