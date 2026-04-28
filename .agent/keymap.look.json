@@ -265,6 +265,16 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>og",
+      "action": "Snacks.picker.docker_mode()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Docker AI (Ask Gordon) — opens TUI directly, no session persistence",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>on",
       "action": "Snacks.picker.notifications()",
       "context": "normal",

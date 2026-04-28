@@ -433,6 +433,35 @@ return {
       end,
     })
 
+    -- 6. Docker AI (Ask Gordon) — no session persistence, opens directly
+    opts.picker.sources.docker_mode = {
+      prompt = "Docker AI ",
+      layout = { preset = "select", layout = { max_width = 50 } },
+      show_empty = true,
+      focus = "list",
+      main = { current = true },
+      items = {
+        { text = "Open Docker AI", action = "open", icon = "󰡨 " },
+      },
+      format = function(item)
+        return {
+          { item.icon, "Special" },
+          { item.text, "Normal" },
+        }
+      end,
+      confirm = function(picker, item)
+        picker:close()
+        if not item then
+          return
+        end
+        vim.schedule(function()
+          vim.cmd(split_cmd)
+          vim.fn.termopen({ "docker", "ai" }, { cwd = vim.fn.getcwd() })
+          vim.cmd("startinsert")
+        end)
+      end,
+    }
+
     -- ── AI Tool selector (top-level) ──────────────────────────────────────
     opts.picker.sources.ai_tools = {
       prompt = "AI Tool ",
@@ -447,6 +476,7 @@ return {
         { text = "Claude", tool = "claude", icon = "󰋦 " },
         { text = "Opus", tool = "opus", icon = "󰌆 " },
         { text = "Kiro", tool = "kiro", icon = "󰧑 " },
+        { text = "Docker", tool = "docker", icon = "󰡨 " },
       },
 
       format = function(item)
@@ -517,6 +547,14 @@ return {
         Snacks.picker.kiro_mode()
       end,
       desc = "Kiro",
+    },
+    {
+      "<leader>og",
+      function()
+        split_cmd = "enew"
+        Snacks.picker.docker_mode()
+      end,
+      desc = "Docker AI",
     },
     {
       "<leader>oai",
@@ -646,5 +684,10 @@ return {
       split_cmd = "enew"
       Snacks.picker.kiro_mode()
     end, { desc = "Kiro session manager" })
+
+    vim.api.nvim_create_user_command("Docker", function()
+      split_cmd = "enew"
+      Snacks.picker.docker_mode()
+    end, { desc = "Docker AI session manager" })
   end,
 }

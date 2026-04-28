@@ -92,6 +92,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | **Claude** | `claude` | Read `~/.claude/sessions/*.json` | `-r <id>` | Not supported |
 | **Opus** | `claude-opus` | Read `~/.claude-opus/sessions/*.json` | `-r <id>` | Not supported |
 | **Kiro** | `kiro-cli` | `chat --list-sessions -f json` | `chat --resume-id <id>` | `chat --delete-session <id>` |
+| **Docker AI** | `docker ai` | Not supported (no sessions) | Opens TUI directly | Not supported |
 
 ### Architecture
 - **Factory**: `ai_session_picker(config)` returns a full `snacks.picker.Config` table
@@ -115,6 +116,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:Claude` / `<leader>ol` | Claude mode menu |
 | `:Opus` / `<leader>oo` | Opus mode menu |
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
+| `:Docker` / `<leader>og` | Docker AI (Ask Gordon) — no session persistence |
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
 | `<leader>nxg` | Nx generators picker |
 | `<leader>nxr` | Nx task runner picker |
