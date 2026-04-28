@@ -53,10 +53,19 @@ setup.sh                    # Symlink installer
 - LM Studio (`~/.lmstudio`, local API at `localhost:1234`)
 - LM Studio (`~/.lmstudio`)
 
+## Dependencies
+- `fish` — shell
+- `starship` — prompt
+- `pyenv` — Python version manager
+- `nvm` — Node version manager
+- `fzf` — fuzzy finder
+- `fd` — fast file finder (required by snacks.nvim explorer)
+- `bash` — for bass/nvm compatibility
+
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install fish starship pyenv nvm fzf bash
+brew install fish starship pyenv nvm fzf bash fd
 
 # Activate dotfiles
 bash ~/.dotfiles/setup.sh
