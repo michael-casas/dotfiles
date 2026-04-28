@@ -9,7 +9,7 @@
       }
     },
     "Support": {
-      "model": "lmstudio/google/gemma-4-e4b",
+      "model": "lmstudio/qwen3.5-9b-mlx",
       "options": {
         "temperature": 0.3,
         "top_p": 1,
@@ -44,14 +44,8 @@
         "baseURL": "http://localhost:1234/v1"
       },
       "models": {
-        "qwen/qwen3-14b": {
-          "name": "Qwen3 14B"
-        },
-        "google/gemma-4-e4b": {
-          "name": "Gemma 4 E4B"
-        },
-        "llama-3-8b-instruct-1048k": {
-          "name": "Llama 3 8B Instruct 1048k"
+        "qwen3.5-9b-mlx": {
+          "name": "Qwen3.5 9B MLX"
         }
       }
     }
