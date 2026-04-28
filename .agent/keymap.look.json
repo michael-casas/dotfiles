@@ -275,6 +275,26 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>nxg",
+      "action": "Snacks.picker.nx_generators()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Nx generators picker",
+      "file": "nvim/lua/plugins/nx.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>nxr",
+      "action": "Snacks.picker.nx_tasks()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Nx task runner picker",
+      "file": "nvim/lua/plugins/nx.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>oai",
       "action": "Snacks.picker.ai_tools()",
       "context": "normal",

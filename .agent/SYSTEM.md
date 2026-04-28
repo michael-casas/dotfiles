@@ -116,6 +116,8 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:Opus` / `<leader>oo` | Opus mode menu |
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
+| `<leader>nxg` | Nx generators picker |
+| `<leader>nxr` | Nx task runner picker |
 
 ### Flow
 1. **Tool Selector** (`:AI`) → pick tool
@@ -188,6 +190,21 @@ support-serve
 # From anywhere (after server is running)
 ask "What's the tmux hotkey for vertical split?"
 ```
+
+## Nx Integration (snacks.nvim pickers)
+Lightweight Nx workspace integration without installing telescope-based `nx.nvim`. Uses `snacks.picker` custom sources that shell out to `npx nx`.
+
+### Entry Points
+| Trigger | Action |
+|---|---|
+| `<leader>nxg` | List Nx generators (`nx list`) → run selected in terminal |
+| `<leader>nxr` | List Nx projects + targets (`nx show projects`) → run selected in terminal |
+
+### How it works
+- Detects Nx workspace by checking `package.json` for `nx` dependency
+- Task runner: runs `nx show projects --json`, then `nx show project <name> --json` to enumerate targets
+- Generators: parses `nx list` output for `plugin:generator` lines
+- Selection opens a terminal buffer running `nx generate` or `nx run`
 
 ## Isolated Claude Code Instance (Opus)
 A fully isolated `claude-code` instance named **Opus** runs alongside the main `claude` CLI without config collision.
