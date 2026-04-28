@@ -56,6 +56,8 @@ alias kiroc="kiro-cli"
 alias pip="python3 -m pip"
 alias v="nvim"
 alias claude-opus="~/.local/bin/claude-opus"
+# fd: always show hidden files; exclusions live in ~/.config/fd/ignore
+alias fd="fd --hidden"
 
 # --- Support Agent (OpenCode serve) ---
 function support-serve
