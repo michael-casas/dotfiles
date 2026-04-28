@@ -5,7 +5,7 @@ description: >-
   setup. Think of it as an interactive cheat-sheet. Uses a small local model for
   instant responses.
 mode: primary
-model: lmstudio/gemma-4-e4b
+model: lmstudio/google/gemma-4-e4b
 tools:
   webfetch: false
   websearch: false
