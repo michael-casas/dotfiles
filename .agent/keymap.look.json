@@ -305,6 +305,26 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>qs",
+      "action": "<cmd>AutoSession search<CR>",
+      "context": "normal",
+      "mode": "n",
+      "description": "Search saved nvim sessions (snacks picker)",
+      "file": "nvim/lua/plugins/auto-session.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>qS",
+      "action": "<cmd>AutoSession save<CR>",
+      "context": "normal",
+      "mode": "n",
+      "description": "Manually save current nvim session",
+      "file": "nvim/lua/plugins/auto-session.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>on",
       "action": "Snacks.picker.notifications()",
       "context": "normal",

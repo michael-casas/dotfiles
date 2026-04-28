@@ -120,6 +120,8 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
 | `<leader>nxg` | Nx generators picker |
 | `<leader>nxr` | Nx task runner picker |
+| `<leader>qs` | Search saved nvim sessions |
+| `<leader>qS` | Manually save nvim session |
 
 ### Flow
 1. **Tool Selector** (`:AI`) → pick tool
@@ -207,6 +209,33 @@ Lightweight Nx workspace integration without installing telescope-based `nx.nvim
 - Task runner: runs `nx show projects --json`, then `nx show project <name> --json` to enumerate targets
 - Generators: parses `nx list` output for `plugin:generator` lines
 - Selection opens a terminal buffer running `nx generate` or `nx run`
+
+## Session Persistence (auto-session)
+Nvim sessions are automatically saved on `:qall` and restored on startup via `auto-session`.
+
+### Behavior
+- **Auto-save**: On `:qall`, session is saved for the current `cwd`
+- **Auto-restore**: When nvim starts in a directory with a saved session, it restores buffers, tabs, windows, folds, and terminals
+- **Per-directory**: Sessions are keyed by `cwd` — each project gets its own session
+- **Suppressed dirs**: `~/`, `~/Downloads`, `/`, `/tmp` — no sessions saved here
+
+### Entry Points
+| Trigger | Action |
+|---|---|
+| `<leader>qs` | Search saved sessions (snacks picker) |
+| `<leader>qS` | Manually save current session |
+| `<leader>qd` | Delete session |
+| `:AutoSession search` | Same as `<leader>qs` |
+| `:AutoSession restore` | Restore session for current directory |
+| `:AutoSession save` | Save session for current directory |
+
+### Session picker actions
+| Key | Action |
+|---|---|
+| `<CR>` | Load selected session |
+| `<C-s>` | Swap to alternate session |
+| `<C-d>` | Delete selected session |
+| `<C-y>` | Copy session |
 
 ## Isolated Claude Code Instance (Opus)
 A fully isolated `claude-code` instance named **Opus** runs alongside the main `claude` CLI without config collision.

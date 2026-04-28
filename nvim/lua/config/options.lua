@@ -10,3 +10,6 @@ vim.opt.clipboard = "unnamedplus"
 -- into <M-j>/<M-k> (Alt-j/Alt-k) because terminals encode Alt-chords as <Esc>+char.
 -- 10ms is imperceptible but breaks the sequence before the next keystroke arrives.
 vim.o.ttimeoutlen = 10
+
+-- Session persistence: what to save in mksession
+vim.o.sessionoptions = "blank,buffers,curdir,folds,help,tabpages,winsize,winpos,terminal,localoptions"
