@@ -559,7 +559,7 @@ return {
     local function ensure_support_server()
       local ok = vim.fn.system("curl -s " .. support_server_url .. "/global/health > /dev/null 2>&1 && echo ok || echo fail"):gsub("%s+", "")
       if ok ~= "ok" then
-        Snacks.notify("Support server not running on " .. support_server_url .. "\nStart it with: support-serve", vim.log.levels.ERROR, { title = "AskAI" })
+        Snacks.notify("Support server not running on " .. support_server_url .. "\nStart it with: support-serve", { title = "AskAI", level = vim.log.levels.ERROR })
         return false
       end
       return true
