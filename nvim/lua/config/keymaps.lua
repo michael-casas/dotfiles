@@ -2,6 +2,12 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 
+-- Override LazyVim's <leader>n (notification history) — moved to <leader>on
+vim.keymap.del("n", "<leader>n")
+vim.keymap.set("n", "<leader>on", function()
+  Snacks.picker.notifications()
+end, { desc = "Notification History" })
+
 -- Buffer cycling with Option+[ and Option+]
 -- Note: M-[ can conflict with terminal escape sequences on some terminals.
 -- If you experience issues, switch to M-( and M-) or M-p/M-n.

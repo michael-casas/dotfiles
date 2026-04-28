@@ -265,6 +265,16 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>on",
+      "action": "Snacks.picker.notifications()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Notification history (moved from <leader>n to avoid collision)",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~6"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>oai",
       "action": "Snacks.picker.ai_tools()",
       "context": "normal",
@@ -275,6 +285,14 @@
     },
   ],
   "external_bindings": [
+    {
+      "app": "nvim",
+      "key": "<leader>n",
+      "action": "(unbound)",
+      "context": "normal",
+      "source": "LazyVim default (snacks notifier)",
+      "notes": "Moved to <leader>on to free <leader>n for future use."
+    },
     {
       "app": "nvim",
       "key": "C-Space",
