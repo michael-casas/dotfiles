@@ -195,13 +195,43 @@
     },
     {
       "app": "nvim",
-      "key": "M-[",
-      "action": "bprevious",
+      "key": "<M-[>",
+      "action": "<cmd>bprevious<cr>",
       "context": "normal",
       "mode": "n",
       "description": "Previous buffer",
       "file": "nvim/lua/config/keymaps.lua",
       "line_ref": "~8"
+    },
+    {
+      "app": "nvim",
+      "key": "<M-]>",
+      "action": "<cmd>bnext<cr>",
+      "context": "normal",
+      "mode": "n",
+      "description": "Next buffer",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~9"
+    },
+    {
+      "app": "nvim",
+      "key": "<S-M-Left>",
+      "action": "<cmd>bmove -1<cr>",
+      "context": "normal",
+      "mode": "n",
+      "description": "Move buffer left in order",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~12"
+    },
+    {
+      "app": "nvim",
+      "key": "<S-M-Right>",
+      "action": "<cmd>bmove +1<cr>",
+      "context": "normal",
+      "mode": "n",
+      "description": "Move buffer right in order",
+      "file": "nvim/lua/config/keymaps.lua",
+      "line_ref": "~13"
     },
     {
       "app": "nvim",

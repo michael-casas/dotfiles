@@ -14,6 +14,10 @@ end, { desc = "Notification History" })
 vim.keymap.set("n", "<M-[>", "<cmd>bprevious<cr>", { desc = "Previous buffer" })
 vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
 
+-- Buffer reordering with Shift+Option+arrow
+vim.keymap.set("n", "<S-M-Left>", "<cmd>bmove -1<cr>", { desc = "Move buffer left" })
+vim.keymap.set("n", "<S-M-Right>", "<cmd>bmove +1<cr>", { desc = "Move buffer right" })
+
 -- Terminal mode: Alt+. exits to Normal mode
 -- NOTE: Ctrl+. is not detectable in terminals (sends same byte as ".").
 -- Alt+. works reliably because terminals send ESC prefix + key.
