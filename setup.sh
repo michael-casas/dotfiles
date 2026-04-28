@@ -59,6 +59,13 @@ if [[ -f "$DOTFILES_DIR/postgres/.psqlrc" ]]; then
     ln -sf "$DOTFILES_DIR/postgres/.psqlrc" "$HOME/.psqlrc"
 fi
 
+# --- fd (global ignore file) ---
+if [[ -f "$DOTFILES_DIR/fd/ignore" ]]; then
+    echo "==> Linking fd global ignore..."
+    mkdir -p "$HOME/.config/fd"
+    ln -sf "$DOTFILES_DIR/fd/ignore" "$HOME/.config/fd/ignore"
+fi
+
 # --- OpenCode ---
 if [[ -d "$DOTFILES_DIR/opencode" ]]; then
     echo "==> Linking opencode config..."
@@ -70,6 +77,7 @@ if [[ -d "$DOTFILES_DIR/opencode" ]]; then
 fi
 
 echo "==> Done!"
+
 echo ""
 echo "Next steps:"
 echo "  1. Add fish to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'"

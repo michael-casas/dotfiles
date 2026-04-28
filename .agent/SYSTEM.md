@@ -60,6 +60,7 @@ setup.sh                    # Symlink installer
 - `nvm` — Node version manager
 - `fzf` — fuzzy finder
 - `fd` — fast file finder (required by snacks.nvim explorer)
+  - Global ignore file: `fd/ignore` → `~/.config/fd/ignore` (excludes `node_modules/`, `dist/`, `build/`, `.git/`, etc.)
 - `bash` — for bass/nvm compatibility
 
 ## Setup Commands
@@ -203,6 +204,15 @@ support-serve
 # From anywhere (after server is running)
 ask "What's the tmux hotkey for vertical split?"
 ```
+
+## Snacks.nvim Explorer Configuration
+The explorer (`<leader>e`) and file picker (`<leader>ff`) are configured to exclude common build/dependency directories.
+
+### Mechanism
+1. **Global `fd` ignore file** (`~/.config/fd/ignore`) — `fd` reads this automatically. Excludes: `node_modules/`, `dist/`, `build/`, `.git/`, `.next/`, `out/`, `target/`, `coverage/`, `*.log`
+2. **Snacks.nvim picker config** (`nvim/lua/plugins/snacks-explorer.lua`) — sets `ignored = false` on `files` and `explorer` sources so `fd` respects `.gitignore` and the global ignore file
+
+This means search (`/`) in the explorer and the files picker will never surface files inside these directories.
 
 ## Nx Integration (snacks.nvim pickers)
 Lightweight Nx workspace integration without installing telescope-based `nx.nvim`. Uses `snacks.picker` custom sources that shell out to `npx nx`.

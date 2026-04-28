@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.git
+.next
+out
+target
+coverage
+*.log
