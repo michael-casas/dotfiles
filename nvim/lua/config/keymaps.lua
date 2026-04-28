@@ -3,7 +3,12 @@
 -- Add any additional keymaps here
 
 -- Override LazyVim's <leader>n (notification history) — moved to <leader>on
-vim.keymap.del("n", "<leader>n")
+-- We MUST defer the delete so it runs after snacks.nvim registers its default <leader>n.
+-- Otherwise vim.keymap.del fires too early and snacks re-adds it, breaking <leader>nxg/nxr.
+vim.defer_fn(function()
+  pcall(vim.keymap.del, "n", "<leader>n")
+end, 100)
+
 vim.keymap.set("n", "<leader>on", function()
   Snacks.picker.notifications()
 end, { desc = "Notification History" })
