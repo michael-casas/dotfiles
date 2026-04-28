@@ -472,6 +472,13 @@ return {
 
   keys = {
     {
+      "<leader>oask",
+      function()
+        vim.cmd("AskAI")
+      end,
+      desc = "Ask Support agent",
+    },
+    {
       "<leader>oc",
       function()
         split_cmd = "enew"
@@ -546,6 +553,60 @@ return {
   },
 
   init = function()
+    -- ── Support agent ask functionality ────────────────────────────────────
+    local support_server_url = "http://localhost:4096"
+
+    local function ensure_support_server()
+      local ok = vim.fn.system("curl -s " .. support_server_url .. "/global/health > /dev/null 2>&1 && echo ok || echo fail"):gsub("%s+", "")
+      if ok ~= "ok" then
+        Snacks.notify("Support server not running on " .. support_server_url .. "\nStart it with: support-serve", vim.log.levels.ERROR, { title = "AskAI" })
+        return false
+      end
+      return true
+    end
+
+    local function get_support_session_id()
+      local output = vim.fn.system("opencode session list --format json 2>/dev/null")
+      local ok, sessions = pcall(vim.json.decode, output)
+      if not ok or type(sessions) ~= "table" then
+        return nil
+      end
+      table.sort(sessions, function(a, b)
+        return (a.updated or 0) > (b.updated or 0)
+      end)
+      for _, s in ipairs(sessions) do
+        if s.title == "Support" then
+          return s.id
+        end
+      end
+      return nil
+    end
+
+    local function ask_support(prompt)
+      if not ensure_support_server() then
+        return
+      end
+      local session_id = get_support_session_id()
+      local cmd
+      if session_id then
+        cmd = { "opencode", "run", "--attach", support_server_url, "--agent", "Support", "--session", session_id, prompt }
+      else
+        cmd = { "opencode", "run", "--attach", support_server_url, "--agent", "Support", "--title", "Support", prompt }
+      end
+      vim.cmd(split_cmd)
+      vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
+      vim.cmd("startinsert")
+    end
+
+    vim.api.nvim_create_user_command("AskAI", function()
+      vim.ui.input({ prompt = "How can I help you? " }, function(input)
+        if not input or input == "" then
+          return
+        end
+        ask_support(input)
+      end)
+    end, { desc = "Ask Support agent" })
+
     vim.api.nvim_create_user_command("AI", function()
       split_cmd = "enew"
       Snacks.picker.ai_tools()

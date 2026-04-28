@@ -57,6 +57,36 @@ alias pip="python3 -m pip"
 alias v="nvim"
 alias claude-opus="~/.local/bin/claude-opus"
 
+# --- Support Agent (OpenCode serve) ---
+function support-serve
+    if test -n "$TMUX"
+        tmux new-window -n "support" "opencode serve --port 4096 --hostname 127.0.0.1"
+    else
+        echo "Start tmux first, then run support-serve"
+        return 1
+    end
+end
+
+function ask
+    set -l server_url "http://localhost:4096"
+
+    # Check if server is running
+    if not curl -s $server_url/global/health > /dev/null 2>&1
+        echo "Support server not running. Start it with: support-serve"
+        return 1
+    end
+
+    # Find existing Support session
+    set -l sessions (opencode session list --format json 2>/dev/null)
+    set -l session_id (echo $sessions | jq -r '[.[] | select(.title == "Support")] | sort_by(.updated) | last | .id // empty' 2>/dev/null)
+
+    if test -n "$session_id"
+        opencode run --attach $server_url --agent Support --session $session_id "$argv"
+    else
+        opencode run --attach $server_url --agent Support --title "Support" "$argv"
+    end
+end
+
 # --- Editor ---
 set -gx EDITOR nvim
 set -gx VISUAL nvim

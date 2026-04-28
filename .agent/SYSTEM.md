@@ -115,6 +115,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:Claude` / `<leader>ol` | Claude mode menu |
 | `:Opus` / `<leader>oo` | Opus mode menu |
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
+| `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
 
 ### Flow
 1. **Tool Selector** (`:AI`) → pick tool
@@ -157,6 +158,36 @@ Sessions are sorted by `updated` descending (most recent first) across all tools
 
 ## Conventions
 - **Commitlint syntax**: `feat` reserved for new plugins/features only. Default to `fix`, `refactor`, `docs`, or `style` for adjustments.
+
+## Support Agent (OpenCode)
+A persistent, quick-Q&A agent backed by a local LM Studio model (Gemma 4). Runs via `opencode serve` to avoid MCP cold boot on every query.
+
+### Architecture
+1. **`opencode serve --port 4096`** — headless server running in a tmux window named "support"
+2. **`ask "prompt"`** (shell) — `opencode run --attach http://localhost:4096 --agent Support --session <id>`
+3. **`:AskAI` / `<leader>oask`** (nvim) — popup input → same `run --attach` command in terminal buffer
+4. **Session tracking** — `opencode session list --format json` is queried each time; the most recent session titled "Support" is reused. If none exists, a new one is created with `--title "Support"`.
+
+### Why `serve` + `run --attach`?
+- `serve` keeps the backend warm (no MCP/LSP cold boot per query)
+- `run --attach` creates **local** sessions that appear in `opencode session list`, so they show up in the nvim `:AI` picker alongside other OpenCode sessions
+- One-shot `run` returns the answer and exits; follow-ups go to the same session thread
+
+### Entry Points
+| Trigger | Action |
+|---|---|
+| `support-serve` (fish) | Start `opencode serve` in a new tmux window |
+| `ask "<prompt>"` (fish) | Send prompt to Support agent via attached server |
+| `:AskAI` / `<leader>oask` (nvim) | Popup prompt → terminal buffer with response |
+
+### Start Commands
+```bash
+# In a tmux session
+support-serve
+
+# From anywhere (after server is running)
+ask "What's the tmux hotkey for vertical split?"
+```
 
 ## Isolated Claude Code Instance (Opus)
 A fully isolated `claude-code` instance named **Opus** runs alongside the main `claude` CLI without config collision.
