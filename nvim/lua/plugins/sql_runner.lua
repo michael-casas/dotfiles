@@ -132,7 +132,7 @@ return {
         if filepath and filepath:match("%.sql$") then
           Snacks.picker.sql_actions()
         else
-          Snacks.notify("Open a .sql file first", vim.log.levels.WARN, { title = "SQL Runner" })
+          Snacks.notify("Open a .sql file first", { title = "SQL Runner", level = vim.log.levels.WARN })
         end
       end,
       desc = "SQL actions (run file / psql shell)",
