@@ -27,6 +27,7 @@ nvim/                       -> ~/.config/nvim (LazyVim-based)
 tmux/tmux.conf              -> ~/.tmux.conf
 git/.gitconfig              -> ~/.gitconfig
 starship/starship.toml      -> ~/.config/starship.toml
+claude/settings.json        -> ~/.claude/settings.json  # Claude Code config + statusline
 setup.sh                    # Symlink installer
 ```
 
@@ -350,6 +351,46 @@ The binary resolves `~` via `$HOME` at runtime. By substituting `$HOME` with `~/
 ### Limitations
 - Both instances share the same bearer token (copied from main `.credentials.json`)
 - Session state is fully isolated: main sessions live in `~/.claude/sessions/`, opus sessions in `~/.claude-opus/sessions/`
+
+## Claude Code Statusline (claudeline)
+Claude Code gets a rich ANSI statusline via [claudeline](https://github.com/fredrikaverpil/claudeline) (Go binary, single dependency-free binary).
+
+### What it shows
+- **Subscription/provider** — Pro/Max/Team/API/OAuth/Bedrock/Vertex/Foundry
+- **Model name** — current Anthropic model (e.g. `sonnet[1m]`)
+- **Context window** — 5-char progress bar with color zones (green/yellow/orange/red)
+- **Quota usage** — 5-hour and 7-day bars with peak-hour `⚡️` indicator
+- **Service status** — fire icons (`🔥▂` / `🔥▄▂` / `🔥▆▄▂`) during Anthropic disruptions
+- **Session cost** — estimated spend (`-cost` flag)
+- **Working directory** — last path segment (`-cwd` flag)
+- **Git branch** — current branch (`-git-branch` flag)
+- **Update indicator** — `↑` when a newer claudeline release exists
+
+### Colors
+Claudeline uses hardcoded ANSI zones that align well with Gruvbox:
+- Smart (green), Dumb (yellow), Danger (orange), Near-compaction (red)
+- No explicit "theme" setting — the warm ANSI palette is Gruvbox-compatible by design.
+
+### Installation
+```bash
+# Download latest release (darwin arm64)
+curl -sL "https://github.com/fredrikaverpil/claudeline/releases/latest/download/claudeline_darwin_arm64.tar.gz" | tar -xz -C ~/.local/bin
+chmod +x ~/.local/bin/claudeline
+```
+
+### Configuration
+`claude/settings.json` in dotfiles adds:
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "claudeline -cwd -git-branch -cost"
+  }
+}
+```
+
+### Codex CLI Statusline
+**Skipped.** Codex CLI is a Rust binary with no `settings.json` or plugin interface. There is no native statusline mechanism. A custom tmux segment would require polling `~/.codex/session_index.jsonl` — high effort, moderate value. Revisit if OpenAI adds statusline support upstream.
 
 ## Notes
 - `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)

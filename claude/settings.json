@@ -1,0 +1,20 @@
+{
+  "model": "sonnet[1m]",
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  },
+  "extraKnownMarketplaces": {
+    "openai-codex": {
+      "source": {
+        "source": "github",
+        "repo": "openai/codex-plugin-cc"
+      }
+    }
+  },
+  "effortLevel": "medium",
+  "autoMemoryEnabled": false,
+  "statusLine": {
+    "type": "command",
+    "command": "claudeline -cwd -git-branch -cost"
+  }
+}

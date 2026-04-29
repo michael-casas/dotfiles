@@ -78,6 +78,17 @@ if [[ -f "$DOTFILES_DIR/pgcli/config" ]]; then
     ln -sf "$DOTFILES_DIR/pgcli/config" "$HOME/.config/pgcli/config"
 fi
 
+# --- Claude Code ---
+if [[ -f "$DOTFILES_DIR/claude/settings.json" ]]; then
+    echo "==> Linking Claude Code settings..."
+    mkdir -p "$HOME/.claude"
+    if [[ -f "$HOME/.claude/settings.json" && ! -L "$HOME/.claude/settings.json" ]]; then
+        echo "    Backing up existing ~/.claude/settings.json to ~/.claude/settings.json.backup"
+        mv "$HOME/.claude/settings.json" "$HOME/.claude/settings.json.backup"
+    fi
+    ln -sf "$DOTFILES_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+fi
+
 # --- OpenCode ---
 if [[ -d "$DOTFILES_DIR/opencode" ]]; then
     echo "==> Linking opencode config..."
