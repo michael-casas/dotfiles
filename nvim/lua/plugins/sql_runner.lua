@@ -172,8 +172,10 @@ return {
         end
 
         local filepath = vim.api.nvim_buf_get_name(0)
-        if not filepath or filepath == "" or not filepath:match("%.sql$") then
-          Snacks.notify("Not a .sql file", { title = "SQL Runner", level = vim.log.levels.WARN })
+        local is_sql = filepath and filepath ~= "" and filepath:match("%.sql$")
+
+        if item.action == "run_file" and not is_sql then
+          Snacks.notify("Not a .sql file — open one first", { title = "SQL Runner", level = vim.log.levels.WARN })
           return
         end
 
@@ -251,12 +253,7 @@ return {
     {
       "<leader>osql",
       function()
-        local filepath = vim.api.nvim_buf_get_name(0)
-        if filepath and filepath:match("%.sql$") then
-          Snacks.picker.sql_actions()
-        else
-          Snacks.notify("Open a .sql file first", { title = "SQL Runner", level = vim.log.levels.WARN })
-        end
+        Snacks.picker.sql_actions()
       end,
       desc = "SQL actions (run file / pgcli shell)",
     },

@@ -256,18 +256,22 @@ pgcli
 ```
 
 ## SQL Runner (nvim)
-Execute `.sql` files directly from nvim via async `pgcli` jobs with interactive credential flow.
+Execute `.sql` files directly from nvim via async `pgcli` jobs with interactive credential flow. Works from **any buffer** — no `.sql` file requirement to open the picker.
 
 ### Entry Point
-| Trigger | Condition | Action |
-|---|---|---|
-| `<leader>osql` | Buffer is `.sql` file | Open action picker |
+| Trigger | Action |
+|---|---|
+| `<leader>osql` | Open SQL action picker (universal, like `<leader>oai`) |
 
 ### Action Picker
 | Option | Behavior |
 |---|---|
 | ▶ Run current file in pgcli | Prompt credentials → list DBs → select DB → `jobstart` with `PGPASSWORD` env → floating output window |
 |  Launch pgcli shell | Prompt credentials → list DBs → select DB → `termopen` with `PGPASSWORD` env → insert mode |
+
+### Notes
+- **"Run current file"** requires an open `.sql` file — if not, a toast warns you
+- **"Launch pgcli shell"** works from anywhere regardless of current buffer
 
 ### Credential Prompts
 1. **Host** (default: `localhost`, pre-filled from cache)
