@@ -89,6 +89,12 @@ function ask
     end
 end
 
+# --- Django Systems Architect Agent (OpenCode serve on port 2313) ---
+# Auto-start the long-lived server if not already running
+if not pgrep -f "opencode serve --port 2313" > /dev/null 2>&1
+    nohup opencode serve --port 2313 --hostname 127.0.0.1 &> /dev/null &
+end
+
 # --- Editor ---
 set -gx EDITOR nvim
 set -gx VISUAL nvim

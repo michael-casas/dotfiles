@@ -16,6 +16,13 @@
         "n": 1
       }
     },
+    "django-systems-architect": {
+      "options": {
+        "temperature": 0.2,
+        "top_p": 1,
+        "n": 1
+      }
+    },
     "build": {
       "disable": true
     },

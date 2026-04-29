@@ -119,6 +119,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
 | `:Docker` / `<leader>og` | Docker AI (Ask Gordon) — no session persistence |
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
+| `:AskDjango` / `<leader>ofc` | Ask Django Systems Architect agent (popup → terminal buffer) |
 | `<leader>nxg` | Nx generators picker |
 | `<leader>nxr` | Nx task runner picker |
 | `<leader>osql` | SQL actions (run file / psql shell) — requires `.sql` buffer |
@@ -196,6 +197,23 @@ support-serve
 # From anywhere (after server is running)
 ask "What's the tmux hotkey for vertical split?"
 ```
+
+## Django Systems Architect Agent (OpenCode)
+A long-lived systems architect agent running via `opencode serve` on port 2313. Auto-starts in fish shell on every new shell session.
+
+### Architecture
+1. **`opencode serve --port 2313`** — headless server auto-started by fish config via `nohup` if not already running
+2. **`:AskDjango` / `<leader>ofc`** (nvim) — popup input → `opencode run --attach http://localhost:2313 --agent django-systems-architect` in terminal buffer
+3. **Session tracking** — same pattern as Support agent: reuses session titled "Django" if exists
+
+### Entry Points
+| Trigger | Action |
+|---|---|
+| Auto-start (fish) | `nohup opencode serve --port 2313 --hostname 127.0.0.1` on shell init |
+| `:AskDjango` / `<leader>ofc` (nvim) | Popup prompt → terminal buffer with response |
+
+### Why port 2313?
+Hardcoded to avoid collision with Support (4096) and any other services. The fish config checks `pgrep` before starting to prevent duplicate processes.
 
 ## Snacks.nvim Explorer Configuration
 The explorer (`<leader>e`) and file picker (`<leader>ff`) show **all files including hidden dotfiles**, while excluding common build/dependency directories.

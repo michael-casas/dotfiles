@@ -255,6 +255,26 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>oask",
+      "action": "vim.cmd('AskAI')",
+      "context": "normal",
+      "mode": "n",
+      "description": "Ask Support agent (popup prompt → terminal buffer)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<leader>ofc",
+      "action": "vim.cmd('AskDjango')",
+      "context": "normal",
+      "mode": "n",
+      "description": "Ask Django Systems Architect agent (popup prompt → terminal buffer)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>oc",
       "action": "Snacks.picker.opencode_sessions()",
       "context": "normal",

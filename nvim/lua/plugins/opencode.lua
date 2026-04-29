@@ -509,6 +509,13 @@ return {
       desc = "Ask Support agent",
     },
     {
+      "<leader>ofc",
+      function()
+        vim.cmd("AskDjango")
+      end,
+      desc = "Ask Django Systems Architect",
+    },
+    {
       "<leader>oc",
       function()
         split_cmd = "enew"
@@ -644,6 +651,60 @@ return {
         ask_support(input)
       end)
     end, { desc = "Ask Support agent" })
+
+    -- ── Django Systems Architect agent ask functionality ───────────────────
+    local django_server_url = "http://localhost:2313"
+
+    local function ensure_django_server()
+      local ok = vim.fn.system("curl -s " .. django_server_url .. "/global/health > /dev/null 2>&1 && echo ok || echo fail"):gsub("%s+", "")
+      if ok ~= "ok" then
+        Snacks.notify("Django server not running on " .. django_server_url .. "\nIt auto-starts in fish shell on port 2313", { title = "AskDjango", level = vim.log.levels.ERROR })
+        return false
+      end
+      return true
+    end
+
+    local function get_django_session_id()
+      local output = vim.fn.system("opencode session list --format json 2>/dev/null")
+      local ok, sessions = pcall(vim.json.decode, output)
+      if not ok or type(sessions) ~= "table" then
+        return nil
+      end
+      table.sort(sessions, function(a, b)
+        return (a.updated or 0) > (b.updated or 0)
+      end)
+      for _, s in ipairs(sessions) do
+        if s.title == "Django" then
+          return s.id
+        end
+      end
+      return nil
+    end
+
+    local function ask_django(prompt)
+      if not ensure_django_server() then
+        return
+      end
+      local session_id = get_django_session_id()
+      local cmd
+      if session_id then
+        cmd = { "opencode", "run", "--attach", django_server_url, "--agent", "django-systems-architect", "--session", session_id, prompt }
+      else
+        cmd = { "opencode", "run", "--attach", django_server_url, "--agent", "django-systems-architect", "--title", "Django", prompt }
+      end
+      vim.cmd(split_cmd)
+      vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
+      vim.cmd("startinsert")
+    end
+
+    vim.api.nvim_create_user_command("AskDjango", function()
+      vim.ui.input({ prompt = "Django: " }, function(input)
+        if not input or input == "" then
+          return
+        end
+        ask_django(input)
+      end)
+    end, { desc = "Ask Django Systems Architect agent" })
 
     vim.api.nvim_create_user_command("AI", function()
       split_cmd = "enew"
