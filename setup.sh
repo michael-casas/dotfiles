@@ -82,6 +82,13 @@ if [[ -f "$DOTFILES_DIR/fd/ignore" ]]; then
     ln -sf "$DOTFILES_DIR/fd/ignore" "$HOME/.config/fd/ignore"
 fi
 
+# --- pgcli ---
+if [[ -f "$DOTFILES_DIR/pgcli/config" ]]; then
+    echo "==> Linking pgcli config..."
+    mkdir -p "$HOME/.config/pgcli"
+    ln -sf "$DOTFILES_DIR/pgcli/config" "$HOME/.config/pgcli/config"
+fi
+
 # --- OpenCode ---
 if [[ -d "$DOTFILES_DIR/opencode" ]]; then
     echo "==> Linking opencode config..."

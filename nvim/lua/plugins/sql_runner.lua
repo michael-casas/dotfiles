@@ -13,8 +13,8 @@ return {
       main = { current = true },
 
       items = {
-        { text = "Run current file in psql", action = "run_file", icon = "▶ " },
-        { text = "Launch psql shell", action = "launch_shell", icon = " " },
+        { text = "Run current file in pgcli", action = "run_file", icon = "▶ " },
+        { text = "Launch pgcli shell", action = "launch_shell", icon = " " },
       },
 
       format = function(item)
@@ -32,15 +32,16 @@ return {
 
         local filepath = vim.api.nvim_buf_get_name(0)
         if not filepath or filepath == "" or not filepath:match("%.sql$") then
-          Snacks.notify("Not a .sql file", vim.log.levels.WARN, { title = "SQL Runner" })
+          Snacks.notify("Not a .sql file", { title = "SQL Runner", level = vim.log.levels.WARN })
           return
         end
 
         vim.schedule(function()
           if item.action == "run_file" then
-            -- Async job: psql -f <file>
+            -- Async job: pgcli -w < file.sql
+            -- -w = never prompt for password (relies on ~/.pgpass)
             local output_lines = {}
-            local job_id = vim.fn.jobstart({ "psql", "-f", filepath }, {
+            local job_id = vim.fn.jobstart({ "bash", "-c", "pgcli -w < " .. vim.fn.shellescape(filepath) }, {
               stdout_buffered = true,
               stderr_buffered = true,
               on_stdout = function(_, data)
@@ -71,7 +72,7 @@ return {
                   vim.bo[buf].modifiable = true
 
                   local header = {
-                    "psql -f " .. filepath,
+                    "pgcli -w < " .. filepath,
                     "exit code: " .. exit_code,
                     string.rep("─", 60),
                   }
@@ -93,7 +94,7 @@ return {
                     col = col,
                     style = "minimal",
                     border = "rounded",
-                    title = " psql output ",
+                    title = " pgcli output ",
                     title_pos = "center",
                   })
 
@@ -109,12 +110,12 @@ return {
             })
 
             if job_id <= 0 then
-              Snacks.notify("Failed to start psql job", vim.log.levels.ERROR, { title = "SQL Runner" })
+              Snacks.notify("Failed to start pgcli job", { title = "SQL Runner", level = vim.log.levels.ERROR })
             end
 
           elseif item.action == "launch_shell" then
             vim.cmd("enew")
-            vim.fn.termopen({ "psql" }, { cwd = vim.fn.getcwd() })
+            vim.fn.termopen({ "pgcli", "-w" }, { cwd = vim.fn.getcwd() })
             vim.cmd("startinsert")
           end
         end)
@@ -135,7 +136,7 @@ return {
           Snacks.notify("Open a .sql file first", { title = "SQL Runner", level = vim.log.levels.WARN })
         end
       end,
-      desc = "SQL actions (run file / psql shell)",
+      desc = "SQL actions (run file / pgcli shell)",
     },
   },
 }

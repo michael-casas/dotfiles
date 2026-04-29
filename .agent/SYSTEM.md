@@ -61,22 +61,13 @@ setup.sh                    # Symlink installer
 - `fzf` — fuzzy finder
 - `fd` — fast file finder (required by snacks.nvim explorer)
   - Global ignore file: `fd/ignore` → `~/.config/fd/ignore` (excludes `node_modules/`, `dist/`, `build/`, `.git/`, etc.)
+- `pgcli` — enhanced PostgreSQL CLI with syntax highlighting + autocomplete
 - `bash` — for bass/nvm compatibility
 
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install fish starship pyenv nvm fzf bash fd
-
-# Activate dotfiles
-bash ~/.dotfiles/setup.sh
-
-# Set fish as default shell
-sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
-chsh -s /opt/homebrew/bin/fish
-
-# Install tmux plugins (after adding new ones to tmux.conf)
-# Press prefix + I (capital I) inside tmux
+brew install fish starship pyenv nvm fzf bash fd pgcli
 ```
 
 ## Commit History
@@ -231,28 +222,36 @@ Lightweight Nx workspace integration without installing telescope-based `nx.nvim
 - Selection opens a terminal buffer running `nx generate` or `nx run`
 
 ## PostgreSQL Auto-Login (Zero-Prompt)
-`psql` connects automatically to `goldseed_db` without password prompts.
+`pgcli` (enhanced psql with syntax highlighting + autocomplete) connects automatically to `goldseed_db` without password prompts.
 
 ### Files
 | File | Purpose | In dotfiles? |
 |---|---|---|
 | `~/.pgpass` | Password storage (chmod 600) | ❌ Template only (`.pgpass.template`) |
 | `~/.pg_service.conf` | Named connection profile `[goldseed]` | ✅ `postgres/.pg_service.conf` |
+| `~/.config/pgcli/config` | pgcli theme + behavior config | ✅ `pgcli/config` |
 | `fish/config.fish` | `PGSERVICE=goldseed` env var | ✅ |
 
+### pgcli Features
+- **Syntax highlighting** via Pygments (`monokai` theme, Gruvbox-aligned custom colors)
+- **Autocomplete** for tables, columns, keywords
+- **Multi-line mode** enabled (`multi_line = True`)
+- **Less chatty** startup (`less_chatty = True`)
+- **Gruvbox color palette** for completion menu, toolbar, table output
+
 ### Setup
-1. `setup.sh` symlinks `~/.pg_service.conf` and copies `~/.pgpass` from template
+1. `setup.sh` symlinks `~/.pg_service.conf`, copies `~/.pgpass` from template, links `~/.config/pgcli/config`
 2. Edit `~/.pgpass` and replace `YOUR_PASSWORD_HERE` with the real password
 3. `chmod 600 ~/.pgpass` (enforced by setup script)
 
 ### Verify
 ```bash
-psql
-# → should land in goldseed_db as postgres with zero prompts
+pgcli
+# → auto-connects to goldseed_db with syntax highlighting, zero prompts
 ```
 
 ## SQL Runner (nvim)
-Execute `.sql` files directly from nvim via async `psql` jobs.
+Execute `.sql` files directly from nvim via async `pgcli` jobs.
 
 ### Entry Point
 | Trigger | Condition | Action |
@@ -262,8 +261,8 @@ Execute `.sql` files directly from nvim via async `psql` jobs.
 ### Action Picker
 | Option | Behavior |
 |---|---|
-| ▶ Run current file in psql | `jobstart({"psql", "-f", filepath})` → floating output window |
-|  Launch psql shell | `enew` → `termopen({"psql"})` → insert mode |
+| ▶ Run current file in pgcli | `jobstart({"bash", "-c", "pgcli -w < file.sql"})` → floating output window |
+|  Launch pgcli shell | `enew` → `termopen({"pgcli", "-w"})` → insert mode |
 
 ### Output Window
 - Large centered popup (80% width/height)
