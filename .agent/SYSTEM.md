@@ -130,6 +130,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
 | `<leader>nxg` | Nx generators picker |
 | `<leader>nxr` | Nx task runner picker |
+| `<leader>osql` | SQL actions (run file / psql shell) — requires `.sql` buffer |
 | `<leader>qs` | Search saved nvim sessions |
 | `<leader>qS` | Manually save nvim session |
 
@@ -229,6 +230,47 @@ Lightweight Nx workspace integration without installing telescope-based `nx.nvim
 - Generators: parses `nx list` output for `plugin:generator` lines
 - Selection opens a terminal buffer running `nx generate` or `nx run`
 
+## PostgreSQL Auto-Login (Zero-Prompt)
+`psql` connects automatically to `goldseed_db` without password prompts.
+
+### Files
+| File | Purpose | In dotfiles? |
+|---|---|---|
+| `~/.pgpass` | Password storage (chmod 600) | ❌ Template only (`.pgpass.template`) |
+| `~/.pg_service.conf` | Named connection profile `[goldseed]` | ✅ `postgres/.pg_service.conf` |
+| `fish/config.fish` | `PGSERVICE=goldseed` env var | ✅ |
+
+### Setup
+1. `setup.sh` symlinks `~/.pg_service.conf` and copies `~/.pgpass` from template
+2. Edit `~/.pgpass` and replace `YOUR_PASSWORD_HERE` with the real password
+3. `chmod 600 ~/.pgpass` (enforced by setup script)
+
+### Verify
+```bash
+psql
+# → should land in goldseed_db as postgres with zero prompts
+```
+
+## SQL Runner (nvim)
+Execute `.sql` files directly from nvim via async `psql` jobs.
+
+### Entry Point
+| Trigger | Condition | Action |
+|---|---|---|
+| `<leader>osql` | Buffer is `.sql` file | Open action picker |
+
+### Action Picker
+| Option | Behavior |
+|---|---|
+| ▶ Run current file in psql | `jobstart({"psql", "-f", filepath})` → floating output window |
+|  Launch psql shell | `enew` → `termopen({"psql"})` → insert mode |
+
+### Output Window
+- Large centered popup (80% width/height)
+- Readonly scratch buffer, `filetype=text`
+- `q` or `<Esc>` to close
+- Shows command, exit code, stdout/stderr
+
 ## Session Persistence (auto-session)
 Nvim sessions are automatically saved on `:qall` and restored on startup via `auto-session`.
 
@@ -242,7 +284,7 @@ Nvim sessions are automatically saved on `:qall` and restored on startup via `au
 | Trigger | Action |
 |---|---|
 | `<leader>qs` | Search saved sessions (snacks picker) |
-| `<leader>qS` | Manually save current session |
+| `<leader>qS` | Manually save nvim session |
 | `<leader>qd` | Delete session |
 | `:AutoSession search` | Same as `<leader>qs` |
 | `:AutoSession restore` | Restore session for current directory |

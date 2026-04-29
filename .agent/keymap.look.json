@@ -305,6 +305,16 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>osql",
+      "action": "Snacks.picker.sql_actions()",
+      "context": "normal",
+      "mode": "n",
+      "description": "SQL actions: run file in psql or launch psql shell (only when .sql file is open)",
+      "file": "nvim/lua/plugins/sql_runner.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>qs",
       "action": "<cmd>AutoSession search<CR>",
       "context": "normal",

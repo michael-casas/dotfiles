@@ -89,6 +89,9 @@ function ask
     end
 end
 
+# --- PostgreSQL ---
+set -gx PGSERVICE goldseed
+
 # --- Editor ---
 set -gx EDITOR nvim
 set -gx VISUAL nvim
