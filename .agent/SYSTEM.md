@@ -221,16 +221,8 @@ Lightweight Nx workspace integration without installing telescope-based `nx.nvim
 - Generators: parses `nx list` output for `plugin:generator` lines
 - Selection opens a terminal buffer running `nx generate` or `nx run`
 
-## PostgreSQL Auto-Login (Zero-Prompt)
-`pgcli` (enhanced psql with syntax highlighting + autocomplete) connects automatically to `goldseed_db` without password prompts.
-
-### Files
-| File | Purpose | In dotfiles? |
-|---|---|---|
-| `~/.pgpass` | Password storage (chmod 600) | ❌ Template only (`.pgpass.template`) |
-| `~/.pg_service.conf` | Named connection profile `[goldseed]` | ✅ `postgres/.pg_service.conf` |
-| `~/.config/pgcli/config` | pgcli theme + behavior config | ✅ `pgcli/config` |
-| `fish/config.fish` | `PGSERVICE=goldseed` env var | ✅ |
+## PostgreSQL Interactive Workflow (pgcli)
+`pgcli` (enhanced psql with syntax highlighting + autocomplete) is used via an interactive nvim workflow. No auto-login files — credentials are prompted per-session and cached in-memory.
 
 ### pgcli Features
 - **Syntax highlighting** via Pygments (`monokai` theme, Gruvbox-aligned custom colors)
@@ -239,19 +231,32 @@ Lightweight Nx workspace integration without installing telescope-based `nx.nvim
 - **Less chatty** startup (`less_chatty = True`)
 - **Gruvbox color palette** for completion menu, toolbar, table output
 
-### Setup
-1. `setup.sh` symlinks `~/.pg_service.conf`, copies `~/.pgpass` from template, links `~/.config/pgcli/config`
-2. Edit `~/.pgpass` and replace `YOUR_PASSWORD_HERE` with the real password
-3. `chmod 600 ~/.pgpass` (enforced by setup script)
+### Files
+| File | Purpose | In dotfiles? |
+|---|---|---|
+| `~/.config/pgcli/config` | pgcli theme + behavior config | ✅ `pgcli/config` |
+| `~/.pg_service.conf` | Optional named connection profile `[goldseed]` | ✅ `postgres/.pg_service.conf` |
+
+### Flow
+1. Open a `.sql` file in nvim
+2. Press `<leader>osql` → action picker
+3. Choose **"Run current file in pgcli"** or **"Launch pgcli shell"**
+4. Prompted for: **Host** → **Port** → **User** → **Password**
+5. Nvim lists all databases via `psql` non-interactively
+6. Select database from snacks picker
+7. File runs / shell opens with selected database
+
+### Credential caching
+Last-used credentials are cached per nvim session (Lua variable `pg_conn`). Re-running `<leader>osql` pre-fills the previous values — edit or press Enter to reuse.
 
 ### Verify
 ```bash
 pgcli
-# → auto-connects to goldseed_db with syntax highlighting, zero prompts
+# → launches interactive pgcli (manual connection)
 ```
 
 ## SQL Runner (nvim)
-Execute `.sql` files directly from nvim via async `pgcli` jobs.
+Execute `.sql` files directly from nvim via async `pgcli` jobs with interactive credential flow.
 
 ### Entry Point
 | Trigger | Condition | Action |
@@ -261,14 +266,20 @@ Execute `.sql` files directly from nvim via async `pgcli` jobs.
 ### Action Picker
 | Option | Behavior |
 |---|---|
-| ▶ Run current file in pgcli | `jobstart({"bash", "-c", "pgcli -w < file.sql"})` → floating output window |
-|  Launch pgcli shell | `enew` → `termopen({"pgcli", "-w"})` → insert mode |
+| ▶ Run current file in pgcli | Prompt credentials → list DBs → select DB → `jobstart` with `PGPASSWORD` env → floating output window |
+|  Launch pgcli shell | Prompt credentials → list DBs → select DB → `termopen` with `PGPASSWORD` env → insert mode |
+
+### Credential Prompts
+1. **Host** (default: `localhost`, pre-filled from cache)
+2. **Port** (default: `5432`, pre-filled from cache)
+3. **User** (default: `postgres`, pre-filled from cache)
+4. **Password** (pre-filled from cache)
 
 ### Output Window
 - Large centered popup (80% width/height)
 - Readonly scratch buffer, `filetype=text`
 - `q` or `<Esc>` to close
-- Shows command, exit code, stdout/stderr
+- Shows full command, exit code, stdout/stderr
 
 ## Session Persistence (auto-session)
 Nvim sessions are automatically saved on `:qall` and restored on startup via `auto-session`.

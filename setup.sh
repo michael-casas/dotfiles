@@ -60,19 +60,8 @@ if [[ -f "$DOTFILES_DIR/postgres/.psqlrc" ]]; then
 fi
 
 if [[ -f "$DOTFILES_DIR/postgres/.pg_service.conf" ]]; then
-    echo "==> Linking pg_service.conf..."
+    echo "==> Linking pg_service.conf (optional reference)..."
     ln -sf "$DOTFILES_DIR/postgres/.pg_service.conf" "$HOME/.pg_service.conf"
-fi
-
-if [[ -f "$DOTFILES_DIR/postgres/.pgpass.template" ]]; then
-    echo "==> Setting up ~/.pgpass (copied from template, not symlinked for security)..."
-    if [[ ! -f "$HOME/.pgpass" ]]; then
-        cp "$DOTFILES_DIR/postgres/.pgpass.template" "$HOME/.pgpass"
-        chmod 600 "$HOME/.pgpass"
-        echo "    Created ~/.pgpass from template. EDIT IT to set your real password."
-    else
-        echo "    ~/.pgpass already exists, skipping."
-    fi
 fi
 
 # --- fd (global ignore file) ---

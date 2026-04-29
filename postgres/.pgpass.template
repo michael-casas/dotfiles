@@ -1,4 +1,4 @@
 # Password file for PostgreSQL auto-login
 # Format: hostname:port:database:username:password
 # Permissions MUST be 600 (rw-------)
-localhost:5432:goldseed_db:postgres:YOUR_PASSWORD_HERE
+*:5432:goldseed_db:postgres:YOUR_PASSWORD_HERE
