@@ -47,16 +47,24 @@ fi
 
 # nvm
 export NVM_DIR="$HOME/.nvm"
-if [[ -s "/opt/homebrew/opt/nvm/nvm.sh" ]]; then
-    source "/opt/homebrew/opt/nvm/nvm.sh"
-else
-    # Fallback: manually add the default node version to PATH if it exists
-    if [[ -d "$NVM_DIR/versions/node" ]]; then
-        default_node=$(ls -1 "$NVM_DIR/versions/node" | sort -V | tail -1)
-        if [[ -n "$default_node" ]]; then
-            path_prepend "$NVM_DIR/versions/node/$default_node/bin"
-        fi
-    fi
+[[ -s "/opt/homebrew/opt/nvm/nvm.sh" ]] && source "/opt/homebrew/opt/nvm/nvm.sh"
+[[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ]] && source "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
+
+# --- Bash Completion ---
+[[ -r "/opt/homebrew/etc/profile.d/bash_completion.sh" ]] && . "/opt/homebrew/etc/profile.d/bash_completion.sh"
+
+# --- ble.sh (Bash Line Editor) ---
+# Fish-like syntax highlighting, auto-suggestions, and menu completion for bash.
+# Configuration lives in ~/.blerc (auto-read by ble.sh on init).
+[[ -f ~/.local/share/blesh/ble.sh ]] && source ~/.local/share/blesh/ble.sh
+
+# --- fzf ---
+# Fuzzy finder key bindings and completions
+if [[ -f /opt/homebrew/opt/fzf/shell/key-bindings.bash ]]; then
+    source /opt/homebrew/opt/fzf/shell/key-bindings.bash
+fi
+if [[ -f /opt/homebrew/opt/fzf/shell/completion.bash ]]; then
+    source /opt/homebrew/opt/fzf/shell/completion.bash
 fi
 
 # --- Aliases ---

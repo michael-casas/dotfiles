@@ -39,6 +39,30 @@ setup.sh                    # Symlink installer
 - Config: `starship/starship.toml` with Gruvbox Dark palette
 - Auto-detects git, language versions, Docker context, conda envs
 
+## Bash UX Enhancements
+Bash by default is bare compared to fish. Three plugins close the gap:
+
+### ble.sh (Bash Line Editor)
+Fish-like line editing for bash: syntax highlighting, auto-suggestions, menu completion, vim/emacs keymaps.
+- **Install**: `~/.local/share/blesh/ble.sh` (single tarball, no runtime deps)
+- **Config**: `bash/.blerc` → `~/.blerc`
+- **Features enabled**:
+  - `complete_auto_complete=1` — auto-suggest from history/completions
+  - `complete_menu_complete=1` — menu-style tab completion
+  - `complete_auto_history=1` — auto-fill common prefixes
+  - `highlight_syntax=1` — command/argument/string syntax coloring
+  - `highlight_filename=1` — file type coloring
+   `highlight_variable=1` — variable name coloring
+  - `prompt_ps1_transient=trim` — clean prompt after Enter (starship owns the prompt)
+
+### bash-completion@2
+Tab completions for common CLI tools (git, docker, brew, npm, etc.). Bash 5+ requires `@2`; the old `bash-completion` formula is for bash 3.2.
+- **Source**: `/opt/homebrew/etc/profile.d/bash_completion.sh`
+
+### fzf bash bindings
+Fuzzy history search (`Ctrl-R`), fuzzy file/path completion (`Ctrl-T`, `Alt-C`), and trigger-based completion (`**<Tab>`).
+- **Source**: `/opt/homebrew/opt/fzf/shell/key-bindings.bash` + `completion.bash`
+
 ## Key Migrations
 - **nvim**: Migrated from old vimscript init.vim + lsp.lua to LazyVim (lua-based)
 - **shell**: Migrated fish → bash 5.3 (Homebrew); translated PATH, aliases, functions, and env vars. Prompt remains identical via starship.
@@ -60,18 +84,24 @@ setup.sh                    # Symlink installer
 ## Dependencies
 - `bash` — shell (Homebrew 5.3+)
 - `starship` — prompt
+- `bash-completion@2` — tab completions for common CLI tools (bash 5+ compatible)
+- `ble.sh` — Bash Line Editor; fish-like syntax highlighting, auto-suggestions, menu completion
 - `pyenv` — Python version manager
 - `nvm` — Node version manager
 - `fzf` — fuzzy finder
 - `fd` — fast file finder (required by snacks.nvim explorer)
   - Global ignore file: `fd/ignore` → `~/.config/fd/ignore` (excludes `node_modules/`, `dist/`, `build/`, `.git/`, etc.)
 - `pgcli` — enhanced PostgreSQL CLI with syntax highlighting + autocomplete
-- `bash` — for bass/nvm compatibility
 
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install bash starship pyenv nvm fzf fd pgcli
+brew install bash bash-completion@2 starship pyenv nvm fzf fd pgcli
+
+# Install ble.sh (fish-like line editing for bash)
+mkdir -p ~/.local/share
+curl -L https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz | tar xJf - -C ~/.local/share
+mv ~/.local/share/ble-nightly ~/.local/share/blesh
 ```
 
 ## Commit History

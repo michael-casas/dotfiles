@@ -26,6 +26,14 @@ if [[ -f "$DOTFILES_DIR/bash/.bash_profile" ]]; then
     ln -sf "$DOTFILES_DIR/bash/.bash_profile" "$HOME/.bash_profile"
 fi
 
+if [[ -f "$DOTFILES_DIR/bash/.blerc" ]]; then
+    if [[ -f "$HOME/.blerc" && ! -L "$HOME/.blerc" ]]; then
+        echo "    Backing up existing ~/.blerc to ~/.blerc.backup"
+        mv "$HOME/.blerc" "$HOME/.blerc.backup"
+    fi
+    ln -sf "$DOTFILES_DIR/bash/.blerc" "$HOME/.blerc"
+fi
+
 # --- Neovim ---
 if [[ -d "$DOTFILES_DIR/nvim" ]]; then
     echo "==> Linking nvim config..."
