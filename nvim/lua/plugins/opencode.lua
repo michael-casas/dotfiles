@@ -658,7 +658,7 @@ return {
     local function ensure_django_server()
       local ok = vim.fn.system("curl -s " .. django_server_url .. "/global/health > /dev/null 2>&1 && echo ok || echo fail"):gsub("%s+", "")
       if ok ~= "ok" then
-        Snacks.notify("Django server not running on " .. django_server_url .. "\nIt auto-starts in fish shell on port 2313", { title = "AskDjango", level = vim.log.levels.ERROR })
+        Snacks.notify("Django server not running on " .. django_server_url .. "\nIt auto-starts in bash shell on port 2313", { title = "AskDjango", level = vim.log.levels.ERROR })
         return false
       end
       return true

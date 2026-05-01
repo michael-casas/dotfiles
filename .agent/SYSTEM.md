@@ -8,26 +8,29 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via a b
 - Historical: WSL (Ubuntu), generic Linux/Arch
 
 ## Shell Transition
-- **Previous**: zsh + Oh My Zsh
-- **Current**: fish (installed via Homebrew at `/opt/homebrew/bin/fish`)
-- Rationale: fish has better UX out of the box; zshrc was bloated with Oh My Zsh boilerplate
+- **Previous**: zsh + Oh My Zsh → fish (via Homebrew)
+- **Current**: bash 5.3 (installed via Homebrew at `/opt/homebrew/bin/bash`)
+- Rationale: bash is the POSIX standard; better compatibility with existing scripts, CI, and remote environments. Starship provides identical prompt visuals across shells.
 
-### Set fish as default shell
+### Set bash as default shell
 ```bash
-sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
-chsh -s /opt/homebrew/bin/fish
+sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'
+chsh -s /opt/homebrew/bin/bash
 ```
-> Run both commands, then open a new terminal. `exec fish` will no longer be needed.
+> Run both commands, then open a new terminal. `exec bash` will no longer be needed.
 
 ## Repository Structure
 ```
-fish/config.fish            -> ~/.config/fish/config.fish
+bash/.bashrc                -> ~/.bashrc
+bash/.bash_profile          -> ~/.bash_profile
 nvim/                       -> ~/.config/nvim (LazyVim-based)
   lua/plugins/opencode.lua  # Multi-tool AI session manager (OpenCode, Codex, Claude, Kiro)
 tmux/tmux.conf              -> ~/.tmux.conf
 git/.gitconfig              -> ~/.gitconfig
 starship/starship.toml      -> ~/.config/starship.toml
 claude/settings.json        -> ~/.claude/settings.json  # Claude Code config + statusline
+claude-swap/                -> ~/.claude-swap            # claude-swap profile store
+_claude-swap/               # standalone claude-swap source repo (ignored by parent git)
 setup.sh                    # Symlink installer
 ```
 
@@ -38,10 +41,10 @@ setup.sh                    # Symlink installer
 
 ## Key Migrations
 - **nvim**: Migrated from old vimscript init.vim + lsp.lua to LazyVim (lua-based)
-- **shell**: Migrated from zsh to fish; translated PATH, aliases, and env vars
+- **shell**: Migrated fish → bash 5.3 (Homebrew); translated PATH, aliases, functions, and env vars. Prompt remains identical via starship.
 - **tmux**: Config uses TPM with resurrect + continuum + tmux-fzf + tmux2k
 - **tmux2k**: Gruvbox-themed status bar with session, git, cpu, ram, battery, time
-- **tmux default shell**: Changed from zsh to fish for all new panes/windows
+- **tmux default shell**: Changed to bash for all new panes/windows
 - **nvim colorscheme**: Gruvbox Dark Hard (`ellisonleao/gruvbox.nvim`)
 - **nvim + AI Session Manager**: Higher-order `snacks.nvim` picker factory supporting OpenCode, Codex, Claude, and Kiro with buffer tracking and unified tool selector
 
@@ -55,7 +58,7 @@ setup.sh                    # Symlink installer
 - LM Studio (`~/.lmstudio`)
 
 ## Dependencies
-- `fish` — shell
+- `bash` — shell (Homebrew 5.3+)
 - `starship` — prompt
 - `pyenv` — Python version manager
 - `nvm` — Node version manager
@@ -68,7 +71,7 @@ setup.sh                    # Symlink installer
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install fish starship pyenv nvm fzf bash fd pgcli
+brew install bash starship pyenv nvm fzf fd pgcli
 ```
 
 ## Commit History
@@ -79,7 +82,7 @@ brew install fish starship pyenv nvm fzf bash fd pgcli
 - `ee12504` feat(nvim): Option bracket buffer cycling
 - `96e78b1` feat(nvim): neo-tree width reduction + explicit split keymaps
 - `6cf8712` feat(tmux): add tmux-fzf session manager popup
-- `69dc8dc` feat(tmux): add tmux2k status bar + default-shell fish
+- `69dc8dc` feat(tmux): add tmux2k status bar + default-shell bash
 - `2b3fb42` feat(nvim): set Gruvbox Dark Hard as LazyVim colorscheme
 - `a540f56` style(ghostty): apply Gruvbox Dark Hard theme and terminal settings
 
@@ -186,8 +189,8 @@ A persistent, quick-Q&A agent backed by a local LM Studio model (Gemma 4). Runs 
 ### Entry Points
 | Trigger | Action |
 |---|---|
-| `support-serve` (fish) | Start `opencode serve` in a new tmux window |
-| `ask "<prompt>"` (fish) | Send prompt to Support agent via attached server |
+| `support-serve` (bash) | Start `opencode serve` in a new tmux window |
+| `ask "<prompt>"` (bash) | Send prompt to Support agent via attached server |
 | `:AskAI` / `<leader>oask` (nvim) | Popup prompt → terminal buffer with response |
 
 ### Start Commands
@@ -200,21 +203,20 @@ ask "What's the tmux hotkey for vertical split?"
 ```
 
 ## Django Systems Architect Agent (OpenCode)
-A long-lived systems architect agent running via `opencode serve` on port 2313. Auto-starts in fish shell on every new shell session.
+A long-lived systems architect agent running via `opencode serve` on port 2313. Auto-starts in bash shell on every new shell session.
 
 ### Architecture
-1. **`opencode serve --port 2313`** — headless server auto-started by fish config via `nohup` if not already running
+1. **`opencode serve --port 2313`** — headless server auto-started by bash config via `nohup` if not already running
 2. **`:AskDjango` / `<leader>ofc`** (nvim) — popup input → `opencode run --attach http://localhost:2313 --agent django-systems-architect` in terminal buffer
 3. **Session tracking** — same pattern as Support agent: reuses session titled "Django" if exists
 
 ### Entry Points
 | Trigger | Action |
 |---|---|
-| Auto-start (fish) | `nohup opencode serve --port 2313 --hostname 127.0.0.1` on shell init |
-| `:AskDjango` / `<leader>ofc` (nvim) | Popup prompt → terminal buffer with response |
+| Auto-start (bash) | `nohup opencode serve --port 2313 --hostname 127.0.0.1` on shell init |
 
 ### Why port 2313?
-Hardcoded to avoid collision with Support (4096) and any other services. The fish config checks `pgrep` before starting to prevent duplicate processes.
+Hardcoded to avoid collision with Support (4096) and any other services. The bash config checks `pgrep` before starting to prevent duplicate processes.
 
 ## Snacks.nvim Explorer Configuration
 The explorer (`<leader>e`) and file picker (`<leader>ff`) show **all files including hidden dotfiles**, while excluding common build/dependency directories.
@@ -392,7 +394,42 @@ chmod +x ~/.local/bin/claudeline
 ### Codex CLI Statusline
 **Skipped.** Codex CLI is a Rust binary with no `settings.json` or plugin interface. There is no native statusline mechanism. A custom tmux segment would require polling `~/.codex/session_index.jsonl` — high effort, moderate value. Revisit if OpenAI adds statusline support upstream.
 
+## Claude Swap
+`claude-swap` is a standalone TypeScript CLI for managing Claude Code profiles. During Founder+Advisor review its source lives at `_claude-swap/` as an isolated nested git repository; the parent dotfiles repo ignores that directory and tracks only integration/docs/profile-store artifacts.
+
+### Storage and symlink policy
+- Canonical store: `~/.claude-swap`
+- Dotfiles store root: `claude-swap/`
+- Setup link: `~/.claude-swap -> ~/.dotfiles/claude-swap`
+- Invalid typo surface: `~/.claud-swap` is never used; `claude-swap doctor` only warns if it exists.
+
+### Generated artifact law
+After profiles are imported, active Claude Code surfaces are generated from named profiles:
+```txt
+~/.claude/
+./.claude/
+./CLAUDE.md
+```
+The source of truth becomes:
+```txt
+~/.claude-swap/<profile>/global/
+./.claude-swap/<profile>/local/
+```
+`setup.sh` still links `claude/settings.json` as a bootstrap when no `~/.claude-swap/state.json` exists. Once state exists, setup skips direct `~/.claude/settings.json` linking so it does not fight generated active config.
+
+### Safety model
+- Destructive operations create timestamped pre-op backups under `~/.claude-swap/backups/`
+- Backup IDs use `YYYYMMDDTHHMMSSZ-<profile-or-unknown>-<operation>`
+- `swap` moves only the active surfaces it will replace, so partial profiles preserve unrelated config
+- `restore` creates a pre-restore backup before restoring another backup
+- `rename` updates state references and fails if the target profile already exists
+- `--dry-run` reports planned file operations and mutates nothing
+- Mutating commands use `~/.claude-swap/.lock`
+
+### Review and move-out workflow
+`_claude-swap/` must stay inside dotfiles until automated tests, temp-directory smoke tests, nested repo commit, and Founder+Advisor review are complete. After approval, move it out to its own permanent project directory/repository.
+
 ## Notes
-- `bass` plugin needed for nvm compatibility in fish (or migrate to nvm.fish)
-- Old shell/config.fish preserved in git history but replaced by fish/config.fish
+- nvm sourced directly in bash via `/opt/homebrew/opt/nvm/nvm.sh` (no bass wrapper needed)
+- Old fish/config.fish preserved in git history but replaced by bash/.bashrc
 - Old nvim/init.vim replaced by LazyVim lua config

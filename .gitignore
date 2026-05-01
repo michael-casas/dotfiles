@@ -25,6 +25,7 @@ nvim/tt.*
 tmux/plugins/
 
 # --- General ---
+_claude-swap/
 *.bak
 *.swp
 *.swo

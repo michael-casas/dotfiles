@@ -8,11 +8,22 @@ DOTFILES_DIR="$HOME/.dotfiles"
 
 echo "==> Setting up dotfiles from $DOTFILES_DIR"
 
-# --- Fish Shell ---
-if [[ -d "$DOTFILES_DIR/fish" ]]; then
-    echo "==> Linking fish config..."
-    mkdir -p "$HOME/.config/fish"
-    ln -sf "$DOTFILES_DIR/fish/config.fish" "$HOME/.config/fish/config.fish"
+# --- Bash Shell ---
+if [[ -f "$DOTFILES_DIR/bash/.bashrc" ]]; then
+    echo "==> Linking bash config..."
+    if [[ -f "$HOME/.bashrc" && ! -L "$HOME/.bashrc" ]]; then
+        echo "    Backing up existing ~/.bashrc to ~/.bashrc.backup"
+        mv "$HOME/.bashrc" "$HOME/.bashrc.backup"
+    fi
+    ln -sf "$DOTFILES_DIR/bash/.bashrc" "$HOME/.bashrc"
+fi
+
+if [[ -f "$DOTFILES_DIR/bash/.bash_profile" ]]; then
+    if [[ -f "$HOME/.bash_profile" && ! -L "$HOME/.bash_profile" ]]; then
+        echo "    Backing up existing ~/.bash_profile to ~/.bash_profile.backup"
+        mv "$HOME/.bash_profile" "$HOME/.bash_profile.backup"
+    fi
+    ln -sf "$DOTFILES_DIR/bash/.bash_profile" "$HOME/.bash_profile"
 fi
 
 # --- Neovim ---
@@ -79,14 +90,36 @@ if [[ -f "$DOTFILES_DIR/pgcli/config" ]]; then
 fi
 
 # --- Claude Code ---
-if [[ -f "$DOTFILES_DIR/claude/settings.json" ]]; then
-    echo "==> Linking Claude Code settings..."
-    mkdir -p "$HOME/.claude"
-    if [[ -f "$HOME/.claude/settings.json" && ! -L "$HOME/.claude/settings.json" ]]; then
-        echo "    Backing up existing ~/.claude/settings.json to ~/.claude/settings.json.backup"
-        mv "$HOME/.claude/settings.json" "$HOME/.claude/settings.json.backup"
+if [[ -d "$DOTFILES_DIR/claude-swap" ]]; then
+    echo "==> Linking claude-swap profile store..."
+    CLAUDE_SWAP_TARGET="$DOTFILES_DIR/claude-swap"
+    CLAUDE_SWAP_LINK="$HOME/.claude-swap"
+    if [[ -e "$CLAUDE_SWAP_LINK" || -L "$CLAUDE_SWAP_LINK" ]]; then
+        CURRENT_TARGET=""
+        if [[ -L "$CLAUDE_SWAP_LINK" ]]; then
+            CURRENT_TARGET="$(readlink "$CLAUDE_SWAP_LINK")"
+        fi
+        if [[ "$CURRENT_TARGET" != "$CLAUDE_SWAP_TARGET" ]]; then
+            BACKUP_PATH="$HOME/.claude-swap.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+            echo "    Backing up existing ~/.claude-swap to $BACKUP_PATH"
+            mv "$CLAUDE_SWAP_LINK" "$BACKUP_PATH"
+        fi
     fi
-    ln -sf "$DOTFILES_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+    ln -sfn "$CLAUDE_SWAP_TARGET" "$CLAUDE_SWAP_LINK"
+fi
+
+if [[ -f "$DOTFILES_DIR/claude/settings.json" ]]; then
+    if [[ -f "$HOME/.claude-swap/state.json" ]]; then
+        echo "==> Skipping Claude Code settings link; ~/.claude is managed by claude-swap"
+    else
+        echo "==> Linking Claude Code settings bootstrap..."
+        mkdir -p "$HOME/.claude"
+        if [[ -f "$HOME/.claude/settings.json" && ! -L "$HOME/.claude/settings.json" ]]; then
+            echo "    Backing up existing ~/.claude/settings.json to ~/.claude/settings.json.backup"
+            mv "$HOME/.claude/settings.json" "$HOME/.claude/settings.json.backup"
+        fi
+        ln -sf "$DOTFILES_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+    fi
 fi
 
 # --- OpenCode ---
@@ -103,6 +136,6 @@ echo "==> Done!"
 
 echo ""
 echo "Next steps:"
-echo "  1. Add fish to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'"
-echo "  2. Change default shell:      chsh -s /opt/homebrew/bin/fish"
-echo "  3. Restart your terminal or run: exec fish"
+echo "  1. Add bash to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'"
+echo "  2. Change default shell:      chsh -s /opt/homebrew/bin/bash"
+echo "  3. Restart your terminal or run: exec bash"
