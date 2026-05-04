@@ -315,6 +315,16 @@
     },
     {
       "app": "nvim",
+      "key": "<leader>om",
+      "action": "Snacks.picker.gemini_mode()",
+      "context": "normal",
+      "mode": "n",
+      "description": "Gemini session manager (buffers + sessions)",
+      "file": "nvim/lua/plugins/opencode.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>og",
       "action": "Snacks.picker.docker_mode()",
       "context": "normal",
@@ -389,7 +399,7 @@
       "action": "Snacks.picker.ai_tools()",
       "context": "normal",
       "mode": "n",
-      "description": "AI tool selector (OpenCode / Codex / Claude / Kiro)",
+      "description": "AI tool selector (OpenCode / Codex / Claude / Kiro / Gemini)",
       "file": "nvim/lua/plugins/opencode.lua",
       "line_ref": "~keys"
     },
@@ -474,6 +484,14 @@
       "context": "command",
       "source": "custom plugin",
       "notes": "User-defined command for Kiro session manager"
+    },
+    {
+      "app": "nvim",
+      "key": ":Gemini",
+      "action": "Snacks.picker.gemini_mode()",
+      "context": "command",
+      "source": "custom plugin",
+      "notes": "User-defined command for Gemini session manager"
     }
   ],
   "collision_log": [

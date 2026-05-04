@@ -115,3 +115,10 @@ set fish_greeting
 # Note: This overrides the default Tab completion pager.
 # Use Ctrl+F to trigger completions when needed.
 bind \t accept-autosuggestion
+
+# pnpm
+set -gx PNPM_HOME "/Users/mcasa_atlantis/Library/pnpm"
+if not string match -q -- $PNPM_HOME $PATH
+  set -gx PATH "$PNPM_HOME" $PATH
+end
+# pnpm end

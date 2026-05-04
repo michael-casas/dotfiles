@@ -399,6 +399,65 @@ return {
       end,
     })
 
+    -- 6. Gemini
+    local gemini_bin = "gemini"
+    opts.picker.sources.gemini_sessions = ai_session_picker({
+      name = "gemini",
+      label = "Gemini",
+      bin = gemini_bin,
+      buf_var = "gemini_session_id",
+      list_sessions = function(_)
+        local tmp_dir = vim.fn.expand("~/.gemini/tmp")
+        local ret = {}
+        local handle = vim.uv.fs_scandir(tmp_dir)
+        if not handle then
+          return ret
+        end
+        while true do
+          local proj_name, proj_t = vim.uv.fs_scandir_next(handle)
+          if not proj_name then
+            break
+          end
+          if proj_t == "directory" then
+            local chats_dir = tmp_dir .. "/" .. proj_name .. "/chats"
+            local chat_handle = vim.uv.fs_scandir(chats_dir)
+            if chat_handle then
+              while true do
+                local fname, ftype = vim.uv.fs_scandir_next(chat_handle)
+                if not fname then
+                  break
+                end
+                if ftype == "file" and fname:match("^session%-.+%.jsonl$") then
+                  local path = chats_dir .. "/" .. fname
+                  local fd = io.open(path, "r")
+                  if fd then
+                    local first_line = fd:read("*l")
+                    fd:close()
+                    if first_line then
+                      local ok, meta = pcall(vim.json.decode, first_line)
+                      if ok and meta and meta.sessionId then
+                        table.insert(ret, {
+                          id = meta.sessionId,
+                          title = meta.title or ("Session " .. meta.sessionId:sub(1, 8)),
+                          directory = meta.projectRoot or "",
+                          updated = meta.lastUpdated or meta.startTime or nil,
+                        })
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+        return ret
+      end,
+      attach_cmd = function(bin, sid, _)
+        return { bin, "--resume", sid }
+      end,
+      delete_session = nil, -- gemini CLI delete-session uses index, not UUID
+    })
+
     -- Mode pickers (New / Resume gateway)
     opts.picker.sources.opencode_mode = ai_tool_mode_picker({
       name = "opencode",
@@ -433,7 +492,13 @@ return {
       end,
     })
 
-    -- 6. Docker AI (Ask Gordon) — no session persistence, opens directly
+    opts.picker.sources.gemini_mode = ai_tool_mode_picker({
+      name = "gemini",
+      label = "Gemini",
+      bin = gemini_bin,
+    })
+
+    -- 7. Docker AI (Ask Gordon) — no session persistence, opens directly
     opts.picker.sources.docker_mode = {
       prompt = "Docker AI ",
       layout = { preset = "select", layout = { max_width = 50 } },
@@ -476,6 +541,7 @@ return {
         { text = "Claude", tool = "claude", icon = "󰋦 " },
         { text = "Opus", tool = "opus", icon = "󰌆 " },
         { text = "Kiro", tool = "kiro", icon = "󰧑 " },
+        { text = "Gemini", tool = "gemini", icon = "󰫤 " },
         { text = "Docker", tool = "docker", icon = "󰡨 " },
       },
 
@@ -554,6 +620,14 @@ return {
         Snacks.picker.kiro_mode()
       end,
       desc = "Kiro",
+    },
+    {
+      "<leader>om",
+      function()
+        split_cmd = "enew"
+        Snacks.picker.gemini_mode()
+      end,
+      desc = "Gemini",
     },
     {
       "<leader>og",
@@ -745,6 +819,11 @@ return {
       split_cmd = "enew"
       Snacks.picker.kiro_mode()
     end, { desc = "Kiro session manager" })
+
+    vim.api.nvim_create_user_command("Gemini", function()
+      split_cmd = "enew"
+      Snacks.picker.gemini_mode()
+    end, { desc = "Gemini session manager" })
 
     vim.api.nvim_create_user_command("Docker", function()
       split_cmd = "enew"

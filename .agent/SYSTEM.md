@@ -127,6 +127,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | **Claude** | `claude` | Read `~/.claude/sessions/*.json` | `-r <id>` | Not supported |
 | **Opus** | `claude-opus` | Read `~/.claude-opus/sessions/*.json` | `-r <id>` | Not supported |
 | **Kiro** | `kiro-cli` | `chat --list-sessions -f json` | `chat --resume-id <id>` | `chat --delete-session <id>` |
+| **Gemini** | `gemini` | Scan `~/.gemini/tmp/*/chats/session-*.jsonl` | `--resume <id>` | Not supported |
 | **Docker AI** | `docker ai` | Not supported (no sessions) | Opens TUI directly | Not supported |
 
 ### Architecture
@@ -151,6 +152,7 @@ Higher-order `snacks.nvim` picker factory (`ai_session_picker`) that parameteriz
 | `:Claude` / `<leader>ol` | Claude mode menu |
 | `:Opus` / `<leader>oo` | Opus mode menu |
 | `:Kiro` / `<leader>ok` | Kiro mode menu |
+| `:Gemini` / `<leader>om` | Gemini mode menu |
 | `:Docker` / `<leader>og` | Docker AI (Ask Gordon) — no session persistence |
 | `:AskAI` / `<leader>oask` | Ask Support agent (popup → terminal buffer) |
 | `:AskDjango` / `<leader>ofc` | Ask Django Systems Architect agent (popup → terminal buffer) |
