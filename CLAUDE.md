@@ -16,11 +16,11 @@ For detailed architecture, tool integration, commit conventions, and keybindings
 
 ```bash
 # Install dependencies
-brew install bash starship pyenv nvm fzf tmux neovim
+brew install fish starship pyenv nvm fzf tmux neovim
 
-# Set bash as default shell
-sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'
-chsh -s /opt/homebrew/bin/bash
+# Set fish as default shell
+sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
+chsh -s /opt/homebrew/bin/fish
 
 # Install tmux plugins (inside tmux)
 # prefix + I

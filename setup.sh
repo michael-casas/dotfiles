@@ -116,6 +116,15 @@ if [[ -d "$DOTFILES_DIR/claude-swap" ]]; then
     ln -sfn "$CLAUDE_SWAP_TARGET" "$CLAUDE_SWAP_LINK"
 fi
 
+# --- claude-swap CLI binary ---
+CLAUDE_SWAP_BIN="$DOTFILES_DIR/_claude-swap/dist/src/cli.js"
+if [[ -f "$CLAUDE_SWAP_BIN" ]]; then
+    echo "==> Linking claude-swap binary..."
+    mkdir -p "$HOME/.local/bin"
+    ln -sf "$CLAUDE_SWAP_BIN" "$HOME/.local/bin/claude-swap"
+    chmod +x "$CLAUDE_SWAP_BIN"
+fi
+
 if [[ -f "$DOTFILES_DIR/claude/settings.json" ]]; then
     if [[ -f "$HOME/.claude-swap/state.json" ]]; then
         echo "==> Skipping Claude Code settings link; ~/.claude is managed by claude-swap"
@@ -144,6 +153,6 @@ echo "==> Done!"
 
 echo ""
 echo "Next steps:"
-echo "  1. Add bash to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'"
-echo "  2. Change default shell:      chsh -s /opt/homebrew/bin/bash"
-echo "  3. Restart your terminal or run: exec bash"
+echo "  1. Add fish to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'"
+echo "  2. Change default shell:      chsh -s /opt/homebrew/bin/fish"
+echo "  3. Restart your terminal or run: exec fish"

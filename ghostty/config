@@ -62,8 +62,8 @@ window-theme = dark
 macos-titlebar-style = tabs
 
 # --- Shell ---
-# Use bash as the default shell
-command = /opt/homebrew/bin/bash
+# Use fish as the default shell
+command = /opt/homebrew/bin/fish
 
 # --- Scrollback ---
 scrollback-limit = 10000000
