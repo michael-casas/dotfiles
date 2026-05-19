@@ -8,20 +8,21 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via a b
 - Historical: WSL (Ubuntu), generic Linux/Arch
 
 ## Shell Transition
-- **Previous**: zsh + Oh My Zsh → fish (via Homebrew)
-- **Current**: bash 5.3 (installed via Homebrew at `/opt/homebrew/bin/bash`)
-- Rationale: bash is the POSIX standard; better compatibility with existing scripts, CI, and remote environments. Starship provides identical prompt visuals across shells.
+- **Previous**: zsh + Oh My Zsh → bash 5.3 (via Homebrew)
+- **Current**: fish (installed via Homebrew at `/opt/homebrew/bin/fish`)
+- Rationale: fish offers superior interactive UX (syntax highlighting, auto-suggestions, smart completions) out of the box. For POSIX scripting, bash remains available at `/opt/homebrew/bin/bash`. Starship provides identical prompt visuals across shells.
 
-### Set bash as default shell
+### Set fish as default shell
 ```bash
-sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'
-chsh -s /opt/homebrew/bin/bash
+sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'
+chsh -s /opt/homebrew/bin/fish
 ```
-> Run both commands, then open a new terminal. `exec bash` will no longer be needed.
+> Run both commands, then open a new terminal. `exec fish` will no longer be needed.
 
 ## Repository Structure
 ```
-bash/.bashrc                -> ~/.bashrc
+fish/                       -> ~/.config/fish (main shell)
+bash/.bashrc                -> ~/.bashrc (preserved for POSIX/scripting)
 bash/.bash_profile          -> ~/.bash_profile
 nvim/                       -> ~/.config/nvim (LazyVim-based)
   lua/plugins/opencode.lua  # Multi-tool AI session manager (OpenCode, Codex, Claude, Kiro)
@@ -39,36 +40,26 @@ setup.sh                    # Symlink installer
 - Config: `starship/starship.toml` with Gruvbox Dark palette
 - Auto-detects git, language versions, Docker context, conda envs
 
-## Bash UX Enhancements
-Bash by default is bare compared to fish. Three plugins close the gap:
+## Fish UX (Default Shell)
+Fish provides excellent interactive UX out of the box — syntax highlighting, auto-suggestions, smart completions, and friendly scripting. No plugins required for basic quality-of-life features.
+- **Config**: `fish/config.fish` → `~/.config/fish/config.fish`
+- **Functions**: `fish/functions/` → `~/.config/fish/functions/`
+- **Completions**: `fish/completions/` → `~/.config/fish/completions/`
 
-### ble.sh (Bash Line Editor)
-Fish-like line editing for bash: syntax highlighting, auto-suggestions, menu completion, vim/emacs keymaps.
-- **Install**: `~/.local/share/blesh/ble.sh` (single tarball, no runtime deps)
-- **Config**: `bash/.blerc` → `~/.blerc`
-- **Features enabled**:
-  - `complete_auto_complete=1` — auto-suggest from history/completions
-  - `complete_menu_complete=1` — menu-style tab completion
-  - `complete_auto_history=1` — auto-fill common prefixes
-  - `highlight_syntax=1` — command/argument/string syntax coloring
-  - `highlight_filename=1` — file type coloring
-   `highlight_variable=1` — variable name coloring
-  - `prompt_ps1_transient=trim` — clean prompt after Enter (starship owns the prompt)
-
-### bash-completion@2
-Tab completions for common CLI tools (git, docker, brew, npm, etc.). Bash 5+ requires `@2`; the old `bash-completion` formula is for bash 3.2.
-- **Source**: `/opt/homebrew/etc/profile.d/bash_completion.sh`
-
-### fzf bash bindings
-Fuzzy history search (`Ctrl-R`), fuzzy file/path completion (`Ctrl-T`, `Alt-C`), and trigger-based completion (`**<Tab>`).
-- **Source**: `/opt/homebrew/opt/fzf/shell/key-bindings.bash` + `completion.bash`
+## Bash Config (Preserved)
+Bash config remains in the repo for POSIX scripting and remote environments where fish may not be available.
+- **Config**: `bash/.bashrc` → `~/.bashrc`
+- **Profile**: `bash/.bash_profile` → `~/.bash_profile`
+- **ble.sh**: `bash/.blerc` → `~/.blerc` (syntax highlighting, auto-suggestions, menu completion)
+- **bash-completion@2**: `/opt/homebrew/etc/profile.d/bash_completion.sh`
+- **fzf bash bindings**: `/opt/homebrew/opt/fzf/shell/key-bindings.bash` + `completion.bash`
 
 ## Key Migrations
 - **nvim**: Migrated from old vimscript init.vim + lsp.lua to LazyVim (lua-based)
-- **shell**: Migrated fish → bash 5.3 (Homebrew); translated PATH, aliases, functions, and env vars. Prompt remains identical via starship.
+- **shell**: Migrated bash 5.3 → fish (Homebrew). bash config preserved for POSIX/scripting. Prompt remains identical via starship.
 - **tmux**: Config uses TPM with resurrect + continuum + tmux-fzf + tmux2k
 - **tmux2k**: Gruvbox-themed status bar with session, git, cpu, ram, battery, time
-- **tmux default shell**: Changed to bash for all new panes/windows
+- **tmux default shell**: fish for all new panes/windows
 - **nvim colorscheme**: Gruvbox Dark Hard (`ellisonleao/gruvbox.nvim`)
 - **nvim + AI Session Manager**: Higher-order `snacks.nvim` picker factory supporting OpenCode, Codex, Claude, and Kiro with buffer tracking and unified tool selector
 
@@ -82,10 +73,11 @@ Fuzzy history search (`Ctrl-R`), fuzzy file/path completion (`Ctrl-T`, `Alt-C`),
 - LM Studio (`~/.lmstudio`)
 
 ## Dependencies
-- `bash` — shell (Homebrew 5.3+)
+- `fish` — primary interactive shell (Homebrew)
+- `bash` — preserved for POSIX scripting and remote environments (Homebrew 5.3+)
 - `starship` — prompt
 - `bash-completion@2` — tab completions for common CLI tools (bash 5+ compatible)
-- `ble.sh` — Bash Line Editor; fish-like syntax highlighting, auto-suggestions, menu completion
+- `ble.sh` — Bash Line Editor; syntax highlighting, auto-suggestions, menu completion
 - `pyenv` — Python version manager
 - `nvm` — Node version manager
 - `fzf` — fuzzy finder
@@ -93,12 +85,26 @@ Fuzzy history search (`Ctrl-R`), fuzzy file/path completion (`Ctrl-T`, `Alt-C`),
   - Global ignore file: `fd/ignore` → `~/.config/fd/ignore` (excludes `node_modules/`, `dist/`, `build/`, `.git/`, etc.)
 - `pgcli` — enhanced PostgreSQL CLI with syntax highlighting + autocomplete
 
+## Neovim Plugins
+### render-markdown.nvim
+Inline markdown preview using conceal + virtual text. Replaces raw syntax with rendered equivalents (headers, code blocks, bullets, checkboxes, quotes, tables, callouts) while preserving the underlying file. Anti-conceal reveals raw syntax when the cursor lands on a line — identical to JSON conceal behavior.
+- **File**: `nvim/lua/plugins/render-markdown.lua`
+- **Lazy-loads** on `ft = { "markdown", "mdx", "norg", "rmd", "org" }`
+- **Key behaviors**:
+  - `conceallevel = 3` for full conceal in rendered buffers
+  - `concealcursor = "nc"` so cursor line reveals raw syntax
+  - Code blocks rendered with language badges and border lines
+  - Headings use Gruvbox-friendly highlight groups
+  - Checkboxes use Nerd Font icons (󰄱 / 󰱒)
+  - Pipe tables rendered with box-drawing characters
+- **Dependencies**: `nvim-treesitter`, `nvim-web-devicons`
+
 ## Setup Commands
 ```bash
 # Install dependencies
-brew install bash bash-completion@2 starship pyenv nvm fzf fd pgcli
+brew install fish bash bash-completion@2 starship pyenv nvm fzf fd pgcli
 
-# Install ble.sh (fish-like line editing for bash)
+# Install ble.sh (optional, for bash interactive UX)
 mkdir -p ~/.local/share
 curl -L https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz | tar xJf - -C ~/.local/share
 mv ~/.local/share/ble-nightly ~/.local/share/blesh
@@ -113,6 +119,7 @@ mv ~/.local/share/ble-nightly ~/.local/share/blesh
 - `96e78b1` feat(nvim): neo-tree width reduction + explicit split keymaps
 - `6cf8712` feat(tmux): add tmux-fzf session manager popup
 - `69dc8dc` feat(tmux): add tmux2k status bar + default-shell bash
+- `(pending)` fix(shell): revert default shell to fish — fish restored as primary; bash config preserved for POSIX/scripting
 - `2b3fb42` feat(nvim): set Gruvbox Dark Hard as LazyVim colorscheme
 - `a540f56` style(ghostty): apply Gruvbox Dark Hard theme and terminal settings
 
@@ -190,6 +197,15 @@ Sessions are sorted by `updated` descending (most recent first) across all tools
 **Issue:** After pressing `<Esc>` to exit insert mode, quickly pressing `j`/`k` moved the current line instead of moving the cursor. Spamming `<Esc>` prevented it.  
 **Root cause:** `ttimeoutlen = 500` in `options.lua`. Terminals encode `Alt-j` as the byte sequence `<Esc>j`. With a 500ms timeout, Neovim waited after `<Esc>` to see if more characters followed. If `j` arrived within that window, Neovim interpreted `<Esc>j` as `<M-j>` — which LazyVim binds to "move line down".  
 **Fix:** Reduced `ttimeoutlen` from `500` to `10` in `lua/config/options.lua`. This makes `<Esc>` process immediately, breaking the sequence before the next keystroke arrives. The 10ms delay is imperceptible but sufficient to distinguish standalone `<Esc>` from terminal escape sequences.
+
+## flash.nvim Rebinding (2026-05-01)
+**Issue:** LazyVim's flash.nvim overrides `s` (native Vim substitute: delete char + insert mode) with a jump-to-char search. This breaks muscle memory for users who rely on native `s`.  
+**Fix:** Created `nvim/lua/plugins/flash.lua` that:
+1. Restores native `s` → `cl` (substitute character)
+2. Rebinds flash jump to `<S-M-/>` (Shift+Option+/)
+3. Rebinds flash treesitter to `<S-M-?>` (Shift+Option+?)
+
+Both `<S-M-/>` and `<S-M-?>` are unclaimed in tmux and nvim keymaps.
 
 ## Tmux Keybinding Layers
 | Modifier | Key | Action |
@@ -458,10 +474,24 @@ The source of truth becomes:
 - `--dry-run` reports planned file operations and mutates nothing
 - Mutating commands use `~/.claude-swap/.lock`
 
-### Review and move-out workflow
-`_claude-swap/` must stay inside dotfiles until automated tests, temp-directory smoke tests, nested repo commit, and Founder+Advisor review are complete. After approval, move it out to its own permanent project directory/repository.
+### Commands
+| Command | Description |
+|---|---|
+| `claude-swap <profile>` | Activate a stored profile |
+| `claude-swap init` | Initialize the profile store |
+| `claude-swap import <name>` | Create a new profile from active config |
+| `claude-swap update` | **Re-import active config into the currently active profile** |
+| `claude-swap inspect [profile]` | **Display profile metadata + recursive tree of stored files** |
+| `claude-swap rename <old> <new>` | Rename a profile |
+| `claude-swap restore [id]` | Restore a backup |
+| `claude-swap status` | Show active profile |
+| `claude-swap list` | List all profiles |
+| `claude-swap doctor` | Validate store health |
+
+### Known fixes
+- **2026-05-01**: `--help` and `-h` flags were rejected as "Unknown flag" because `parseArgs` did not recognize them before the command dispatch phase. Fixed by adding cases in `parseArgs` to set `parsed.command = "help"`.
 
 ## Notes
 - nvm sourced directly in bash via `/opt/homebrew/opt/nvm/nvm.sh` (no bass wrapper needed)
-- Old fish/config.fish preserved in git history but replaced by bash/.bashrc
+- bash/.bashrc and bash/.bash_profile preserved for POSIX/scripting; fish is the default interactive shell
 - Old nvim/init.vim replaced by LazyVim lua config

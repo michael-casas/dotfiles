@@ -1,7 +1,13 @@
 {
-  "model": "sonnet[1m]",
+  "model": "opus",
+  "statusLine": {
+    "type": "command",
+    "command": "claudeline -cwd -git-branch -cost"
+  },
   "enabledPlugins": {
-    "codex@openai-codex": true
+    "codex@openai-codex": true,
+    "atlassian@claude-plugins-official": true,
+    "github@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "openai-codex": {
@@ -11,10 +17,7 @@
       }
     }
   },
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "autoMemoryEnabled": false,
-  "statusLine": {
-    "type": "command",
-    "command": "claudeline -cwd -git-branch -cost"
-  }
+  "theme": "dark-ansi"
 }
