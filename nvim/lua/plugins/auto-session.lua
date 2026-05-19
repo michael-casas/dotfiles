@@ -7,9 +7,9 @@ return {
     { "<leader>qd", "<cmd>AutoSession delete<CR>", desc = "Delete session" },
   },
   opts = {
-    auto_save = true,
-    auto_restore = true,
-    auto_create = true,
+    auto_save = false,
+    auto_restore = false,
+    auto_create = false,
     suppressed_dirs = { "~/", "~/Downloads", "/", "/tmp" },
     bypass_save_filetypes = { "snacks_dashboard", "alpha", "dashboard" },
     close_filetypes_on_save = { "checkhealth" },

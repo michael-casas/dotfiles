@@ -255,6 +255,36 @@
     },
     {
       "app": "nvim",
+      "key": "s",
+      "action": "cl",
+      "context": "normal",
+      "mode": "n",
+      "description": "Substitute character (restored native behavior; flash.nvim moved to <S-M-/>",
+      "file": "nvim/lua/plugins/flash.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<S-M-/>",
+      "action": "require('flash').jump()",
+      "context": "normal/visual/operator",
+      "mode": "n,x,o",
+      "description": "Flash jump-to-char (was 's', rebound to avoid collision)",
+      "file": "nvim/lua/plugins/flash.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
+      "key": "<S-M-?>",
+      "action": "require('flash').treesitter()",
+      "context": "normal/visual/operator",
+      "mode": "n,x,o",
+      "description": "Flash Treesitter node jump",
+      "file": "nvim/lua/plugins/flash.lua",
+      "line_ref": "~keys"
+    },
+    {
+      "app": "nvim",
       "key": "<leader>oask",
       "action": "vim.cmd('AskAI')",
       "context": "normal",
@@ -507,6 +537,20 @@
         "Choose different tmux prefix"
       ],
       "resolution": "Chose different tmux prefix (C-\\)",
+      "status": "resolved"
+    },
+    {
+      "id": "COLL-002",
+      "key": "s",
+      "apps_involved": ["nvim"],
+      "severity": "medium",
+      "description": "LazyVim/flash.nvim overrides native 's' (substitute char + insert) with jump-to-char search",
+      "resolution_options": [
+        "Disable flash.nvim entirely",
+        "Rebind flash.nvim to unused key",
+        "Accept the override and use 'cl' for substitute"
+      ],
+      "resolution": "Rebound flash.nvim to <S-M-/> (jump) and <S-M-?> (treesitter); restored native 's'",
       "status": "resolved"
     }
   ],
