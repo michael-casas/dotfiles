@@ -84,8 +84,16 @@ Bash config remains in the repo for POSIX scripting and remote environments wher
 - `fd` — fast file finder (required by snacks.nvim explorer)
   - Global ignore file: `fd/ignore` → `~/.config/fd/ignore` (excludes `node_modules/`, `dist/`, `build/`, `.git/`, etc.)
 - `pgcli` — enhanced PostgreSQL CLI with syntax highlighting + autocomplete
+- `taplo` — TOML LSP for config validation and IntelliSense
 
 ## Neovim Plugins
+### taplo (TOML LSP)
+TOML language server with schema associations for Codex `config.toml` files.
+- **File**: `nvim/lua/plugins/taplo.lua`
+- **Schema**: Associates `(.*\/)?\.codex\/config\.toml$` with `https://developers.openai.com/codex/config-schema.json`
+- **Install**: `brew install taplo` (or `npm i -g @taplo/cli`)
+- **Usage**: Open any `.toml` file or `~/.codex/config.toml` — taplo auto-attaches for validation and completion
+
 ### render-markdown.nvim
 Inline markdown preview using conceal + virtual text. Replaces raw syntax with rendered equivalents (headers, code blocks, bullets, checkboxes, quotes, tables, callouts) while preserving the underlying file. Anti-conceal reveals raw syntax when the cursor lands on a line — identical to JSON conceal behavior.
 - **File**: `nvim/lua/plugins/render-markdown.lua`
@@ -266,6 +274,10 @@ A long-lived systems architect agent running via `opencode serve` on port 2313. 
 ### Why port 2313?
 Hardcoded to avoid collision with Support (4096) and any other services. The bash config checks `pgrep` before starting to prevent duplicate processes.
 
+## OpenCode Configuration (`opencode.json`)
+- **File**: `opencode/opencode.json` → `~/.opencode/opencode.json`
+- **TODO**: The `mcp.Sanity.headers.Authorization` field contains a live Bearer token. This should be moved to an environment variable (e.g., `$SANITY_MCP_TOKEN`) and substituted at runtime to avoid committing secrets to git. The file is currently unstaged and should remain so until the token is externalized.
+
 ## Snacks.nvim Explorer Configuration
 The explorer (`<leader>e`) and file picker (`<leader>ff`) show **all files including hidden dotfiles**, while excluding common build/dependency directories.
 
@@ -275,20 +287,21 @@ The explorer (`<leader>e`) and file picker (`<leader>ff`) show **all files inclu
 
 This means the explorer shows every file in the directory tree except the ignored noise directories.
 
-## Nx Integration (snacks.nvim pickers)
-Lightweight Nx workspace integration without installing telescope-based `nx.nvim`. Uses `snacks.picker` custom sources that shell out to `npx nx`.
+## Nx Integration (nx-console.nvim)
+Full Nx Console integration via `yardnsm/nx-console.nvim`, powered by the official `nxls` language server (same backend as VS Code and JetBrains IDEs). Replaces the previous lightweight snacks.nvim custom picker implementation.
 
 ### Entry Points
 | Trigger | Action |
 |---|---|
-| `<leader>nxg` | List Nx generators (`nx list`) → run selected in terminal |
-| `<leader>nxr` | List Nx projects + targets (`nx show projects`) → run selected in terminal |
+| `<leader>nxg` | Open Nx generators picker (`nx-console.pickers.generators()`) |
+| `<leader>nxr` | Open Nx targets picker (`nx-console.pickers.targets()`) |
 
 ### How it works
-- Detects Nx workspace by checking `package.json` for `nx` dependency
-- Task runner: runs `nx show projects --json`, then `nx show project <name> --json` to enumerate targets
-- Generators: parses `nx list` output for `plugin:generator` lines
-- Selection opens a terminal buffer running `nx generate` or `nx run`
+- Uses the official `nxls` LSP server for workspace intelligence (projects, targets, generators)
+- `nxls` binary is auto-downloaded and managed by the plugin
+- Pickers use `snacks.nvim` (explicitly configured as the picker backend)
+- Commands run via the built-in `snacks` command runner (opens a snacks terminal window)
+- Also provides `:NxConsole start/stop/refresh/download` commands and optional neo-tree integration
 
 ## PostgreSQL Interactive Workflow (pgcli)
 `pgcli` (enhanced psql with syntax highlighting + autocomplete) is used via an interactive nvim workflow. No auto-login files — credentials are prompted per-session and cached in-memory.
