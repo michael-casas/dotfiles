@@ -6,10 +6,12 @@ return {
     "folke/snacks.nvim",
   },
 
-  opts = {
-    picker = "snacks",
-    command_runner = require("nx-console.runners").snacks(),
-  },
+  opts = function()
+    return {
+      picker = "snacks",
+      command_runner = require("nx-console.runners").snacks(),
+    }
+  end,
 
   keys = {
     {

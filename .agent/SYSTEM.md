@@ -33,6 +33,7 @@ claude/settings.json        -> ~/.claude/settings.json  # Claude Code config + s
 claude-swap/                -> ~/.claude-swap            # claude-swap profile store
 _claude-swap/               # standalone claude-swap source repo (ignored by parent git)
 setup.sh                    # Symlink installer
+pkg-check.sh                # Pre-validation dependency checker
 ```
 
 ## Prompt
@@ -107,7 +108,24 @@ Inline markdown preview using conceal + virtual text. Replaces raw syntax with r
   - Pipe tables rendered with box-drawing characters
 - **Dependencies**: `nvim-treesitter`, `nvim-web-devicons`
 
-## Setup Commands
+## Dependency Pre-Validation (`pkg-check.sh`)
+Before running `setup.sh` on a new machine, use `pkg-check.sh` to audit installed vs missing dependencies. It auto-detects your platform and package manager (`brew`, `apt`, `pacman`, `dnf`, `apk`), categorizes missing packages, and generates the exact install commands.
+
+```bash
+# 1. Check what you have / what you're missing
+./pkg-check.sh
+
+# 2. Optionally let it run the package manager install for you
+#    (manual/special installs like ble.sh or TPM are printed separately)
+```
+
+### Architecture
+- **Declarative registry**: Pipe-delimited package entries with per-manager package names
+- **Check engine**: `bin`, `ver:N`, `dir:path`, `file:path1,path2` — extensible check types
+- **Category groups**: core, shell, lang, db, util, ai, optional
+- **Special handlers**: ble.sh (curl), TPM (git clone), nvm on Linux (curl script)
+
+### Manual Fallback (macOS)
 ```bash
 # Install dependencies
 brew install fish bash bash-completion@2 starship pyenv nvm fzf fd pgcli
@@ -278,6 +296,40 @@ Hardcoded to avoid collision with Support (4096) and any other services. The bas
 - **File**: `opencode/opencode.json` → `~/.opencode/opencode.json`
 - **TODO**: The `mcp.Sanity.headers.Authorization` field contains a live Bearer token. This should be moved to an environment variable (e.g., `$SANITY_MCP_TOKEN`) and substituted at runtime to avoid committing secrets to git. The file is currently unstaged and should remain so until the token is externalized.
 
+## LazyVim LSP Topology
+
+### Architecture
+- **Orchestration**: LazyVim owns LSP setup via `lazyvim/plugins/lsp/init.lua`
+- **Installation**: Mason handles binary installation (`mason.nvim` + `mason-lspconfig.nvim`)
+- **Registration**: `nvim-lspconfig` configures servers via Neovim 0.11+ native `vim.lsp.config()` / `vim.lsp.enable()` API
+- **Auto-enable**: `mason-lspconfig` `automatic_enable` starts servers when matching files open
+
+### Active Servers
+| Server | Filetypes | Source | Mason Status |
+|---|---|---|---|
+| `vtsls` | `.ts`, `.tsx`, `.js`, `.jsx` | `lazyvim.plugins.extras.lang.typescript` | ✅ installed |
+| `taplo` | `.toml` | `lazyvim.plugins.extras.lang.toml` | ✅ installed |
+| `lua_ls` | `.lua` | LazyVim core default | ✅ installed |
+
+### TypeScript / React
+- **No separate TSX config required**: `vtsls` handles both `.ts` and `.tsx` via its `filetypes` array
+- **Root detection**: Uses `tsconfig.json`, `package.json`, `jsconfig.json` markers; works correctly in monorepos (tested: finds `package.json` in monorepo root)
+- **Autostart**: Confirmed working — `vtsls` attaches to both `.ts` and `.tsx` buffers immediately
+
+### Taplo (TOML)
+- **Custom override**: `nvim/lua/plugins/taplo.lua` imports `lazyvim.plugins.extras.lang.toml` and extends `taplo.settings` with Codex schema association
+- **Schema association**: `(.*\/)?\.codex\/config\.toml$` → `https://developers.openai.com/codex/config-schema.json`
+- **Autostart**: Confirmed working — `taplo` attaches to `.toml` buffers immediately
+
+### Validation Results
+- ✅ `vtsls` attaches to `.ts` files
+- ✅ `vtsls` attaches to `.tsx` files
+- ✅ `taplo` attaches to `.toml` files
+- ✅ Monorepo root detection works (`package.json` in parent directory)
+- ✅ No duplicate manual `lspconfig` setup
+- ✅ No formatter/linter conflicts for TypeScript or TOML
+- ✅ Clean nvim startup (no errors)
+
 ## Snacks.nvim Explorer Configuration
 The explorer (`<leader>e`) and file picker (`<leader>ff`) show **all files including hidden dotfiles**, while excluding common build/dependency directories.
 
@@ -302,6 +354,10 @@ Full Nx Console integration via `yardnsm/nx-console.nvim`, powered by the offici
 - Pickers use `snacks.nvim` (explicitly configured as the picker backend)
 - Commands run via the built-in `snacks` command runner (opens a snacks terminal window)
 - Also provides `:NxConsole start/stop/refresh/download` commands and optional neo-tree integration
+
+### Startup Fix (2026-05-26)
+**Issue**: `nx.lua` used `opts = { command_runner = require("nx-console.runners").snacks() }` which eagerly required the module at plugin spec evaluation time, before the plugin was cloned. This caused nvim startup to fail with `module 'nx-console.runners' not found`.
+**Fix**: Changed `opts` to a function `opts = function() return { ... } end` so the `require()` executes at setup time, after the plugin is available.
 
 ## PostgreSQL Interactive Workflow (pgcli)
 `pgcli` (enhanced psql with syntax highlighting + autocomplete) is used via an interactive nvim workflow. No auto-login files — credentials are prompted per-session and cached in-memory.
