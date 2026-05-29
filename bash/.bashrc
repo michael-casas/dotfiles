@@ -67,6 +67,13 @@ if [[ -f /opt/homebrew/opt/fzf/shell/completion.bash ]]; then
     source /opt/homebrew/opt/fzf/shell/completion.bash
 fi
 
+# --- Global Env (loaded into every bash shell) ---
+if [[ -f "$HOME/.dotfiles/.env" ]]; then
+    set -a
+    source "$HOME/.dotfiles/.env"
+    set +a
+fi
+
 # --- Aliases ---
 alias ws='cd ~/Documents/repos/github.com'
 alias kiroc='kiro-cli'
