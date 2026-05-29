@@ -102,6 +102,11 @@ set -gx VISUAL nvim
 # --- Pager ---
 set -gx GLOW_PAGER "nvim -R -"
 
+# --- direnv ---
+if command -v direnv >/dev/null
+    direnv hook fish | source
+end
+
 # --- Prompt ---
 if command -v starship >/dev/null
     starship init fish | source
