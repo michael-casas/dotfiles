@@ -47,6 +47,27 @@ Fish provides excellent interactive UX out of the box — syntax highlighting, a
 - **Functions**: `fish/functions/` → `~/.config/fish/functions/`
 - **Completions**: `fish/completions/` → `~/.config/fish/completions/`
 
+## Environment Variables (`.env`)
+Sensitive environment variables live in `~/.dotfiles/.env` (gitignored) and are loaded into **every fish shell** via a native parser in `config.fish`. This ensures subprocesses spawned from any directory have access.
+
+### Loading mechanism
+1. **`fish/config.fish`** — `__load_env` function parses `~/.dotfiles/.env` on every shell startup
+2. **`.env`** — gitignored secrets file (never committed)
+3. **`.env.example`** — tracked scaffold showing required keys
+
+### direnv (per-directory overrides)
+`direnv` is available for per-directory `.env` or `.envrc` overrides (e.g., project-specific API endpoints). The hook is active in fish but is **supplemental** — the global `.env` is already loaded.
+
+```bash
+# Allow direnv in a project
+ direnv allow .
+```
+
+### Security
+- `.env` is in `.gitignore` — secrets never hit git
+- The parser handles `export ` prefix, `#` comments, and `"`/ `'` quote stripping
+- Values are never logged in `config.fish` or session transcripts
+
 ## Bash Config (Preserved)
 Bash config remains in the repo for POSIX scripting and remote environments where fish may not be available.
 - **Config**: `bash/.bashrc` → `~/.bashrc`
