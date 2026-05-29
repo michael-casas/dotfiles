@@ -1,5 +1,7 @@
 # --- Personal / Secrets ---
 personal/*.env
+*.env
+*.*.env
 
 # --- OS Files ---
 .DS_Store
@@ -27,6 +29,7 @@ tmux/plugins/
 # --- General ---
 _claude-swap/
 .claude-swap/
+advisor/
 *.bak
 *.swp
 *.swo
