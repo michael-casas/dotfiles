@@ -102,7 +102,31 @@ set -gx VISUAL nvim
 # --- Pager ---
 set -gx GLOW_PAGER "nvim -R -"
 
-# --- direnv ---
+# --- Global Env (loaded into every fish shell) ---
+function __load_env --argument file
+    if not test -f "$file"
+        return
+    end
+    while read -l line
+        if test -z "$line"; or string match -q "#*" $line
+            continue
+        end
+        set line (string replace -r '^export\s+' '' $line)
+        set -l parts (string split -m 1 '=' $line)
+        set -l key (string trim $parts[1])
+        set -l val (string trim $parts[2])
+        if string match -q '"*"' $val
+            set val (string sub -s 2 -e -1 $val)
+        else if string match -q "'*'" $val
+            set val (string sub -s 2 -e -1 $val)
+        end
+        set -gx $key $val
+    end <$file
+end
+
+__load_env $HOME/.dotfiles/.env
+
+# --- direnv (per-directory overrides) ---
 if command -v direnv >/dev/null
     direnv hook fish | source
 end
