@@ -1,61 +1,66 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "agent": {
+    "build": {
+      "disable": true
+    },
     "Conduit": {
       "options": {
+        "n": 1,
         "temperature": 0,
-        "top_p": 1,
-        "n": 1
-      }
-    },
-    "Support": {
-      "model": "lmstudio/qwen3.5-9b-mlx",
-      "options": {
-        "temperature": 0.3,
-        "top_p": 1,
-        "n": 1
+        "top_p": 1
       }
     },
     "django-systems-architect": {
       "options": {
+        "n": 1,
         "temperature": 0.2,
-        "top_p": 1,
-        "n": 1
+        "top_p": 1
       }
     },
-    "build": {
+    "general": {
       "disable": true
     },
     "plan": {
       "disable": true
     },
-    "general": {
-      "disable": true
+    "Support": {
+      "model": "lmstudio/qwen3.5-9b-mlx",
+      "options": {
+        "n": 1,
+        "temperature": 0.3,
+        "top_p": 1
+      }
     }
   },
+  "plugin": [
+    "./plugins/cmux-session.js"
+  ],
   "provider": {
-    "ollama": {
-      "options": {
-        "npm": "@ai-sdk/openai-compatible",
-        "baseURL": "http://localhost:11434/v1"
-      },
-      "models": {
-        "llama3.1:latest": {
-          "name": "Llama 3.1"
-        }
-      }
-    },
     "lmstudio": {
-      "options": {
-        "npm": "@ai-sdk/openai-compatible",
-        "baseURL": "http://localhost:1234/v1"
-      },
       "models": {
         "qwen3.5-9b-mlx": {
           "name": "Qwen3.5 9B MLX"
         }
+      },
+      "options": {
+        "baseURL": "http://localhost:1234/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      }
+    },
+    "ollama": {
+      "models": {
+        "llama3.1:latest": {
+          "name": "Llama 3.1"
+        },
+        "qwen2.5-coder:latest": {
+          "name": "qwen2.5-coder"
+        }
+      },
+      "options": {
+        "baseURL": "http://localhost:11434/v1",
+        "npm": "@ai-sdk/openai-compatible"
       }
     }
-  },
-  "mcp": {}
+  }
 }

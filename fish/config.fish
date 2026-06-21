@@ -27,6 +27,11 @@ fish_add_path $ANDROID_HOME/platform-tools
 fish_add_path $ANDROID_HOME/tools
 fish_add_path $ANDROID_HOME/tools/bin
 
+# PostgreSQL 18 (keg-only, not symlinked by brew)
+fish_add_path /opt/homebrew/opt/postgresql@18/bin
+set -gx LDFLAGS "-L/opt/homebrew/opt/postgresql@18/lib"
+set -gx CPPFLAGS "-I/opt/homebrew/opt/postgresql@18/include"
+
 # pyenv
 set -gx PYENV_ROOT "$HOME/.pyenv"
 fish_add_path $PYENV_ROOT/bin
@@ -151,3 +156,10 @@ if not string match -q -- $PNPM_HOME $PATH
   set -gx PATH "$PNPM_HOME" $PATH
 end
 # pnpm end
+
+# Added by Antigravity IDE
+fish_add_path /Users/mcasa_atlantis/.antigravity-ide/antigravity-ide/bin
+
+
+# Added by Antigravity CLI installer
+set -gx PATH "/Users/mcasa_atlantis/.local/bin" $PATH

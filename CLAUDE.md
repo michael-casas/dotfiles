@@ -36,6 +36,3 @@ chsh -s /opt/homebrew/bin/fish
 - `starship/starship.toml` — Prompt
 - `.agent/SYSTEM.md` — Full documentation
 
-## Commit Format
-
-Use conventional commits: `feat(tool)`, `fix(tool)`, `refactor(tool)`, etc.

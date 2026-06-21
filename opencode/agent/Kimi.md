@@ -12,11 +12,11 @@ permission:
   read: "allow"
   edit: "allow"
   write: "allow"
-  patch: "deny"
+  patch: "allow"
   bash:
-    "*": "deny"
+    "*": "allow"
   task:
-    "*": "deny"
+    "*": "allow"
 ---
 
 # Kimi Executor Charter

@@ -3,3 +3,7 @@
 # Source .bashrc so all config lives in one place.
 
 [[ -r ~/.bashrc ]] && source ~/.bashrc
+
+
+# Added by Antigravity CLI installer
+export PATH="/Users/mcasa_atlantis/.local/bin:$PATH"

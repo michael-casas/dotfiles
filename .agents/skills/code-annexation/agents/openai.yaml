@@ -1,0 +1,5 @@
+interface:
+  display_name: Code Annexation
+  short_description: Evaluate external code for clean GOD-LOCK annexation.
+  icon: 🧬
+  brand_color: '#5b21b6'

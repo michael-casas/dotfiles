@@ -32,6 +32,7 @@ starship/starship.toml      -> ~/.config/starship.toml
 claude/settings.json        -> ~/.claude/settings.json  # Claude Code config + statusline
 claude-swap/                -> ~/.claude-swap            # claude-swap profile store
 _claude-swap/               # standalone claude-swap source repo (ignored by parent git)
+.agents/skills/             -> ~/.agents/skills, ~/.claude/skills, ~/.hermes/skills/user
 setup.sh                    # Symlink installer
 pkg-check.sh                # Pre-validation dependency checker
 ```
@@ -92,7 +93,7 @@ Bash config remains in the repo for POSIX scripting and remote environments wher
 - Bun (`~/.bun`)
 - OpenCode (`~/.opencode`)
 - LM Studio (`~/.lmstudio`, local API at `localhost:1234`)
-- LM Studio (`~/.lmstudio`)
+- PostgreSQL 18 (`/opt/homebrew/opt/postgresql@18`, keg-only, added to PATH via `fish_add_path`)
 
 ## Dependencies
 - `fish` — primary interactive shell (Homebrew)
@@ -380,6 +381,38 @@ Full Nx Console integration via `yardnsm/nx-console.nvim`, powered by the offici
 **Issue**: `nx.lua` used `opts = { command_runner = require("nx-console.runners").snacks() }` which eagerly required the module at plugin spec evaluation time, before the plugin was cloned. This caused nvim startup to fail with `module 'nx-console.runners' not found`.
 **Fix**: Changed `opts` to a function `opts = function() return { ... } end` so the `require()` executes at setup time, after the plugin is available.
 
+## PostgreSQL Architecture (Homebrew)
+PostgreSQL 18 is managed by Homebrew (`postgresql@18`), replacing the previous EnterpriseDB installation.
+
+### Migration (2026-06-03)
+- **Stopped**: EnterpriseDB PostgreSQL (`/Library/PostgreSQL/18/`)
+- **Started**: Homebrew PostgreSQL 18.4 on port 5432
+- **Data backup**: `/Library/PostgreSQL/18/data` preserved (can copy with sudo)
+- **Socket cleanup**: Removed stale `/tmp/.s.PGSQL.5432*` files from EnterpriseDB
+
+### Configuration
+- **Data directory**: `/opt/homebrew/var/postgresql@18`
+- **Config file**: `/opt/homebrew/var/postgresql@18/postgresql.conf`
+- **Log file**: `/opt/homebrew/var/log/postgresql@18.log`
+- **Service**: `brew services start postgresql@18`
+
+### Extensions (Homebrew formulas)
+| Extension | Formula | Version | Config Required |
+|---|---|---|---|
+| pgvector | `pgvector` | 0.8.2 | None |
+| pg_cron | `pg_cron` | 1.6 | `shared_preload_libraries = 'pg_cron'` + `cron.database_name = 'postgres'` |
+| pgrouting | `pgrouting` | 4.0.1 | None |
+| postgis | `postgis` | 3.6.3 | None |
+
+### Extension Setup
+```sql
+-- In psql
+CREATE EXTENSION vector;
+CREATE EXTENSION pg_cron;
+CREATE EXTENSION postgis;
+CREATE EXTENSION pgrouting;
+```
+
 ## PostgreSQL Interactive Workflow (pgcli)
 `pgcli` (enhanced psql with syntax highlighting + autocomplete) is used via an interactive nvim workflow. No auto-login files — credentials are prompted per-session and cached in-memory.
 
@@ -580,6 +613,14 @@ The source of truth becomes:
 
 ### Known fixes
 - **2026-05-01**: `--help` and `-h` flags were rejected as "Unknown flag" because `parseArgs` did not recognize them before the command dispatch phase. Fixed by adding cases in `parseArgs` to set `parsed.command = "help"`.
+
+## Agent Skills Symlink
+The `.agents/skills/` directory in dotfiles is symlinked to three target locations so all AI tools share the same skill definitions:
+- `~/.agents/skills` → `~/.dotfiles/.agents/skills`
+- `~/.claude/skills` → `~/.dotfiles/.agents/skills`
+- `~/.hermes/skills/user` → `~/.dotfiles/.agents/skills`
+
+Managed by `setup.sh` with timestamped backups for existing directories.
 
 ## Notes
 - nvm sourced directly in bash via `/opt/homebrew/opt/nvm/nvm.sh` (no bass wrapper needed)

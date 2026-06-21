@@ -149,6 +149,36 @@ if [[ -d "$DOTFILES_DIR/opencode" ]]; then
     ln -sfn "$DOTFILES_DIR/opencode" "$HOME/.config/opencode"
 fi
 
+# --- Agent Skills ---
+SKILLS_SOURCE="$DOTFILES_DIR/.agents/skills"
+if [[ -d "$SKILLS_SOURCE" ]]; then
+    echo "==> Linking agent skills..."
+
+    link_skills_dir() {
+        local target_dir="$1"
+        mkdir -p "$(dirname "$target_dir")"
+
+        if [[ -e "$target_dir" || -L "$target_dir" ]]; then
+            local current_target=""
+            if [[ -L "$target_dir" ]]; then
+                current_target="$(readlink "$target_dir")"
+            fi
+            if [[ "$current_target" != "$SKILLS_SOURCE" ]]; then
+                local backup_path="${target_dir}.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+                echo "    Backing up existing ${target_dir} to ${backup_path}"
+                mv "$target_dir" "$backup_path"
+            fi
+        fi
+
+        ln -sfn "$SKILLS_SOURCE" "$target_dir"
+        echo "    Linked ${target_dir} -> ${SKILLS_SOURCE}"
+    }
+
+    link_skills_dir "$HOME/.agents/skills"
+    link_skills_dir "$HOME/.claude/skills"
+    link_skills_dir "$HOME/.hermes/skills/user"
+fi
+
 echo "==> Done!"
 
 echo ""
