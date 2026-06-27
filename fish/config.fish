@@ -63,11 +63,12 @@ alias v="nvim"
 alias claude-opus="~/.local/bin/claude-opus"
 # fd: always show hidden files; exclusions live in ~/.config/fd/ignore
 alias fd="fd --hidden"
+alias obsidian="/Applications/Obsidian.app/Contents/MacOS/obsidian"
 
 # --- Support Agent (OpenCode serve) ---
 function support-serve
     if test -n "$TMUX"
-        tmux new-window -n "support" "opencode serve --port 4096 --hostname 127.0.0.1"
+        tmux new-window -n support "opencode serve --port 4096 --hostname 127.0.0.1"
     else
         echo "Start tmux first, then run support-serve"
         return 1
@@ -78,7 +79,7 @@ function ask
     set -l server_url "http://localhost:4096"
 
     # Check if server is running
-    if not curl -s $server_url/global/health > /dev/null 2>&1
+    if not curl -s $server_url/global/health >/dev/null 2>&1
         echo "Support server not running. Start it with: support-serve"
         return 1
     end
@@ -90,14 +91,14 @@ function ask
     if test -n "$session_id"
         opencode run --attach $server_url --agent Support --session $session_id "$argv"
     else
-        opencode run --attach $server_url --agent Support --title "Support" "$argv"
+        opencode run --attach $server_url --agent Support --title Support "$argv"
     end
 end
 
 # --- Django Systems Architect Agent (OpenCode serve on port 2313) ---
 # Auto-start the long-lived server if not already running
-if not pgrep -f "opencode serve --port 2313" > /dev/null 2>&1
-    nohup opencode serve --port 2313 --hostname 127.0.0.1 &> /dev/null &
+if not pgrep -f "opencode serve --port 2313" >/dev/null 2>&1
+    nohup opencode serve --port 2313 --hostname 127.0.0.1 &>/dev/null &
 end
 
 # --- Editor ---
@@ -151,15 +152,14 @@ set fish_greeting
 bind \t accept-autosuggestion
 
 # pnpm
-set -gx PNPM_HOME "/Users/mcasa_atlantis/Library/pnpm"
-if not string match -q -- $PNPM_HOME $PATH
-  set -gx PATH "$PNPM_HOME" $PATH
+set -gx PNPM_HOME /Users/mcasa_atlantis/Library/pnpm
+if not string match -q -- "$PNPM_HOME/bin" $PATH
+    set -gx PATH "$PNPM_HOME/bin" $PATH
 end
 # pnpm end
 
 # Added by Antigravity IDE
 fish_add_path /Users/mcasa_atlantis/.antigravity-ide/antigravity-ide/bin
-
 
 # Added by Antigravity CLI installer
 set -gx PATH "/Users/mcasa_atlantis/.local/bin" $PATH
