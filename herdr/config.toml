@@ -11,10 +11,14 @@ auto_switch = false
 [keys]
 prefix = "ctrl+space"
 workspace_picker = "prefix+w"
-navigate_pane_left = "h"
-navigate_pane_right = "l"
+# Workspace/navigate mode: spaces only (j/k). Pane h/l here do not register usefully.
 navigate_workspace_down = "j"
 navigate_workspace_up = "k"
+# Prefix mode: vim pane cycle (replace default tab n/p usage for next/prev pane)
+cycle_pane_previous = "prefix+h"
+cycle_pane_next = "prefix+l"
+# Free classic n/p from tab switching if user expects those freed; keep tab switch on other binds if needed
+# previous_tab / next_tab left at herdr defaults unless they collide — cycle_pane takes prefix+h/l only.
 
 [ui]
 agent_panel_sort = "spaces"
