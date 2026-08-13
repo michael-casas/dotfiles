@@ -12,21 +12,24 @@ auto_switch = false
 prefix = "ctrl+space"
 workspace_picker = "prefix+w"
 
-# Navigate/workspace mode: spaces only
+# Workspace/navigate mode — spaces only (keep)
 navigate_workspace_down = "j"
 navigate_workspace_up = "k"
 
-# Prefix mode: previous/next pane on h/l (vim)
+# Prefix mode — previous/next pane on h/l (replace n/p habit)
 cycle_pane_previous = "prefix+h"
 cycle_pane_next = "prefix+l"
 
-# Do not let defaults steal h/l for directional focus or n/p for tabs
-focus_pane_left = ""
-focus_pane_right = ""
-focus_pane_up = ""
-focus_pane_down = ""
-previous_tab = ""
-next_tab = ""
+# Move default directional focus off h/l so cycle owns those chords
+# (do not use "" — that unsets and shows as unset in the UI)
+focus_pane_left = "prefix+shift+h"
+focus_pane_right = "prefix+shift+l"
+focus_pane_down = "prefix+shift+j"
+focus_pane_up = "prefix+shift+k"
+
+# Move default tab n/p off the old chords so n/p are free
+previous_tab = "prefix+shift+p"
+next_tab = "prefix+shift+n"
 
 [ui]
 agent_panel_sort = "spaces"
