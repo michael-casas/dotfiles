@@ -1,0 +1,4 @@
+interface:
+  display_name: "BATDD Native Lowering"
+  short_description: "Compile Gherkin into native cross-platform tests"
+  default_prompt: "Use $batdd to compile this physical Gherkin contract into native Playwright and Maestro lanes, prove meaningful RED, and reconcile Web, Android, and iOS evidence."

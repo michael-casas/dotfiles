@@ -1,0 +1,4 @@
+interface:
+  display_name: "Herdr Bridge"
+  short_description: "Recover Herdr access when HERDR_ENV is unset"
+  default_prompt: "Use $herdr-bridge to verify scoped bridge access after the HERDR_ENV=1 check fails."
