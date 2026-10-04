@@ -56,6 +56,20 @@ def main():
                 os.replace(temporary, dest)
             finally:
                 temporary.unlink(missing_ok=True)
+        # Reconcile the generated index with the actual catalog. Keep existing
+        # vendor/variant mappings, while retired entries cease to be advertised.
+        index = CATALOG.parent / "manifest.json"
+        previous = json.loads(index.read_text()) if index.exists() else {}
+        entries = {entry.name: previous.get(entry.name, str(entry.resolve()))
+                   for entry in CATALOG.iterdir()
+                   if not entry.name.startswith(".") and (entry / "SKILL.md").is_file()}
+        entries.update({name: str(CANONICAL / name) for name in NAMES})
+        content = json.dumps(entries, indent=2) + "\n"
+        if not index.exists() or index.read_text() != content:
+            temporary = index.with_name(".t19-manifest.json")
+            with temporary.open("x") as stream:
+                stream.write(content)
+            os.replace(temporary, index)
         applied = True
     print(json.dumps({"sources": len(NAMES), "entries": len(NAMES),
                       "links_needed": len(links), "conflicts": conflicts,
