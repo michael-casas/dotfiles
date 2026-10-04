@@ -1,3 +1,40 @@
 [user]
 	name = Michael Casas
-	email = deploy@aes-mlb.com
+	email = info@michaelcasas.dev
+
+[includeIf "hasconfig:remote.*.url:https://github.com/atlantis-electrical/atlantis"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:https://github.com/atlantis-electrical/atlantis.git"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:git@github.com:atlantis-electrical/atlantis.git"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:https://github.com/atlantis-electrical/atlantis-electrical"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:https://github.com/atlantis-electrical/atlantis-electrical.git"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:git@github.com:atlantis-electrical/atlantis-electrical.git"]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:/Users/mcasa_atlantis/Documents/repos/github.com/atlantis-electrical/atlantis-electrical/tmp/review-probe-nx-136-P2/."]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:/Users/mcasa_atlantis/Documents/repos/github.com/atlantis-electrical/atlantis-electrical/tmp/review-probe-nx-136-P/."]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+[includeIf "hasconfig:remote.*.url:/Users/mcasa_atlantis/Documents/repos/github.com/atlantis-electrical/atlantis-electrical/tmp/review-probe-nx-136-A/."]
+	path = ~/.dotfiles/git/aes.gitconfig
+
+# michael-casas/workspace is Jira-connected: author as the Jira account email so smart commits act (Workspace ruling 61)
+[includeIf "hasconfig:remote.*.url:https://github.com/michael-casas/workspace"]
+	path = ~/.dotfiles/git/workspace.gitconfig
+
+[includeIf "hasconfig:remote.*.url:https://github.com/michael-casas/workspace.git"]
+	path = ~/.dotfiles/git/workspace.gitconfig
+
+[includeIf "hasconfig:remote.*.url:git@github.com:michael-casas/workspace.git"]
+	path = ~/.dotfiles/git/workspace.gitconfig
