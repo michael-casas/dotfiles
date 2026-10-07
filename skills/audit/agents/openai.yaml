@@ -1,0 +1,4 @@
+interface:
+  display_name: "Single Pass to Purity audit"
+  short_description: "One critic round: every finding assigned, path to 5/5 upfront"
+  default_prompt: "Use $audit to review the pinned PR head once: score it N/5 on the five-point rubric, assign every finding with a file:line anchor and the exact review comment, deliver the complete path to 5/5 upfront in one GitHub review, and never repair."
