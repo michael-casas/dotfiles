@@ -12,7 +12,7 @@ The critic is never the PR's author and there is never a second reviewer. The cr
 
 1. **Intake.** Read the order (ULID), the charter and Amendments, the claim's Directives, the frozen acceptance, prior reports for the claim. Pin the head: `gh pr view <n> --json headRefOid,baseRefName,isDraft,url`. Record UTC, head, base, PR URL.
 2. **Snapshot.** `git -C <repo> archive <head> | tar -x -C <scratch>/snapshot`, link or install dependencies. Every command runs there; the live checkout and the PR branch are never modified.
-3. **Baseline gates.** Run the project's declared gates on the unmodified snapshot, uncached, and read the output (counts, exit codes): for an Nx project `NX_DAEMON=false <pm> nx run-many -t <targets> -p <project> --skipNxCache --output-style=static`. Record each as a command evidence row (command, cwd, exit, counts, decisive output).
+3. **Proof first, then gates.** Validate the proof the candidate already carries against this exact head (AUDIT.md §3 hierarchy, §6 step 3): fresh, uncached, nonzero counts, artifacts bound to the head. Accept what validates; re-run on the unmodified snapshot, uncached, what is missing, stale, cached or mismatched, and read the output (counts, exit codes): for an Nx project `NX_DAEMON=false <pm> nx run-many -t <targets> -p <project> --skipNxCache --output-style=static`. Record each as a command evidence row (command, cwd, exit, counts, decisive output).
 4. **Attack.** Apply AUDIT.md §9 (false-pass checklist) and §6 step 6. Add temporary adversarial tests to the snapshot only, and keep them: a failing added test is evidence, not a change request to the PR.
 5. **Score and verdict.** Five dimensions, each 0 or 1 (section 3); show the arithmetic. One verdict word beside it: APPROVED (5/5, no required change), BLOCKED (correctable within existing authority) or ESCALATED (a decision the claim does not own).
 6. **Ledger.** Every finding with every field of the contract (section 4). Do not stop at the first blocking finding; do not keep findings for a later round. If a finding depends on a Founder decision, state the decision needed and the requirement under each outcome.
@@ -22,7 +22,7 @@ The critic is never the PR's author and there is never a second reviewer. The cr
 
 ## 3. Rubric
 
-Five dimensions, each awarded exactly `0` or `1`; `4/5` is not approval. The critic charter declares the five dimensions for the claim; when it does not, use:
+Five dimensions, each awarded exactly `0` or `1`; `4/5` is not approval. The critic charter declares and freezes the five dimensions for the claim before the review; a charter without them is a stop. The table below is a proposed general profile the owner may adopt into the charter; the Codex Workflows profile in `~/.codex/skills/audit` is another named profile. Neither applies by default:
 
 | # | Dimension | Point when |
 |---:|---|---|
@@ -46,14 +46,14 @@ Every finding carries all of these fields; a finding missing one is incomplete a
 | Field | Content |
 |---|---|
 | ID | `<claim or PR>-F<n>`, stable for the claim (`PR31-F1`). |
-| Severity | BLOCKING, MAJOR, MINOR or ADVISORY, with its score impact stated. |
+| Severity | BLOCKING, MAJOR, MINOR or ADVISORY, with its score impact stated; an ADVISORY carries every field and no score impact. |
 | Dimension | The rubric dimension it zeroes (none for ADVISORY). |
 | Anchor | `path:line` at the reviewed head, as a permalink `https://github.com/<owner>/<repo>/blob/<head>/<path>#L<line>`; a range when needed. |
 | Owner | The seat alias that must act (the implementer, or the owner for a Founder decision). |
 | Comment | The exact text posted as the GitHub line comment at the anchor. |
 | Requirement | The exact, testable change that closes it: what must be true, not how to code it; includes the test or proof to add. |
 | Validator | The command, test name or probe whose output proves closure on the Correct head. |
-| Disposition | `OPEN` at the critic round; `CLOSED`, `REGRESSED`, `NOT-APPLICABLE` or `PREFLIGHT-INVALID` after verification, each with evidence. |
+| Disposition | `OPEN` at the critic round (an inherited finding may enter `CLOSED` with evidence); `CLOSED`, `REGRESSED`, `NOT-APPLICABLE` or `PREFLIGHT-INVALID` after verification, each with evidence. |
 
 Executed counterexamples (a failing added test, a decoded artifact, a measured output) are the preferred evidence; a source-reading argument says so.
 
@@ -65,7 +65,7 @@ Delivered upfront, in the report and the review body, before the ledger. One row
 |---|---:|---|---|
 | 3 Commands and safe rendering | 0 | PR31-F1 | `register.test.ts` long-URL case passes; band mounts with the gate on both surfaces |
 
-Rules: the list is complete (meeting every row yields 5/5 by construction); each row names IDs from the ledger only; a dimension already at 1 has an empty requirement cell; advisories are excluded; a requirement contingent on a Founder decision states both outcomes.
+Rules: the list is complete (meeting every row, with every earned point still green, yields 5/5 by construction); each row names IDs from the ledger only; a dimension already at 1 states what must remain green and the evidence that proves it after Correct; advisories are excluded; a requirement contingent on a Founder decision states both outcomes.
 
 ## 6. Correct round (implementer)
 
@@ -77,11 +77,13 @@ Rules: the list is complete (meeting every row yields 5/5 by construction); each
 
 Deterministic, no new judgment. For each requirement ID in the path to 5/5, on the Correct head:
 
-| ID | Validator run (command, cwd, exit, counts) | Anchor re-read | Done |
-|---|---|---|---|
+| ID | Correction commit | Validator run (command, cwd, exit, counts) | Anchor re-read | Disposition |
+|---|---|---|---|---|
 
-- All rows done, required checks green on that head, no Founder gate open → the claim is `5/5` and the owner merges under its grant (Lieutenant: its project; General: Workspace only). Record the verification as a closure record appended beside the critic's verdict (`verdicts.md`); the original N/5 stays, the verified arithmetic is shown separately.
-- A row not done → back to the implementer with the same list; the Correct round continues; no new findings are added by the owner.
+Then the earned points: each preservation evidence re-checked on the Correct head; scope unchanged; required checks green on that head; Founder gates closed.
+
+- All rows done and nothing regressed, required checks green on that head, no Founder gate open → the claim is `5/5` and the owner merges under its grant (Lieutenant: its project; General: Workspace only). Record the verification as a closure record appended beside the critic's verdict (`verdicts.md`); the original N/5 stays, the verified arithmetic is shown separately.
+- A row not done → back to the implementer with the same list, recorded as a return; no new findings are added by the owner. A Correct head that fails verification a second time, a regressed earned point, a scope change, or a host approval rule the owner cannot satisfy → escalate to the General or the Founder; never a further unnamed implementation round.
 - A defect outside the list that the owner cannot ignore → a new claim, or a Founder decision; never a second critic round.
 - Where the project uses Jira lifecycle markers, the implementer's `#review` marker and the Jira read-back precede the merge (AUDIT.md, solo review profile).
 
@@ -91,4 +93,4 @@ This is the PR critic profile of AUDIT.md. The campaign Wave Judge law (Prefligh
 
 ## 9. Supersession
 
-Founder mandate 2026-10-07, `Single Pass to Purity`, supersedes the "maximum two critic rounds" mandate of the same day: two implementation rounds (Implement, Correct) and one critic round between them.
+The cycle is stated once in PURITY (ratified 2026-10-07); this section only records lineage. Founder mandate 2026-10-07, `Single Pass to Purity`, supersedes the "maximum two critic rounds" mandate of the same day: two implementation rounds (Implement, Correct) and one critic round between them.

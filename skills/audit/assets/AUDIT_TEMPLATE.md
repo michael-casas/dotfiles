@@ -1,6 +1,6 @@
 # Audit: <claim or PR> — <N>/5 at `<head sha>`
 
-**Template version:** 2.0.0
+**Template version:** 2.1.0
 **Critic:** <seat alias and model>
 **Order:** <ULID>
 **UTC:** <YYYY-MM-DDTHH:MM:SSZ>
@@ -31,7 +31,7 @@
 |---|---:|---|---|
 | <#> <dimension> | 0 | <IDs> | <validator output, anchor re-read> |
 
-Meeting every row yields 5/5. Advisories are not in this table. A requirement that depends on a Founder decision states both outcomes.
+A dimension at 1 states what must remain green and its evidence. Meeting every row with every earned point still green yields 5/5. Advisories are not in this table. A requirement that depends on a Founder decision states both outcomes.
 
 ## Findings
 
@@ -39,10 +39,10 @@ Meeting every row yields 5/5. Advisories are not in this table. A requirement th
 |---|---|---:|---|---|---|---|---|---|
 | <PR-Fn> | BLOCKING / MAJOR / MINOR | <1-5> | `<path:line>` | <seat> | <exact text> | <exact, testable> | <command / test> | OPEN |
 
-## Advisories
+## Advisories (assigned, no score impact)
 
-| ID | Anchor | Comment | Suggested change |
-|---|---|---|---|
+| ID | Anchor (permalink) | Owner | Comment (as posted or body-only) | Requirement | Validator | Disposition |
+|---|---|---|---|---|---|---|
 
 ## Validation on the unmodified snapshot
 
@@ -66,7 +66,8 @@ Meeting every row yields 5/5. Advisories are not in this table. A requirement th
 
 - Review id and URL:
 - Event:
-- Line comments posted: <count> = non-advisory findings <count>
+- Inline comment IDs: <list>; body-only IDs (outside the diff): <list>; together = ledger: yes
+- POST result read back (id present once): yes
 
 ## Inbox report
 
@@ -87,6 +88,10 @@ SINGLE_PASS_COMPLETE
 
 | ID | Correction commit | Validator run (command, cwd, exit, counts) | Anchor re-read | Disposition |
 |---|---|---|---|---|
+
+**Earned points re-checked:** <dimension: preservation evidence on the Correct head>  **Scope unchanged:** yes/no  **Checks green on head:** yes/no  **Founder gates:** none open / <gate>
+
+**Returns so far:** <0|1>; a second failed verification escalates.
 
 **Verified arithmetic:** `<D1> + <D2> + <D3> + <D4> + <D5> = <N>/5` (the critic's original N/5 above is not rewritten)
 

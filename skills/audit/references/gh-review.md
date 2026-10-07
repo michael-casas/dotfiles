@@ -24,14 +24,14 @@ Review only `headRefOid`. If it moves before you post, post against the pinned S
       "path": "tools/frontline/needs-attention/hooks/register.tsx",
       "line": 201,
       "side": "RIGHT",
-      "body": "PR31-F1 BLOCKING (dimension 3). <exact comment text>\n\nRequirement: <exact requirement>\nValidator: <command or test>"
+      "body": "PR31-F1 BLOCKING (dimension 3), owner sgt-opus-docslack. <exact comment text>\n\nRequirement: <exact requirement>\nValidator: <command or test>"
     }
   ]
 }
 ```
 
 - `event`: `REQUEST_CHANGES` below 5/5; `APPROVE` at 5/5; `COMMENT` when the authenticated account cannot do either (its own PR, a host restriction): the body then carries BLOCKED or ESCALATED and never means approval. A host that then requires an independent approval on the Correct head is a stop for the owner, not a second critic review.
-- `line` is a line of the diff at the head; use `start_line`/`line` for a range. A finding on an unchanged line goes in the body with its permalink and, if GitHub refuses the anchor, the comment is repeated there.
+- `line` must be a line of the diff at the head; use `start_line`/`line` for a range. Validate every anchor against `gh api repos/<owner>/<repo>/pulls/<n>/files` (patch hunks) before the POST. A finding on a line outside the diff is not a line comment: it goes in the body with its exact permalink and full comment text. The body states the reconciliation: inline IDs + body-only IDs = every ledger ID.
 - Multi-line `body` text is JSON-escaped; build the file with a script, not by hand.
 
 ## Post it
@@ -49,7 +49,7 @@ gh api repos/<owner>/<repo>/pulls/<n>/reviews --jq '.[] | select(.commit_id=="<h
 gh api repos/<owner>/<repo>/pulls/<n>/comments --jq 'map(select(.pull_request_review_id==<id>)) | length'
 ```
 
-Exactly one review by the critic on that head; the comment count equals the ledger's non-advisory findings (advisories may be line comments too, prefixed `ADVISORY`). Fix a wrong review by posting a correcting review on the same head that names the superseded one; never delete history.
+Exactly one review by the critic on that head; inline comment IDs plus the body-only IDs equal the ledger. A POST that fails leaves no review: read back, then retry once. A POST whose result is uncertain (timeout, no response) is read back before any retry; never POST again while a review may exist. A defect in a published review is recorded in the report and escalated to the owner; a second review is never posted and nothing is deleted.
 
 ## Owner's merge check
 
