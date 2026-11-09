@@ -31,8 +31,11 @@ Rejected alternatives:
   in the repo. (Tested 2026-11-09, herdr-app 0.1.14.)
 - **Symlinked theme and layout files load.** `layout.switch {"name":"tui"}`
   worked, and `herdr-app status` reported `"errors": []`.
-- **Not yet verified:** symlinked **mod folders**. Test with
-  `herdr-app check` and hot reload before you rely on one.
+- **Symlinked mod folders don't work.** The mod's JavaScript runs and
+  `herdr-app check` passes, but its SVG and image assets don't render.
+  Copy mod folders instead (see `omarchy-sync.sh` and
+  [omarchy.md](omarchy.md)). A symlinked `backgrounds/<dir>` does work.
+  (Tested 2026-11-09, herdr-app 0.1.14.)
 
 ## What to track and what never to track
 
@@ -43,7 +46,10 @@ Track:
   and stops merging new default shortcuts on upgrade. Add new defaults by
   hand after reading the changelog.
 - Your own `layouts/<name>.json` (plus a preview `.svg` or `.png`),
-  `mods/<name>/` and `themes/<name>.json`.
+  `mods/<name>/` (installed by copying, not symlinking) and
+  `themes/<name>.json`.
+- Community packages as a submodule of a private fork, installed with a
+  sync script (`herdr/app/omarchy` + `omarchy-sync.sh`).
 
 Never track, and never symlink:
 

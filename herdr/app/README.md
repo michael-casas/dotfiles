@@ -16,6 +16,8 @@ is the default tool for driving them.
 | `themes/nordic.json` | Nordic palette, matching `ghostty/config` and nvim `nordic.nvim` |
 | `layouts/tui.json` | `main` reworked to feel like a TUI: square corners, no padding, 1px borders, slimmer bars |
 | `layouts/tui.svg` | Preview shown in Settings → Look |
+| `omarchy/` | Submodule: private fork `michael-casas/herdr-omarchy` of the Omarchy layout (mods, themes, wallpapers) |
+| `omarchy-sync.sh` | Installs `omarchy/` into the app home: copies mods, symlinks themes, layout and wallpapers |
 
 ## Rules for agents
 
@@ -42,6 +44,7 @@ is the default tool for driving them.
 | [commands.md](docs/commands.md) | The `herdr-app` CLI and the command list (`herdr-app do …`) |
 | [mods.md](docs/mods.md) | Writing or cloning panels: the gpui-shell runtime, rules, the `herdr` API, patterns, definition of done |
 | [herdr-core.md](docs/herdr-core.md) | Running agents and terminals with `hc`, labels, OSC 7501 status, adopting terminals into spaces |
+| [omarchy.md](docs/omarchy.md) | The Omarchy layout: private fork, submodule, sync script, fork changes, keys, what it runs, updating from upstream |
 | [community.md](docs/community.md) | Installing gallery layouts and mods safely; publishing with `RECIPE.md` |
 | [verification.md](docs/verification.md) | Checking a change: error files, status, `check`, screenshots (`herdr-app shot`, cua-driver), recovery |
 
