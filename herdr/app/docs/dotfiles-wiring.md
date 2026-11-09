@@ -33,7 +33,7 @@ Rejected alternatives:
   worked, and `herdr-app status` reported `"errors": []`.
 - **Symlinked mod folders don't work.** The mod's JavaScript runs and
   `herdr-app check` passes, but its SVG and image assets don't render.
-  Copy mod folders instead (see `omarchy-sync.sh` and
+  Copy mod folders instead (see `sync.sh` and
   [omarchy.md](omarchy.md)). A symlinked `backgrounds/<dir>` does work.
   (Tested 2026-11-09, herdr-app 0.1.14.)
 
@@ -49,7 +49,7 @@ Track:
   `mods/<name>/` (installed by copying, not symlinking) and
   `themes/<name>.json`.
 - Community packages as a submodule of a private fork, installed with a
-  sync script (`herdr/app/omarchy` + `omarchy-sync.sh`).
+  sync script (`herdr/app/omarchy` + `sync.sh`).
 
 Never track, and never symlink:
 
@@ -62,27 +62,26 @@ name and track the clone (see [layouts.md](layouts.md#cloning)).
 
 ## Installing on a machine
 
-`setup.sh` does **not** wire `herdr/app/` yet. Until it does, link by hand:
+`setup.sh` does **not** call it yet. Run the installer by hand:
 
 ```bash
-H="$HOME/.config/herdr-app"; R="$HOME/.dotfiles/herdr/app"
-mkdir -p "$H"/{layouts,mods,themes}
-for f in settings.json keys.json programs.json; do
-  [[ -f "$R/$f" ]] && ln -sfn "$R/$f" "$H/$f"
-done
-for d in layouts mods themes; do
-  for p in "$R/$d"/*; do [[ -e "$p" ]] && ln -sfn "$p" "$H/$d/$(basename "$p")"; done
-done
+git -C ~/.dotfiles submodule update --init herdr/app/omarchy
+bash ~/.dotfiles/herdr/app/sync.sh
 ```
 
-This is the proposed `setup.sh` block, following the existing
-`herdr/config.toml` block. `ln -sfn` replaces live files. Back them up
-first if they hold changes that aren't in the repo.
+`sync.sh` symlinks `settings.json`, `keys.json`, `programs.json`, our
+themes and layouts, and the Omarchy fork's themes, layout and wallpapers.
+It **copies** every mod folder (`herdr/app/mods/*` and the fork's
+`omarchy-*`). Re-run it after changing any mod. `ln -sfn` replaces live
+files, so back them up first if they hold changes that aren't in the repo.
+To wire it into `setup.sh`, add a block that calls it, following the
+existing `herdr/config.toml` block.
 
 ## Working from a treehouse worktree
 
-To preview changes from a worktree, point the symlinks at the worktree's
-`herdr/app/`. **Before** `treehouse return`, point them back to
+To preview changes from a worktree, run the worktree's `herdr/app/sync.sh`.
+**Before** `treehouse return`, run `~/.dotfiles/herdr/app/sync.sh` (after
+the merge and `git submodule update --init`), so the links point back to
 `~/.dotfiles/herdr/app/`. Otherwise they dangle and the app falls back to
 defaults. Check with `ls -l ~/.config/herdr-app/{settings.json,themes,layouts}`.
 

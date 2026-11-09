@@ -11,10 +11,10 @@ their wallpapers, and 14 `omarchy-*` mods.
 | Piece | Location |
 |---|---|
 | Source | Submodule `herdr/app/omarchy` → `michael-casas/herdr-omarchy` (`origin`), with `upstream` = `shafiqimtiaz/herdr-omarchy` |
-| Installer | `herdr/app/omarchy-sync.sh` |
+| Installer | `herdr/app/sync.sh` (installs all of `herdr/app/`, including this) |
 | Mods | **Copied** to `~/.config/herdr-app/mods/omarchy-*` by the installer |
 | Themes, layout, wallpapers | **Symlinked** from the submodule (`themes/*.json`, `layouts/omarchy.{json,svg}`, `backgrounds/omarchy`) |
-| Keys | Merged into the live `~/.config/herdr-app/keys.json`, which is not tracked |
+| Keys | Tracked `herdr/app/keys.json` (symlinked): the fork's keys merged in, adapted for macOS (see [keys.md](keys.md#this-repos-key-set-macos)) |
 
 Mods are copied, not symlinked, because herdr-app 0.1.14 runs a symlinked
 mod folder's JavaScript but does not load its SVG and image assets. The icons
@@ -31,30 +31,20 @@ disappear even though `herdr-app check` passes.
    app still loads a hidden block's mod.
 
 Everything else is as published, including the default theme
-(`tokyo-night`) and its keys.
+(`tokyo-night`). The fork's own `keys.json` is unchanged. The macOS
+adaptation lives in this repo's tracked `herdr/app/keys.json` instead.
 
 ## Install or update
 
 ```bash
 git submodule update --init herdr/app/omarchy   # once per checkout
-bash herdr/app/omarchy-sync.sh                  # after any change in the fork
+bash herdr/app/sync.sh                          # after any change in the fork
 herdr-app do layout.switch '{"name":"omarchy"}'
 ```
 
-Keys (one-time, already done on this machine): merge the fork's `keys.json`
-into `~/.config/herdr-app/keys.json`, with the fork's bindings winning.
-This adds a `layout:omarchy` section, plus `ctrl-arrow` pane movement in the
-`terminal` section, which applies in **every** layout and replaces
-Ctrl+Left/Right word movement.
-
-```bash
-python3 - ~/.config/herdr-app/keys.json herdr/app/omarchy/keys.json <<'EOF'
-import json,sys
-mine=json.load(open(sys.argv[1])); theirs=json.load(open(sys.argv[2]))
-for sec,b in theirs.items(): mine.setdefault(sec,{}).update(b)
-json.dump(mine,open(sys.argv[1],"w"),indent=2); open(sys.argv[1],"a").write("\n")
-EOF
-```
+Keys: if upstream changes its `keys.json`, merge the new bindings into
+`herdr/app/keys.json` by hand. Leave out the ones macOS takes (listed in
+[keys.md](keys.md#this-repos-key-set-macos)).
 
 ## Pull upstream changes
 
@@ -62,7 +52,7 @@ EOF
 cd herdr/app/omarchy
 git fetch upstream && git merge upstream/main   # resolve conflicts against the two fork changes
 git push origin HEAD:main
-cd - && bash herdr/app/omarchy-sync.sh
+cd - && bash herdr/app/sync.sh
 git add herdr/app/omarchy && git commit -m "chore(herdr): bump omarchy fork"
 ```
 

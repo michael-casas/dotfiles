@@ -17,7 +17,9 @@ is the default tool for driving them.
 | `layouts/tui.json` | `main` reworked to feel like a TUI: square corners, no padding, 1px borders, slimmer bars |
 | `layouts/tui.svg` | Preview shown in Settings → Look |
 | `omarchy/` | Submodule: private fork `michael-casas/herdr-omarchy` of the Omarchy layout (mods, themes, wallpapers) |
-| `omarchy-sync.sh` | Installs `omarchy/` into the app home: copies mods, symlinks themes, layout and wallpapers |
+| `keys.json` | The key set: defaults + Omarchy's, adapted for macOS, plus the `ctrl-space` leader |
+| `mods/leader/` | Leader popup (`ctrl-space`): `/` finds a tab or agent by tab name, `h j k l` move between panes, and more |
+| `sync.sh` | Installs all of `herdr/app/` into the app home: symlinks files, themes, layouts and wallpapers; **copies** mods |
 
 ## Rules for agents
 
@@ -40,7 +42,7 @@ is the default tool for driving them.
 | [dotfiles-wiring.md](docs/dotfiles-wiring.md) | Adding, linking or installing files from this repo; worktree preview and return |
 | [look-and-theming.md](docs/look-and-theming.md) | Fonts, themes, colors, settings precedence, the Nordic/Cascadia setup, known gaps |
 | [layouts.md](docs/layouts.md) | Changing the window's structure: node tree, pane frames, floating blocks, cloning, `tui.json` |
-| [keys.md](docs/keys.md) | Rebinding keys and merging a mod's `keys.json` |
+| [keys.md](docs/keys.md) | Rebinding keys, merging a mod's `keys.json`, this repo's macOS key set and the `ctrl-space` leader |
 | [commands.md](docs/commands.md) | The `herdr-app` CLI and the command list (`herdr-app do …`) |
 | [mods.md](docs/mods.md) | Writing or cloning panels: the gpui-shell runtime, rules, the `herdr` API, patterns, definition of done |
 | [herdr-core.md](docs/herdr-core.md) | Running agents and terminals with `hc`, labels, OSC 7501 status, adopting terminals into spaces |
