@@ -30,6 +30,16 @@ disappear even though `herdr-app check` passes.
    cliproxyapi-based meter. A `hidden` block is not enough, because the
    app still loads a hidden block's mod.
 
+3. Key hint tooltips. Hovering any clickable control in the top bar,
+   footer, pane header, tab strip, spaces list or agents rail shows its
+   binding from the live `keys()`, in macOS symbols, for example
+   `Split right  ⌥↩ or ⌘D`. The lookup checks `layout:omarchy` first, then
+   any `global` keys the layout doesn't take, and treats `super` as `⌘`.
+   Controls with no binding show just their label. The helper is
+   `keyhint.js`, one identical copy per mod (mods can't import across
+   folders), checked by `tests/keyhint.test.mjs`. Tooltips take plain
+   text only, since the shell draws them.
+
 Everything else is as published, including the default theme
 (`tokyo-night`). The fork's own `keys.json` is unchanged. The macOS
 adaptation lives in this repo's tracked `herdr/app/keys.json` instead.
@@ -50,7 +60,7 @@ Keys: if upstream changes its `keys.json`, merge the new bindings into
 
 ```bash
 cd herdr/app/omarchy
-git fetch upstream && git merge upstream/main   # resolve conflicts against the two fork changes
+git fetch upstream && git merge upstream/main   # resolve conflicts against the fork changes
 git push origin HEAD:main
 cd - && bash herdr/app/sync.sh
 git add herdr/app/omarchy && git commit -m "chore(herdr): bump omarchy fork"
