@@ -98,7 +98,8 @@ A copy of `main` made to feel like a TUI:
 - `terminal_padding [4, 8]`
 - Slimmer sidebar (240px), brand row (38px), tabs (32px), pane header
   (24px) and status bar (24px)
-- A divider between the spaces and agents lists
+- The agents list above the spaces list (the order of the `sidebar-lists`
+  children), with a divider between them
 - Root look: theme `nordic`, `font` and `ui_font` `Cascadia Code NF` at
   size 14
 - Uses the shipped mods (`workspace-chrome`, `spaces`, `agents`, `tabs`,
