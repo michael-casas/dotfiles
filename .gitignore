@@ -34,3 +34,7 @@ advisor/
 *.bak
 *.swp
 *.swo
+
+# --- Treehouse worktree pool ---
+.treehouse/
+/.treehouse
