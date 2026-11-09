@@ -56,6 +56,10 @@ re-run `sync.sh`.
 Moving between panes without the leader: Herdr's default
 `cmd-alt-arrows`.
 
+Numbers: `cmd-1`…`cmd-9` select **space** 1–9 (Herdr's default is tab;
+`ctrl-1`…`9` also select spaces). Tabs are `ctrl-space` then `1`–`9`, or
+`alt-1`…`9` in the Omarchy layout.
+
 ## Shape
 
 ```json
