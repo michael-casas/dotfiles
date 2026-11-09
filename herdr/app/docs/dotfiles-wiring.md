@@ -1,0 +1,86 @@
+# Dotfiles wiring: `herdr/app/` to `~/.config/herdr-app/`
+
+How this repo tracks the Herdr app's personal config, and the rules for
+adding to it.
+
+## Model: symlink each file you own
+
+Track only files you own (see [overview.md](overview.md#who-owns-each-file)).
+Each one is symlinked from the app home into `~/.dotfiles/herdr/app/`.
+
+```text
+~/.config/herdr-app/settings.json         -> ~/.dotfiles/herdr/app/settings.json
+~/.config/herdr-app/themes/nordic.json    -> ~/.dotfiles/herdr/app/themes/nordic.json
+~/.config/herdr-app/layouts/tui.json      -> ~/.dotfiles/herdr/app/layouts/tui.json
+~/.config/herdr-app/layouts/tui.svg       -> ~/.dotfiles/herdr/app/layouts/tui.svg
+```
+
+Rejected alternatives:
+
+- **Symlink the whole home, or set `HERDR_APP_HOME` to the repo.** The app
+  writes generated files, state, sockets and telemetry into its home. A
+  `HERDR_APP_HOME` set in a shell profile is not seen by Finder launches.
+- **Copy files.** They drift, and changes made in the Settings window
+  would never reach the repo.
+
+## Verified behavior
+
+- **Writes go through symlinks.** With `settings.json` symlinked,
+  `herdr-app do app.zoom_in` and `app.zoom_reset` updated the target file
+  and left the link in place. So changes made in the Settings window land
+  in the repo. (Tested 2026-11-09, herdr-app 0.1.14.)
+- **Symlinked theme and layout files load.** `layout.switch {"name":"tui"}`
+  worked, and `herdr-app status` reported `"errors": []`.
+- **Not yet verified:** symlinked **mod folders**. Test with
+  `herdr-app check` and hot reload before you rely on one.
+
+## What to track and what never to track
+
+Track:
+
+- `settings.json`, `programs.json`
+- `keys.json`. Once you track it, the app treats the whole file as yours
+  and stops merging new default shortcuts on upgrade. Add new defaults by
+  hand after reading the changelog.
+- Your own `layouts/<name>.json` (plus a preview `.svg` or `.png`),
+  `mods/<name>/` and `themes/<name>.json`.
+
+Never track, and never symlink:
+
+- Shipped layouts and mods, `frame/`, `icons/`, `AGENTS.md`, `*.d.ts`
+- `layouts/.state/`, `shared.json`, `data/`, `seen.json`,
+  `installed.json`, `view.json`, `window*.json`, `telemetry/`, the socket
+
+Do not edit a shipped file in place. To change one, clone it under a new
+name and track the clone (see [layouts.md](layouts.md#cloning)).
+
+## Installing on a machine
+
+`setup.sh` does **not** wire `herdr/app/` yet. Until it does, link by hand:
+
+```bash
+H="$HOME/.config/herdr-app"; R="$HOME/.dotfiles/herdr/app"
+mkdir -p "$H"/{layouts,mods,themes}
+for f in settings.json keys.json programs.json; do
+  [[ -f "$R/$f" ]] && ln -sfn "$R/$f" "$H/$f"
+done
+for d in layouts mods themes; do
+  for p in "$R/$d"/*; do [[ -e "$p" ]] && ln -sfn "$p" "$H/$d/$(basename "$p")"; done
+done
+```
+
+This is the proposed `setup.sh` block, following the existing
+`herdr/config.toml` block. `ln -sfn` replaces live files. Back them up
+first if they hold changes that aren't in the repo.
+
+## Working from a treehouse worktree
+
+To preview changes from a worktree, point the symlinks at the worktree's
+`herdr/app/`. **Before** `treehouse return`, point them back to
+`~/.dotfiles/herdr/app/`. Otherwise they dangle and the app falls back to
+defaults. Check with `ls -l ~/.config/herdr-app/{settings.json,themes,layouts}`.
+
+## Sources
+
+- Empirical tests on this machine, 2026-11-09
+- `~/.config/herdr-app/AGENTS.md` (0.1.14): "The files", "Keys"
