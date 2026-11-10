@@ -23,6 +23,27 @@ repo="$(git -C "$app" rev-parse --show-toplevel)"
 home="${HERDR_APP_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app}"
 store="${HERDR_VIEWS_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/herdr-views}"
 
+# Python as strings, not heredocs: Homebrew bash 5.3 can hang on a heredoc
+# feeding a pipeline.
+SAVE_PY='
+import json, sys, os, datetime
+state, layout, fork, out = sys.argv[1:]
+clicks = json.load(open(state)).get("nodes", {}) if os.path.exists(state) else {}
+with open(out, "w") as f:
+    json.dump({"layout": layout, "clicks": clicks, "omarchy_fork": fork,
+               "saved": datetime.date.today().isoformat()}, f, indent=2)
+    f.write("\n")
+'
+CLICKS_PY='
+import json, sys
+for id, n in json.load(open(sys.argv[1]))["clicks"].items():
+    size = n.get("size") or {}
+    if "px" in size: print("layout.resize", json.dumps({"id": id, "px": size["px"]}), sep="\t")
+    elif "weight" in size: print("layout.resize", json.dumps({"id": id, "weight": size["weight"]}), sep="\t")
+    if "active" in n: print("layout.select", json.dumps({"stack": id, "child": n["active"]}), sep="\t")
+    if "hidden" in n: print("layout.hide" if n["hidden"] else "layout.show", json.dumps({"id": id}), sep="\t")
+'
+
 die() { echo "view.sh: $*" >&2; exit 1; }
 check_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "name must be lowercase letters, digits and dashes: '$1'"; }
 shown_layout() { herdr-app status | python3 -c 'import json,sys; print(json.load(sys.stdin)["layout"])'; }
@@ -42,14 +63,7 @@ save() {
   local layout; layout="$(shown_layout)"
   local fork; fork="$(git -C "$repo" rev-parse "HEAD:herdr/app/omarchy" 2>/dev/null || echo none)"
   mkdir -p "$app/views"
-  python3 - "$home/layouts/.state/$layout.json" "$layout" "$fork" "$app/views/$name.json" <<'PY'
-import json, sys, os, datetime
-state, layout, fork, out = sys.argv[1:]
-clicks = json.load(open(state)).get("nodes", {}) if os.path.exists(state) else {}
-json.dump({"layout": layout, "clicks": clicks, "omarchy_fork": fork,
-           "saved": datetime.date.today().isoformat()}, open(out, "w"), indent=2)
-open(out, "a").write("\n")
-PY
+  python3 -c "$SAVE_PY" "$home/layouts/.state/$layout.json" "$layout" "$fork" "$app/views/$name.json"
   git -C "$repo" add -- "$rel"
   if ! git -C "$repo" diff --cached --quiet -- "$rel"; then
     git -C "$repo" commit -q -m "chore(herdr): save the $name view" -- "$rel"
@@ -65,27 +79,28 @@ load() {
   local dest="$store/$name"
   [[ "$dest" == "$store/"* && -n "$name" ]] || die "bad export path"
   rm -rf "$dest" && mkdir -p "$dest"
-  git -C "$repo" archive "$tag" herdr/app | tar -x -C "$dest" --strip-components=2
+  # Archive to a file, not a pipe: bsdtar stops reading at the end marker, and
+  # git archive then dies of SIGPIPE writing its padding (fails under pipefail).
+  local tarball; tarball="$(mktemp -t herdr-view)"
+  git -C "$repo" archive -o "$tarball" "$tag" herdr/app
+  tar -x -f "$tarball" -C "$dest" --strip-components=2
   local fork; fork="$(git -C "$repo" rev-parse "$tag:herdr/app/omarchy" 2>/dev/null || true)"
   if [[ -n "$fork" ]]; then
     git -C "$repo/herdr/app/omarchy" cat-file -e "$fork^{commit}" 2>/dev/null \
       || die "fork commit $fork is missing: run 'git -C herdr/app/omarchy fetch origin'"
     mkdir -p "$dest/omarchy"
-    git -C "$repo/herdr/app/omarchy" archive "$fork" | tar -x -C "$dest/omarchy"
+    git -C "$repo/herdr/app/omarchy" archive -o "$tarball" "$fork"
+    tar -x -f "$tarball" -C "$dest/omarchy"
   fi
+  rm -f "$tarball"
   bash "$dest/sync.sh" >/dev/null
   local meta="$dest/views/$name.json"
   local layout; layout="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["layout"])' "$meta")"
   herdr-app "do" layout.switch "{\"name\":\"$layout\"}" >/dev/null
-  python3 - "$meta" <<'PY' | while IFS=$'\t' read -r cmd args; do herdr-app "do" "$cmd" "$args" >/dev/null; done
-import json, sys
-for id, n in json.load(open(sys.argv[1]))["clicks"].items():
-    size = n.get("size") or {}
-    if "px" in size: print("layout.resize", json.dumps({"id": id, "px": size["px"]}), sep="\t")
-    elif "weight" in size: print("layout.resize", json.dumps({"id": id, "weight": size["weight"]}), sep="\t")
-    if "active" in n: print("layout.select", json.dumps({"stack": id, "child": n["active"]}), sep="\t")
-    if "hidden" in n: print("layout.hide" if n["hidden"] else "layout.show", json.dumps({"id": id}), sep="\t")
-PY
+  local cmds; cmds="$(python3 -c "$CLICKS_PY" "$meta")"
+  while IFS=$'\t' read -r cmd args; do
+    [[ -n "$cmd" ]] && herdr-app "do" "$cmd" "$args" >/dev/null
+  done <<< "$cmds"
   echo "loaded $tag from $dest (layout $layout). 'view.sh live' goes back to the checkout"
 }
 
