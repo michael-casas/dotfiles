@@ -95,7 +95,7 @@ live() {
 }
 
 list() {
-  git -C "$repo" for-each-ref --format='%(refname:strip=2)  %(objectname:short)  %(contents:subject)' 'refs/tags/herdr-view/*' \
+  git -C "$repo" for-each-ref --format='%(refname:strip=2)  %(*objectname:short)  %(contents:subject)' 'refs/tags/herdr-view/*' \
     | sed 's#^herdr-view/##'
 }
 
