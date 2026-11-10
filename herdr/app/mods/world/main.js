@@ -12,7 +12,7 @@
 //   right-click an NPC within reach: talk (its terminal pops over).
 import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { spaces, focused, agents, panes, openOverlay } from "herdr";
+import { spaces, focused, agents, panes, terminals, openOverlay } from "herdr";
 import * as THREE from "./vendor/three.module.min.js";
 import { Projector, RenderableFace } from "./vendor/Projector.js";
 import { buildWorld, makeNpc, makeHero } from "./content.js";
@@ -49,11 +49,16 @@ export default class World extends View {
     this.focus.focus();
   }
 
-  // NPCs = tabs of the shown space.
+  // NPCs = tabs of the shown space, plus visitors: terminals from anywhere
+  // labeled `world.visit=<space id>` (hc label t5 world.visit=sp…).
   syncNpcs() {
     const f = focused();
     const space = spaces().find((s) => s.id === (f && f.space)) || spaces().find((s) => s.active);
-    const tabs = space ? space.tabs : [];
+    const visitors = space ? terminals().filter((t) => t.labels && t.labels["world.visit"] === space.id && t.state === "live")
+      .map((t) => ({ id: `visit:${t.address}`, visitor: t,
+        name: t.labels["world.name"] || String(t.labels.where || t.name || t.address).split(" / ").pop(),
+        status: typeof t.status === "string" ? t.status : t.report && t.report.state })) : [];
+    const tabs = space ? [...space.tabs, ...visitors] : [];
     const seen = new Set();
     tabs.forEach((tab, i) => {
       seen.add(tab.id);
@@ -70,10 +75,15 @@ export default class World extends View {
       const r = tabs.length === 1 ? 0 : NPC_RING;
       n.x = Math.cos(a) * r; n.z = -Math.sin(a) * r * 0.8;
       n.tab = tab;
-      const ag = agents().find((x) => x.tab === tab.id);
-      const pn = panes().find((p) => p.tab === tab.id && p.terminal);
-      n.terminal = ag ? ag.address : pn ? pn.terminal : null;
-      n.app = ag ? ag.program?.name || ag.app : pn ? pn.program?.name : "";
+      if (tab.visitor) {
+        n.terminal = tab.visitor.address;
+        n.app = `${tab.visitor.program?.name || tab.visitor.report?.app || "terminal"} · visiting`;
+      } else {
+        const ag = agents().find((x) => x.tab === tab.id);
+        const pn = panes().find((p) => p.tab === tab.id && p.terminal);
+        n.terminal = ag ? ag.address : pn ? pn.terminal : null;
+        n.app = ag ? ag.program?.name || ag.app : pn ? pn.program?.name : "";
+      }
       n.group.position.set(n.x, 0, n.z);
     });
     for (const [id, n] of this.npcs) if (!seen.has(id)) { this.scene.remove(n.group); this.npcs.delete(id); }

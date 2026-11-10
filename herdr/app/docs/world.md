@@ -21,6 +21,19 @@ talking to a character. `ctrl-space` then `b` opens a workspace switcher.
 NPC nameplates show the tab name and program; `…` while the agent works and
 `!` when it is done or blocked. NPCs turn to face you when you are close.
 
+## Visitors
+
+Any terminal can stand in a workspace's world without moving its tab: label
+it with the space id (`herdr-app status` shows the shown `space`).
+
+```bash
+hc label t5 world.visit=<space id> "world.name=REP (Claude)"   # appear
+hc label t5 world.visit=                                       # leave (empty value)
+```
+
+It joins the NPC ring with a "· visiting" nameplate, and right-clicking it
+opens that terminal, even though its tab lives in another space.
+
 ## How it draws (no WebGL)
 
 gpui-shell has no canvas or WebGL, so three.js (0.170, vendored in
