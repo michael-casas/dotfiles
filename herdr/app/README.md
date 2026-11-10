@@ -19,6 +19,7 @@ is the default tool for driving them.
 | `omarchy/` | Submodule: private fork `michael-casas/herdr-omarchy` of the Omarchy layout (mods, themes, wallpapers) |
 | `keys.json` | The key set: defaults + Omarchy's, adapted for macOS, plus the `ctrl-space` leader |
 | `mods/leader/` | Leader popup (`ctrl-space`): `/` finds a tab or agent by tab name, `h j k l` move between panes, and more |
+| `view.sh`, `views/` | Save and swap whole views: `save <name>` tags a commit plus its clicks, `load <name>` runs it from an export, `live` returns to the checkout |
 | `sync.sh` | Installs all of `herdr/app/` into the app home: symlinks files, themes, layouts and wallpapers; **copies** mods |
 
 ## Rules for agents
@@ -47,6 +48,7 @@ is the default tool for driving them.
 | [mods.md](docs/mods.md) | Writing or cloning panels: the gpui-shell runtime, rules, the `herdr` API, patterns, definition of done |
 | [herdr-core.md](docs/herdr-core.md) | Running agents and terminals with `hc`, labels, OSC 7501 status, adopting terminals into spaces |
 | [omarchy.md](docs/omarchy.md) | The Omarchy layout: private fork, submodule, sync script, fork changes, keys, what it runs, updating from upstream |
+| [views.md](docs/views.md) | Saving the current setup before trying something new, and swapping between saved views |
 | [community.md](docs/community.md) | Installing gallery layouts and mods safely; publishing with `RECIPE.md` |
 | [verification.md](docs/verification.md) | Checking a change: error files, status, `check`, screenshots (`herdr-app shot`, cua-driver), recovery |
 
