@@ -21,6 +21,7 @@ chosen stack children).
 |---|---|---|
 | `omarchy` | `omarchy` | The Omarchy fork as of 2026-11-10: Cascadia Code NF, macOS key set, `ctrl-space` leader, key-hint tooltips, `cmd-1…9` spaces, sidebar 308px |
 | `2dungeon` | `dungeon` | The dungeon mockup ([dungeon.md](dungeon.md)) on the `tui` base, Nordic theme |
+| `3dworld` | `world` | The 3D campfire camp ([world.md](world.md)): tabs as NPCs, orbit camera, jump, cursor helper, model importer |
 
 ## How it isolates
 
