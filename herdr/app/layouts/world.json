@@ -1,0 +1,12 @@
+{
+  "id": "root",
+  "type": "column",
+  "titlebar": "none",
+  "traffic_lights": [12, 12],
+  "theme": "nordic",
+  "font": "Cascadia Code NF",
+  "ui_font": "Cascadia Code NF",
+  "children": [
+    { "id": "world", "type": "block", "content": { "mod": "world" }, "window_drag": false }
+  ]
+}

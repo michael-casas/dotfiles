@@ -3,6 +3,7 @@
 // (emoji) and Cmd+Opt+Space (Finder search) before Herdr sees them.
 //
 //   /           find a tab or agent by tab name (Herdr's picker)
+//   b           switch workspace
 //   h j k l     focus pane left/down/up/right (arrows too); repeatable
 //   ctrl-space  send a literal ctrl-space to the focused terminal
 //
@@ -22,6 +23,7 @@ const has = (name) => layouts().includes(name);
 // [keys, label, action, repeatable]. action: [command, args] or a function.
 const BINDINGS = [
   [["/"], "find tab / agent", ["mod.open", { name: "picker" }]],
+  [["b"], "switch workspace", ["mod.open", { name: "space-switch" }]],
   [["h", "left"], "pane left", ["pane.go", { direction: "left" }], true],
   [["j", "down"], "pane down", ["pane.go", { direction: "down" }], true],
   [["k", "up"], "pane up", ["pane.go", { direction: "up" }], true],

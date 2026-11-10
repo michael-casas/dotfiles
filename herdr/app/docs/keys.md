@@ -35,6 +35,7 @@ If you enable it, the OS takes the key first.
 
 | After `ctrl-space` | Action |
 |---|---|
+| `b` | Switch workspace: `mods/space-switch`, a dialog that filters spaces by name |
 | `/` | Find a tab or agent: the built-in `picker`, which filters on tab name, space name and agents' program names; Enter goes there |
 | `h j k l` or arrows | Focus the pane left, down, up or right (repeatable for 600 ms) |
 | `\` or `\|` / `-` | Split right / down |

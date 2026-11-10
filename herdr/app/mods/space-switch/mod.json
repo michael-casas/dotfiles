@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "Workspaces",
+  "overlay": { "kind": "dialog", "width": 520, "height": 420 }
+}
