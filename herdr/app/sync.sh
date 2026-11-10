@@ -23,7 +23,14 @@ link() { ln -sfn "$1" "$2"; }
 copy_mod() {
   local src="$1" dest="$home/mods/$(basename "$1")"
   [[ -L "$dest" ]] && rm "$dest"
-  rsync -a --delete "$src/" "$dest/"
+  # Build native helpers first (e.g. world/tools/cursor/build.sh -> world/bin/).
+  for b in "$src"/tools/*/build.sh; do [[ -f "$b" ]] && bash "$b" >/dev/null; done
+  # Offline tools stay in the repo; the app writes the .d.ts/jsconfig itself.
+  rsync -a --delete --exclude tools/ --exclude node_modules/ \
+    --exclude gpui-kit.d.ts --exclude herdr.d.ts --exclude jsconfig.json "$src/" "$dest/"
+  # rsync replaces files by rename, which the app may not notice: touch main.js
+  # in place so the running copy reloads.
+  [[ -f "$dest/main.js" ]] && { cp "$dest/main.js" "$dest/.main.js.tmp"; cat "$dest/.main.js.tmp" > "$dest/main.js"; rm -f "$dest/.main.js.tmp"; }
 }
 
 # Ours.

@@ -1,0 +1,10 @@
+# Own CC0 geometry: two triangles, two materials.
+mtllib house.mtl
+v 0 0 0
+v 2 0 0
+v 0 2 0
+v 0 0 2
+usemtl brick
+f 1 2 3
+usemtl roof
+f 1 4 2
