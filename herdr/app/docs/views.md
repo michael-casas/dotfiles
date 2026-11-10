@@ -20,6 +20,7 @@ chosen stack children).
 | Name | Layout | What |
 |---|---|---|
 | `omarchy` | `omarchy` | The Omarchy fork as of 2026-11-10: Cascadia Code NF, macOS key set, `ctrl-space` leader, key-hint tooltips, `cmd-1…9` spaces, sidebar 308px |
+| `2dungeon` | `dungeon` | The dungeon mockup ([dungeon.md](dungeon.md)) on the `tui` base, Nordic theme |
 
 ## How it isolates
 
