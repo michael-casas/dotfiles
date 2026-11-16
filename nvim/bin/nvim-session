@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# nvim-session: nvim sessions kept in herdr-core (see nvim/lua/hcmux/README.md)
+#
+#   nvim-session                 attach to this folder's session (same as `nvim`)
+#   nvim-session attach <name>   attach to a named session, creating it if new
+#   nvim-session <name>          shorthand for attach
+#   nvim-session ls              list sessions
+#   nvim-session kill <name> [-f]  end a session and its terminals
+#
+# Inside nvim: :detach or :qd (or :q on the last window) saves and quits;
+# the session and its terminals stay in herdr-core.
+set -euo pipefail
+
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/${NVIM_APPNAME:-nvim}"
+cli="$cfg/lua/hcmux/session_cli.lua"
+
+headless() { nvim --clean --headless -l "$cli" "$@"; }
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+
+attach() {
+  local name
+  name="$(headless name "${1:-}")"
+  # Start in the session's folder so nvim (and its LSPs) begin there.
+  local root
+  root="$(headless root "$name")"
+  if [ -n "$root" ] && [ -d "$root" ]; then
+    cd "$root"
+  fi
+  HCMUX_SESSION="$name" exec nvim
+}
+
+case "${1:-}" in
+  "") exec nvim ;;
+  attach | a) attach "${2:-}" ;;
+  ls | list) headless ls ;;
+  kill | rm) shift; headless kill "$@" ;;
+  -h | --help | help) usage ;;
+  -*) usage; exit 2 ;;
+  *) attach "$1" ;;
+esac

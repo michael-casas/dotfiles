@@ -1,5 +1,40 @@
 local split_cmd = "enew"
 
+-- AI CLIs run in herdr-core terminals through hcmux (lua/hcmux): the buffer is
+-- only a view, so closing it or quitting nvim leaves the agent running, and the
+-- session pickers re-attach to it. Falls back to a plain :terminal without `hc`.
+local function open_term(cmd, o)
+  o = o or {}
+  local ok, hcmux = pcall(require, "hcmux")
+  if ok and vim.fn.executable("hc") == 1 then
+    local where = ({ enew = "current", vsplit = "vsplit", split = "split" })[split_cmd] or "current"
+    local buf = hcmux.open(cmd, vim.tbl_extend("force", o, { where = where }))
+    if buf then
+      return buf
+    end
+  end
+  vim.cmd(split_cmd)
+  vim.fn.termopen(cmd, { cwd = o.cwd })
+  vim.cmd("startinsert")
+  return vim.api.nvim_get_current_buf()
+end
+
+-- Live herdr-core terminals started for a tool, by session id.
+local function live_sessions(tool)
+  local ok, core = pcall(require, "hcmux.core")
+  local ret = {}
+  if not ok then
+    return ret
+  end
+  for addr, t in pairs(core.terms) do
+    local l = t.labels or {}
+    if t.state == "live" and l["herdr.nvim.tool"] == tool and l["herdr.nvim.session"] then
+      ret[l["herdr.nvim.session"]] = addr
+    end
+  end
+  return ret
+end
+
 return {
   "folke/snacks.nvim",
   opts = function(_, opts)
@@ -47,6 +82,8 @@ return {
             end
           end
 
+          local live = live_sessions(config.name)
+
           -- Fetch sessions via tool-specific logic
           local sessions = config.list_sessions(bin)
           if not sessions or type(sessions) ~= "table" then
@@ -66,6 +103,7 @@ return {
               directory = directory,
               updated = s.updated,
               buf = buf,
+              hc = live[sid],
               file = directory,
             })
           end
@@ -80,8 +118,8 @@ return {
 
         format = function(item)
           local dir = (item.directory or ""):gsub(vim.env.HOME, "~")
-          local tag = item.buf and vim.api.nvim_buf_is_valid(item.buf) and "[BUF]" or "[SES]"
-          local hl = tag == "[BUF]" and "DiffAdd" or "DiffChange"
+          local tag = item.buf and vim.api.nvim_buf_is_valid(item.buf) and "[BUF]" or item.hc and "[RUN]" or "[SES]"
+          local hl = (tag == "[BUF]" and "DiffAdd") or (tag == "[RUN]" and "DiffText") or "DiffChange"
           return {
             { tag .. " ", hl },
             { item.title .. " ", "Normal" },
@@ -108,15 +146,22 @@ return {
               return
             end
 
+            -- Still running in herdr-core (e.g. after an nvim restart): re-attach
+            if item.hc then
+              local where = ({ enew = "current", vsplit = "vsplit", split = "split" })[split_cmd] or "current"
+              require("hcmux").attach(item.hc, where)
+              return
+            end
+
             -- Open new terminal buffer for session
             local bin = config.bin
             local cmd = config.attach_cmd(bin, item.session_id, item.directory)
 
-            vim.cmd(split_cmd)
-            vim.fn.termopen(cmd, { cwd = item.directory })
-            vim.cmd("startinsert")
-
-            local buf = vim.api.nvim_get_current_buf()
+            local buf = open_term(cmd, {
+              cwd = item.directory ~= "" and item.directory or nil,
+              title = config.label .. ": " .. item.title,
+              labels = { ["herdr.nvim.tool"] = config.name, ["herdr.nvim.session"] = item.session_id },
+            })
             local var_name = config.buf_var or (config.name .. "_session_id")
             vim.api.nvim_buf_set_var(buf, var_name, item.session_id)
             vim.api.nvim_buf_set_var(buf, var_name .. "_title", item.title)
@@ -184,9 +229,11 @@ return {
             if item.action == "new" then
               local bin = config.bin
               local cmd = config.new_cmd and config.new_cmd(bin) or { bin }
-              vim.cmd(split_cmd)
-              vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
-              vim.cmd("startinsert")
+              open_term(cmd, {
+                cwd = vim.fn.getcwd(),
+                title = config.label,
+                labels = { ["herdr.nvim.tool"] = config.name },
+              })
             elseif item.action == "resume" then
               Snacks.picker[config.name .. "_sessions"]()
             end
@@ -520,9 +567,11 @@ return {
           return
         end
         vim.schedule(function()
-          vim.cmd(split_cmd)
-          vim.fn.termopen({ "docker", "ai" }, { cwd = vim.fn.getcwd() })
-          vim.cmd("startinsert")
+          open_term({ "docker", "ai" }, {
+            cwd = vim.fn.getcwd(),
+            title = "Docker AI",
+            labels = { ["herdr.nvim.tool"] = "docker" },
+          })
         end)
       end,
     }
@@ -638,12 +687,14 @@ return {
       desc = "Docker AI",
     },
     {
-      "<leader>oai",
+      -- <leader>h: the agent picker. New agents start in nvim's cwd, in a
+      -- herdr-core pane beside the current window, in the current session.
+      "<leader>ha",
       function()
-        split_cmd = "enew"
+        split_cmd = "vsplit"
         Snacks.picker.ai_tools()
       end,
-      desc = "AI Tool Selector",
+      desc = "Agent (AI tool picker, pane in cwd)",
     },
     {
       "<leader>oaiv",
@@ -712,9 +763,7 @@ return {
       else
         cmd = { "opencode", "run", "--attach", support_server_url, "--agent", "Support", "--title", "Support", prompt }
       end
-      vim.cmd(split_cmd)
-      vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
-      vim.cmd("startinsert")
+      open_term(cmd, { cwd = vim.fn.getcwd(), title = "Ask: " .. prompt:sub(1, 40) })
     end
 
     vim.api.nvim_create_user_command("AskAI", function()
@@ -766,9 +815,7 @@ return {
       else
         cmd = { "opencode", "run", "--attach", django_server_url, "--agent", "django-systems-architect", "--title", "Django", prompt }
       end
-      vim.cmd(split_cmd)
-      vim.fn.termopen(cmd, { cwd = vim.fn.getcwd() })
-      vim.cmd("startinsert")
+      open_term(cmd, { cwd = vim.fn.getcwd(), title = "Ask: " .. prompt:sub(1, 40) })
     end
 
     vim.api.nvim_create_user_command("AskDjango", function()

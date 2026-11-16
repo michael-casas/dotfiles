@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# envi: experimental nvim. The config of the envi/main worktree (nvim profile
+# "envi" -> that worktree's nvim/), attached to the herdr-core session
+# "dotfiles" and running in ~/.dotfiles. See nvim/ENVI.md.
+#
+#   envi                  the dotfiles session (layout, buffers, terminals)
+#   envi <file>...        those files in envi, no session (like nvim <file>)
+#   envi ls | kill <name> manage sessions (nvim-session, envi profile)
+#
+# Inside: :detach or :qd leaves the session; everything keeps running.
+# :reload detaches and starts envi again on the same session, so config,
+# plugin and launcher changes take effect.
+set -euo pipefail
+
+export NVIM_APPNAME=envi
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+here="$(dirname "$self")"
+
+case "${1:-}" in
+  ls | list | kill | rm) exec "$here/nvim-session" "$@" ;;
+  -h | --help | help) sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+
+cd "$HOME/.dotfiles"
+# A reload returns to the session it left; ENVI_SESSION picks another one.
+# Both apply with or without arguments (e.g. `ENVI_SESSION=x envi --listen s`).
+if [ -n "${ENVI_RELOAD_SESSION:-}${ENVI_SESSION:-}" ]; then
+  export HCMUX_SESSION="${ENVI_RELOAD_SESSION:-$ENVI_SESSION}"
+elif [ $# -eq 0 ]; then
+  export HCMUX_SESSION=dotfiles
+fi
+unset ENVI_RELOAD_SESSION
+
+# :reload writes the session name to this file, then quits. Not `exec nvim`:
+# this script stays to start envi again (itself re-read, so it updates too).
+export ENVI_RELOAD_FILE="${TMPDIR:-/tmp}/envi-reload.$$"
+rm -f "$ENVI_RELOAD_FILE"
+rc=0
+nvim "$@" || rc=$?
+if [ -f "$ENVI_RELOAD_FILE" ]; then
+  ENVI_RELOAD_SESSION="$(cat "$ENVI_RELOAD_FILE")"
+  rm -f "$ENVI_RELOAD_FILE"
+  export ENVI_RELOAD_SESSION
+  exec "$self" "$@"
+fi
+exit "$rc"

@@ -23,9 +23,11 @@ vim.keymap.set("n", "<M-]>", "<cmd>bnext<cr>", { desc = "Next buffer" })
 vim.keymap.set("n", "<S-M-Left>", "<cmd>bmove -1<cr>", { desc = "Move buffer left" })
 vim.keymap.set("n", "<S-M-Right>", "<cmd>bmove +1<cr>", { desc = "Move buffer right" })
 
--- Terminal mode: Alt+. exits to Normal mode
--- NOTE: Ctrl+. is not detectable in terminals (sends same byte as ".").
--- Alt+. works reliably because terminals send ESC prefix + key.
+-- Terminal mode: Ctrl+. and Alt+. exit to Normal mode; `i` re-enters terminal mode.
+-- NOTE: Ctrl+. only reaches nvim as a distinct key when the terminal sends
+-- CSI u / modifyOtherKeys for it. Legacy encoding sends the same byte as ".",
+-- so there Alt+. is the one that works (terminals send ESC prefix + key).
+vim.keymap.set("t", "<C-.>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
 vim.keymap.set("t", "<M-.>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
 
 -- Reload nvim config on the fly (best-effort)
