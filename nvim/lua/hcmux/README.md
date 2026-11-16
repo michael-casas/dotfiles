@@ -478,3 +478,23 @@ proven. See `nvim/tools/envi-board/README.md` for install/CLI, subset matrix,
 agent authoring, exact pins, trust and protocol. Mocked `test/board.lua` and real
 private-worker `test/board-live.lua` are headless adapter checks, not REP's manual
 Herdr E2E. They never contact hc/T3/network or launch a browser.
+
+## Approved remote shell (`hcmux.remote`)
+
+`require("hcmux.remote").setup()` registers `:EnviRemote`: an approved-host picker
+whose source is local `envi-remote hosts` (private policy, never SSH config).
+`pick()` opens that picker; `open("approved-id")` is the validated argv-only
+adapter. Put `remote/bin/envi-remote` on the **local** PATH manually and configure
+`~/.config/envi-remote/hosts.json` as described in `remote/README.md`.
+No global keymap or plugin-spec wiring is installed by this lane; keybinder/REP
+owns calling setup from the existing integration entrypoint. Until then use
+`:lua require("hcmux.remote").setup()` once in the local editor.
+
+The action starts `{ "envi-remote", id }` via `hcmux.term.open` in a vsplit.
+It never constructs a shell command, exports local cwd as a remote path, guesses
+remote process status, or replays commands on restore. The existing `hc://`
+restore path reattaches the **local** client; losing that client requires an
+explicit new invocation. Only the known minimal-profile label is added; transport
+and remote lifecycle are CLI-owned. This lane supports explicit approved SSH,
+not yet Mosh or remote tmux. Mock-only check: `nvim --headless -u NONE
+'+luafile nvim/tools/t3-thread/test/remote.lua' +qa`.
