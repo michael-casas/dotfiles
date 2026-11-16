@@ -1,0 +1,18 @@
+{
+  "type": "snapshot",
+  "projects": [
+    { "id": "alpha", "name": "Alpha project", "cwd": "/synthetic/alpha" },
+    { "id": "beta", "name": "Beta project", "cwd": "/synthetic/beta" }
+  ],
+  "threads": [
+    { "id": "pin", "projectId": "alpha", "title": "Pinned card", "pinned": true, "status": "idle", "updatedAt": "2026-01-06T12:00:00Z", "branch": "pin-metadata" },
+    { "id": "first", "projectId": "alpha", "title": "First card", "status": "idle", "updatedAt": "2026-01-05T12:00:00Z", "branch": "first-metadata" },
+    { "id": "second", "projectId": "alpha", "title": "Second card", "status": "idle", "updatedAt": "2026-01-04T12:00:00Z", "branch": "second-metadata" },
+    { "id": "third", "projectId": "alpha", "title": "Third card", "status": "idle", "updatedAt": "2026-01-03T12:00:00Z" },
+    { "id": "last", "projectId": "beta", "title": "Last card", "status": "idle", "updatedAt": "2026-01-02T12:00:00Z", "branch": "last-metadata" },
+    { "id": "settled", "projectId": "beta", "title": "Settled searchable card", "status": "idle", "updatedAt": "2026-01-01T12:00:00Z", "settled": true, "listed": true },
+    { "id": "archived", "projectId": "alpha", "title": "Archived hidden card", "status": "idle", "archived": true, "listed": true },
+    { "id": "unlisted", "projectId": "alpha", "title": "Unlisted hidden card", "status": "working", "listed": false, "pinned": true, "relationship": "subagent" },
+    { "id": "unlisted-settled", "projectId": "alpha", "title": "Unlisted settled card", "status": "idle", "listed": false, "settled": true }
+  ]
+}
