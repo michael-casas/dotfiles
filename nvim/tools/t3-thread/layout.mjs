@@ -650,15 +650,17 @@ function composer(width, T, ui, model, working) {
   const start = Math.max(0, cursorRow - inputRows + 1);
   input = input.slice(start, start + inputRows).map((l) => clip(l, inputWidth));
   const buttonColor = working ? T.error : T.accent;
-  // Standard block elements: no Powerline/Nerd Font fallback required.
+  // Powerline half circles (U+E0B6/U+E0B4) make a true pill; Herdr draws them
+  // without a Nerd Font. The ANSI fallback keeps plain half blocks.
+  const [capLeft, capRight] = T.surface != null ? ["\ue0b6", "\ue0b4"] : ["▐", "▌"];
   const button = [
-    seg("▐", { color: buttonColor }),
+    seg(capLeft, { color: buttonColor }),
     seg(working ? " ■ " : " ↑ ", {
       color: T.accent_fg,
       bg: buttonColor,
       bold: true,
     }),
-    seg("▌", { color: buttonColor }),
+    seg(capRight, { color: buttonColor }),
   ];
   const label = [
     seg("✳", { color: T.provider }),

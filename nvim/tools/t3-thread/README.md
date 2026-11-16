@@ -40,10 +40,11 @@ change; only new output and the live region use the new settings.
   Long streams/details show a bounded preview; menus take priority over preview.
   Idle threads use only the composer/status rows, with no pinned heading.
 - The composer retains its theme surfaces, inverse insertion cursor, model/effort
-  label, block-element pill send/stop control, six-row maximum input and round
+  label, rounded pill send/stop control, six-row maximum input and round
   ANSI fallback. Filled cards have half-row padding with notched quadrant corners;
   their cutouts inherit the terminal background, not an explicit theme fill.
-  The card and pill use standard Unicode block elements, not Nerd Font glyphs.
+  The card uses standard Unicode block elements; the pill ends are Powerline half
+  circles (U+E0B6/U+E0B4), which Herdr draws itself (half blocks in the ANSI fallback).
 - Project/thread title, branch/worktree, run status and context usage now live in
   the status line. Action hints or errors replace it temporarily. OSC 7501 still
   reports hc state. There is no `↓ latest` hint or timeline focus.

@@ -802,11 +802,12 @@ for (const cols of [20, 40, 92]) {
         assert.ok(edge.every(seg => seg.color === T.surface && seg.bg == null));
       const control = f.composer.at(-2);
       const icon = working ? " ■ " : " ↑ ";
-      assert.ok(text(control).includes("▐" + icon + "▌"));
+      // Powerline half circles: Herdr draws them as a true pill (REP live check).
+      assert.ok(text(control).includes("\ue0b6" + icon + "\ue0b4"));
       const button = control.find(seg => seg.text === icon);
       assert.equal(button.bg, working ? T.error : T.accent);
       assert.equal(button.color, T.accent_fg);
-      for (const glyph of ["▐", "▌"]) {
+      for (const glyph of ["\ue0b6", "\ue0b4"]) {
         const end = control.find(seg => seg.text === glyph);
         assert.equal(end.color, button.bg);
         assert.equal(end.bg, T.surface);
