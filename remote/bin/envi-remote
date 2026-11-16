@@ -131,12 +131,18 @@ BOOTSTRAP_ERRORS = {
 def ssh_client_error(policy, line):
     # Exit 255 may be remote-chosen. Pin variable fields to this invocation;
     # even a complete match is a recognizable form, not proof of its source.
-    # ssh prints hostnames lowercased; match the target case-insensitively.
-    target = '(?i:' + re.escape(policy['target']) + ')'
+    # ssh prints hostnames lowercased. Match the lowercased target literally:
+    # re.IGNORECASE would also admit Unicode lookalikes (long s, Kelvin sign).
+    target = re.escape(policy['target'].lower())
     port = str(policy['port'])
     # Without a policy user, ssh logs in (and prefixes messages) as the local account.
-    user = policy['user'] or pwd.getpwuid(os.getuid()).pw_name
-    auth_prefix = '(?:' + re.escape(user) + '@' + target + ': )?'
+    user = policy['user']
+    if user is None:
+        try:
+            user = pwd.getpwuid(os.getuid()).pw_name
+        except KeyError:
+            user = None  # no passwd entry: accept only the bare client form
+    auth_prefix = '(?:' + re.escape(user) + '@' + target + ': )?' if user else ''
     method = r'(?:publickey|password|keyboard-interactive|hostbased|gssapi-with-mic)'
     peer = rf'(?:{target}|[0-9A-Fa-f.:]{{2,45}})'
     key_host = target if policy['port'] == 22 else r'\[' + target + r'\]:' + port

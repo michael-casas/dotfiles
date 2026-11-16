@@ -119,7 +119,8 @@ new shells; existing shells retain their pinned release. Local error codes:
 **25** cache/stage/verification. Bootstrap uses 23 internally and the wrapper maps
 only exact authored diagnostics. For ambiguous exit 255, only complete known
 OpenSSH client-message forms (Linux and macOS/BSD wording) are displayed; hostname,
-port and explicit account fields must match the policy, authentication methods
+port and account fields must match the policy (the hostname as ssh prints it, lowercased;
+the local login name when the policy sets no user), authentication methods
 and host-key types are fixed known names, and closed/reset peers are either the
 exact policy target or bounded IP-shaped fields. All other lines are withheld with a fixed message and
 diagnostic hint. This pattern check is not authentication of
@@ -300,7 +301,7 @@ shellcheck remote/bootstrap.sh remote/profile/bin/* remote/profile/shell/bashrc
 git diff --check
 ```
 
-Current correction gate: **63 Python tests: 62 passed, 1 skipped**;
+Current correction gate: **64 Python tests: 63 passed, 1 skipped**;
 **17/17 Lua suites** through `run-lua.sh` (exit 0); **173/173 Node tests** pass. ShellCheck, plain StyLua
 checks using the directory configs above, and `git diff --check` pass. The stale
 168/173 missing-dependency caveat is closed; REP supplied the existing Node

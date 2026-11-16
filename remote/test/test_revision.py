@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from test_transport import TransportTest
 from test_probe import cli
@@ -84,6 +85,19 @@ class RevisionTest(TransportTest):
                      'Connection to fixture.invalid port 2222 timed out']:
             with self.subTest(withheld=text):
                 self.assertFalse(cli.ssh_client_error(policy, text))
+
+    def test_revision_ssh_errors_ascii_only_and_no_passwd_entry(self):
+        policy = dict(json.loads(self.policy.read_text())['hosts']['fixture'], target='Kitchen-sink.invalid')
+        # N9: case-insensitive matching must not admit Unicode lookalikes (long s, Kelvin sign).
+        self.assertTrue(cli.ssh_client_error(policy, 'Connection to kitchen-sink.invalid port 22 timed out'))
+        for text in ['Connection to kitchen-\u017fink.invalid port 22 timed out',
+                     'Connection to \u212aitchen-sink.invalid port 22 timed out']:
+            with self.subTest(lookalike=text):
+                self.assertFalse(cli.ssh_client_error(policy, text))
+        # N10: no passwd entry for this uid -> no crash; the bare client form still matches.
+        with patch.object(cli.pwd, 'getpwuid', side_effect=KeyError('uid')):
+            self.assertTrue(cli.ssh_client_error(dict(policy, user=None), 'Permission denied (publickey).'))
+            self.assertFalse(cli.ssh_client_error(dict(policy, user=None), 'x@kitchen-sink.invalid: Permission denied (publickey).'))
 
     def test_revision_ssh_errors_pin_explicit_policy(self):
         self.update(user='fixture-user', port=2222)
