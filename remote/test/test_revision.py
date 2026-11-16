@@ -1,0 +1,196 @@
+"""Critic-round regressions. All transports are local shims, never SSH servers."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+from test_transport import TransportTest
+from test_probe import cli
+import pack
+
+
+class RevisionTest(TransportTest):
+    # Share fixture helpers, not the inherited tests (loader below selects these).
+    def update(self, **changes):
+        data = json.loads(self.policy.read_text())
+        data['hosts']['fixture'].update(changes)
+        self.policy.write_text(json.dumps(data))
+
+    def no_upload(self):
+        p = Path(str(self.log) + '.bytes')
+        self.assertTrue(not p.exists() or all(n == '0' for n in p.read_text().splitlines()))
+
+    def test_revision_login_shells(self):
+        for shell in ['/bin/bash', '/bin/sh', '/bin/zsh', shutil.which('fish'), '/bin/csh', '/bin/tcsh']:
+            if not shell or not Path(shell).exists():
+                continue
+            with self.subTest(shell=shell):
+                result = self.cli('fixture', '--allow-dirty', FAKE_LOGIN_SHELL=shell)
+                self.assertEqual(result.returncode, 7, result.stderr)
+                self.assertIn(b'SESSION_OK', result.stdout)
+
+    def test_revision_ssh_errors(self):
+        for text in ['Host key verification failed.', 'Permission denied (publickey).',
+                     'Could not resolve hostname fixture.invalid: unknown host', 'Connection timed out']:
+            with self.subTest(text=text):
+                r = self.cli('fixture', '--allow-dirty', FAKE_SSH_ERROR=text)
+                self.assertEqual(r.returncode, 21)
+                self.assertIn(text.encode(), r.stderr)
+                self.assertIn(b'ssh -F /dev/null', r.stderr)
+                self.no_upload()
+
+    def test_revision_lock_and_verify_diagnostics(self):
+        a = pack.build(cli.ROOT, allow_dirty=True)
+        self.assertEqual(self.stage(a).returncode, 0)
+        release = self.store / 'releases' / a.digest
+        shutil.rmtree(release)
+        lock = self.store / 'locks' / a.digest
+        lock.mkdir()
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 24, r.stderr)
+        self.assertIn(b'release locked; never steal a stale lock', r.stderr)
+        lock.rmdir()
+        self.assertEqual(self.stage(a).returncode, 0)
+        (release / 'bin/enter').write_text('corrupt')
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 25, r.stderr)
+        self.assertIn(b'cached release invalid', r.stderr)
+
+    def test_revision_symlink_policy(self):
+        actual = self.base / 'actual.json'
+        self.policy.rename(actual)
+        self.policy.symlink_to(actual)
+        self.assertEqual(self.cli('fixture').returncode, 20)
+        self.assertFalse(self.log.exists())
+
+    def test_revision_policy_inside_repo_and_dotdot(self):
+        with tempfile.NamedTemporaryFile(dir=cli.ROOT / 'remote/test', suffix='.json') as f:
+            path = Path(f.name)
+            path.write_bytes(self.policy.read_bytes())
+            path.chmod(0o600)
+            sibling = path.parent / 'guard-fixture'
+            sibling.mkdir()
+            self.addCleanup(sibling.rmdir)
+            for p in [path, sibling / '..' / path.name]:
+                with self.subTest(path=str(p)), self.assertRaises(ValueError):
+                    cli.load_policy(p)
+
+    def test_revision_bad_roots(self):
+        for root in ['/one', '/a/../b', '/a//b', '/a/b/', '/a/./b']:
+            self.update(root=root)
+            self.assertEqual(self.cli('fixture').returncode, 20)
+        self.assertFalse(self.log.exists())
+        self.no_upload()
+
+    def test_revision_reserved_aliases(self):
+        data = json.loads(self.policy.read_text())
+        for reserved in ['plan', 'hosts']:
+            data['hosts'][reserved] = data['hosts']['fixture']
+            self.policy.write_text(json.dumps(data))
+            self.assertEqual(self.cli('hosts').returncode, 20)
+        self.assertFalse(self.log.exists())
+
+    def test_revision_missing_cached_never_uploads(self):
+        r = self.cli('fixture', '--use-cached', '--allow-dirty')
+        self.assertEqual(r.returncode, 25, r.stderr)
+        self.assertIn(b'cached release missing', r.stderr)
+        self.no_upload()
+
+    def test_revision_unrecognized_stderr_is_withheld(self):
+        from unittest.mock import patch
+        result = subprocess.CompletedProcess([], 23, stdout=b'', stderr=b'private server text')
+        with patch.object(cli.subprocess, 'run', return_value=result):
+            with self.assertRaises(cli.RemoteError) as caught:
+                cli.control(json.loads(self.policy.read_text())['hosts']['fixture'], '', ['inspect'])
+        self.assertEqual(caught.exception.code, 22)
+        self.assertNotIn('private server text', str(caught.exception))
+
+    def test_revision_no_terminfo_fails_before_upload(self):
+        (self.shims / 'infocmp').write_text('#!/bin/sh\nexit 1\n')
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 22, r.stderr)
+        self.assertIn(b'no supported terminal', r.stderr)
+        self.no_upload()
+
+    def test_revision_ssh_argv(self):
+        self.update(user='fixture-user', port=2222)
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 7, r.stderr)
+        for line in self.log.read_text().splitlines():
+            args = json.loads(line)
+            self.assertEqual(args[args.index('-p') + 1], '2222')
+            self.assertEqual(args[args.index('-l') + 1], 'fixture-user')
+            self.assertEqual(args[-3:-1], ['--', 'fixture.invalid'])
+
+    def test_revision_launch_rechecks_cache(self):
+        r = self.cli('fixture', '--allow-dirty', FAKE_CORRUPT_BEFORE_LAUNCH='1')
+        self.assertNotEqual(r.returncode, 7)
+        self.assertNotIn(b'SESSION_OK', r.stdout)
+        self.assertIn(b'cached release invalid', r.stderr)
+
+    def test_revision_digest_state_and_login_counts(self):
+        a = pack.build(cli.ROOT, allow_dirty=True)
+        self.assertEqual(self.cli('fixture', '--allow-dirty').returncode, 7)
+        self.assertEqual(len(self.log.read_text().splitlines()), 3)
+        state = self.store / 'state' / a.digest
+        self.assertEqual(len(list(state.glob('session.*'))), 1)
+        self.assertEqual(self.cli('fixture', '--allow-dirty').returncode, 7)
+        self.assertEqual(len(self.log.read_text().splitlines()), 5)
+
+    def test_revision_setgid_parent(self):
+        self.home.chmod(0o2755)
+        r = self.stage()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.store.stat().st_mode & 0o7777, 0o700)
+
+    def test_revision_sticky_system_temp(self):
+        # Uses actual BSD /private/tmp metadata locally; no global mode mutation.
+        with tempfile.TemporaryDirectory(dir=Path('/tmp').resolve()) as name:
+            self.store = Path(name) / 'owned/root'
+            r = self.stage()
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_revision_extra_path_and_remote_path(self):
+        extra = self.base / 'approved-bin'
+        extra.mkdir(mode=0o755)
+        tool = extra / 'fixture-tool'
+        tool.write_text('#!/bin/sh\nexit 0\n')
+        tool.chmod(0o755)
+        self.update(path_extra=[str(extra)])
+        remote = self.base / 'remote-bin'
+        remote.mkdir()
+        (remote / 'remote-only-tool').write_text('#!/bin/sh\nexit 0\n')
+        (remote / 'remote-only-tool').chmod(0o755)
+        r = self.cli('fixture', '--allow-dirty', FAKE_CHECK_PATH=str(extra), FAKE_REMOTE_PATH=str(remote))
+        self.assertEqual(r.returncode, 7, r.stderr)
+        extra.chmod(0o777)
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 22, r.stderr)
+        self.assertIn(b'unsafe extra PATH', r.stderr)
+
+    def test_revision_term_fallback(self):
+        (self.shims / 'infocmp').write_text('#!/bin/sh\n[ "$1" = dumb ]\n')
+        for term in ['xterm-ghostty', 'bad;term', '']:
+            r = self.cli('fixture', '--allow-dirty', TERM=term, FAKE_TERMINFO='dumb')
+            self.assertEqual(r.returncode, 7, r.stderr)
+            self.assertIn(b'TERM=dumb', r.stdout)
+
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite(RevisionTest(n) for n in loader.getTestCaseNames(RevisionTest)
+                               if n.startswith('test_revision_'))
+    suite.addTests(loader.loadTestsFromTestCase(CleanupGuardTest))
+    return suite
+
+class CleanupGuardTest(unittest.TestCase):
+    def test_temporary_launcher_rejects_broad_cleanup_target(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            r = subprocess.run(['/bin/bash', str(cli.ROOT / 'remote/profile/bin/enter'),
+                                '/nonexistent-release', str(root / 'state'), 'C.UTF-8',
+                                'temporary', str(root)], capture_output=True)
+            self.assertEqual(r.returncode, 24)
+            self.assertTrue(root.exists())

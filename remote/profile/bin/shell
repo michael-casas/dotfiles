@@ -5,7 +5,7 @@ state=$2
 locale_name=$3
 # env -i also removes exported functions and injection variables. Real HOME stays real.
 exec /usr/bin/env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" \
-    PATH="$release/bin:/usr/local/bin:/usr/bin:/bin" TERM="${TERM:-xterm-256color}" \
+    PATH="$release/bin:$PATH" TERM="${TERM:-xterm-256color}" \
     LC_ALL="$locale_name" ENVI_REMOTE_RELEASE="$release" ENVI_REMOTE_STATE="$state" \
     INPUTRC="$release/shell/inputrc" HISTFILE=/dev/null \
     /bin/bash --noprofile --rcfile "$release/shell/bashrc" -i

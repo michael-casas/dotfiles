@@ -25,6 +25,9 @@ class TransportTest(unittest.TestCase):
         self.shims = self.base / 'shims'
         self.shims.mkdir()
         self.log = self.base / 'calls'
+        infocmp = self.shims / 'infocmp'
+        infocmp.write_text('#!/bin/sh\nif [ -n "${FAKE_TERMINFO-}" ]; then [ "$1" = "$FAKE_TERMINFO" ]; else exec /usr/bin/infocmp "$@"; fi\n')
+        infocmp.chmod(0o755)
         self.policy = self.base / 'hosts.json'
         self.policy.write_text(json.dumps({'schema': 1, 'hosts': {'fixture': {
             'target': 'fixture.invalid', 'class': 'personal', 'transport': 'ssh',
@@ -43,6 +46,9 @@ with open(os.environ['FAKE_LOG'], 'a') as log: log.write(json.dumps(args)+'\\n')
 assert args[0:2] == ['-F', '/dev/null']
 assert 'ClearAllForwardings=yes' in args and 'StrictHostKeyChecking=yes' in args
 assert args[-2] == 'fixture.invalid'
+if os.environ.get('FAKE_SSH_ERROR'):
+    print(os.environ['FAKE_SSH_ERROR'], file=sys.stderr)
+    sys.exit(255)
 if os.environ.get('FAKE_NOISE'):
     print('unexpected startup output', flush=True)
 body = sys.stdin.buffer.read() if '-T' in args else b''
@@ -51,8 +57,19 @@ if os.environ.get('FAKE_UPLOAD') == 'interrupt' and body: body = body[:100]
 with open(os.environ['FAKE_LOG'] + '.bytes', 'a') as log: log.write(str(len(body))+'\\n')
 if '-tt' in args:
     body = b"printf 'SESSION_OK\\\\n'; printf '%s\\\\n' \\\"$HOME\\\"; test -z \\\"${BASH_ENV-}${LD_PRELOAD-}${HCMUX_SESSION-}\\\" || exit 91; exit 7\\n"
+if '-tt' in args:
+    if os.environ.get('FAKE_CORRUPT_BEFORE_LAUNCH'):
+        for p in Path(os.environ['FAKE_HOME']).glob('portable root/releases/*/bin/enter'): p.write_text('corrupt')
+    if os.environ.get('FAKE_REMOTE_PATH'):
+        body = b'command -v remote-only-tool || exit 94; ' + body
+    body = b'printf "TERM=%s\\\\n" "$TERM"; ' + body
+    if os.environ.get('FAKE_CHECK_PATH'):
+        body = b'command -v fixture-tool || exit 92; case "$PATH" in *' + os.environ['FAKE_CHECK_PATH'].encode() + b'*) ;; *) exit 93;; esac; ' + body
 env = dict(os.environ, HOME=os.environ['FAKE_HOME'])
-result = subprocess.run(['/bin/bash', '--noprofile', '--norc', '-c', args[-1]], input=body, env=env)
+if os.environ.get('FAKE_REMOTE_PATH'): env['PATH'] = os.environ['FAKE_REMOTE_PATH'] + ':' + env['PATH']
+shell = os.environ.get('FAKE_LOGIN_SHELL', '/bin/bash')
+flags = {'bash': ['--noprofile', '--norc'], 'fish': ['--no-config'], 'zsh': ['-f'], 'csh': ['-f'], 'tcsh': ['-f']}.get(Path(shell).name, [])
+result = subprocess.run([shell, *flags, '-c', args[-1]], input=body, env=env)
 sys.exit(result.returncode)
 ''')
         ssh.chmod(0o755)
@@ -129,7 +146,7 @@ sys.exit(result.returncode)
     def test_contaminated_stdout_fails_before_upload(self):
         result = self.cli('fixture', '--allow-dirty', FAKE_NOISE='1')
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.store.exists())
+        self.assertFalse(list(self.store.glob('releases/*')))
         self.assertNotIn(b'unexpected startup output', result.stderr)
 
     def test_symlink_root_refused(self):

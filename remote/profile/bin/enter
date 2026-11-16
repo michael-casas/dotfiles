@@ -8,6 +8,10 @@ mode=$4
 root=$5
 [ "$mode" = persistent ] || [ "$mode" = temporary ] || exit 24
 if [ "$mode" = temporary ]; then
+    # Refuse broad/manual cleanup targets even when invoked outside the wrapper.
+    suffix=${root##*/temporary-}
+    [ "$root" != "$suffix" ] && [ "${#suffix}" = 32 ] || exit 24
+    case "$suffix" in *[!a-f0-9]*) exit 24 ;; esac
     cleanup() { rm -rf -- "$root"; }
     trap cleanup EXIT
 fi

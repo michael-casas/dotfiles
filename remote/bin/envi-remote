@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host-free v1: approved minimal profile over explicit SSH; no Mosh/tmux yet."""
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -29,11 +30,12 @@ def identifier(value):
 def load_policy(path):
     # Follow no symlinks, including parent components. Private, outside this repo.
     path = Path(path).absolute()
-    if path == ROOT or ROOT in path.parents:
-        raise ValueError('host policy must be outside the repository')
     for p in [path, *path.parents]:
         if p.is_symlink():
             raise ValueError('symlink policy path refused')
+    resolved = Path(os.path.realpath(path))
+    if resolved == ROOT.resolve() or ROOT.resolve() in resolved.parents:
+        raise ValueError('host policy must be outside the repository')
     st = path.stat()
     if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o600 or st.st_uid != os.getuid():
         raise ValueError('host policy must be owned, regular, mode 0600')
@@ -53,8 +55,11 @@ def load_policy(path):
         raise ValueError('invalid hosts')
     for alias, entry in data['hosts'].items():
         identifier(alias)
-        if not isinstance(entry, dict) or set(entry) != {'target', 'class', 'transport', 'root', 'locale',
-                                                       'storage', 'persist', 'approved', 'user', 'port'}:
+        if alias in ('plan', 'hosts'):
+            raise ValueError('reserved host identifier')
+        fields = {'target', 'class', 'transport', 'root', 'locale',
+                  'storage', 'persist', 'approved', 'user', 'port'}
+        if not isinstance(entry, dict) or not fields <= set(entry) or set(entry) - fields - {'path_extra'}:
             raise ValueError('unexpected/missing host policy fields')
         identifier(entry['target'])
         identifier(entry['locale'])
@@ -70,6 +75,11 @@ def load_policy(path):
             raise ValueError('invalid storage')
         if entry['class'] != 'personal' and entry['storage'] != 'temporary':
             raise ValueError('company/shared-uid requires temporary storage in v1')
+        extras = entry.get('path_extra', [])
+        if not isinstance(extras, list) or len(extras) > 16:
+            raise ValueError('invalid path_extra')
+        for extra in extras:
+            validate_path(extra)
         root = entry['root']
         if not isinstance(root, str) or not ABS.fullmatch(root) or root.endswith('/') or any(
                 p in ('', '.', '..') for p in root.split('/')[1:]) or root.count('/') < 2:
@@ -77,7 +87,7 @@ def load_policy(path):
     return data['hosts']
 
 
-def ssh_args(policy, host, tty=False):
+def ssh_args(policy, tty=False):
     # Ignore ambient SSH config entirely (SendEnv/SetEnv/Match exec/proxy/multiplex).
     # Policy target is a direct DNS endpoint, NOT an alias needing ~/.ssh/config.
     args = ['ssh', '-F', '/dev/null', '-a', '-x', '-o', 'ClearAllForwardings=yes',
@@ -90,22 +100,74 @@ def ssh_args(policy, host, tty=False):
     return args + ['--', policy['target']]
 
 
+def validate_path(path):
+    if not isinstance(path, str) or not ABS.fullmatch(path) or path.endswith('/') or any(
+            p in ('', '.', '..') for p in path.split('/')[1:]):
+        raise ValueError('invalid absolute path')
+
+
+class RemoteError(ValueError):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
+# Only exact authored messages cross the control stderr boundary; never remote dumps.
+BOOTSTRAP_ERRORS = {
+    'release locked; never steal a stale lock': 24,
+    **{message: 25 for message in ('cached release invalid', 'existing release invalid; preserved for inspection',
+       'archive exceeds bound', 'archive hash mismatch', 'extract failed', 'extracted release invalid',
+       'publish failed', 'published release invalid', 'staging creation failed', 'state creation failed')},
+    **{message: 22 for message in ('SHA-256 unavailable', 'absolute root required', 'noncanonical root',
+       'symlink in root', 'root component is not a directory', 'foreign-owned root', 'writable root ancestor',
+       'cannot create private root', 'root must be owned mode 0700', 'approved locale unavailable',
+       'approved locale is not UTF-8', 'Bash /bin/bash required', 'unsupported tar', 'unsafe extra PATH',
+       'no supported terminal', 'unknown operation', 'bad storage mode', 'bad digest', 'bad digest alphabet')},
+}
+
+
 def command(script, arguments):
-    # SSH always crosses an account shell. Fixed expansion only; every supplied word quoted.
-    return ('/usr/bin/env -i HOME="$HOME" USER="${USER-}" LOGNAME="${LOGNAME-}" '
-            'TERM="${TERM:-xterm-256color}" PATH=/usr/local/bin:/usr/bin:/bin '
-            '/bin/bash --noprofile --norc -c ' + shlex.quote(script) + ' -- ' +
-            ' '.join(shlex.quote(str(a)) for a in arguments))
+    # The account shell sees ONE LINE, no variable expansions, no embedded quote
+    # escapes. sh owns all expansion; base64 is transport encoding, not validation.
+    term = os.environ.get('TERM', 'xterm-256color')
+    if not re.fullmatch(r'[A-Za-z0-9._+-]{1,64}', term):
+        term = 'xterm-256color'
+    prelude = ('decoded=(); for word in "$@"; do decoded+=("$(printf %s "$word" | /usr/bin/base64 -d)"); done; '
+               'set -- "${decoded[@]}";\n')
+    encoded = base64.b64encode((prelude + script).encode()).decode()
+    trampoline = ('code=$1; TERM=$2; shift 2; exec /usr/bin/env -i HOME="$HOME" '
+                  'USER="${USER-}" LOGNAME="${LOGNAME-}" PATH="$PATH:/usr/sbin:/sbin" TERM="$TERM" '
+                  '/bin/bash --noprofile --norc -c "$(printf %s "$code" | /usr/bin/base64 -d)" -- "$@"')
+    words = ['/bin/sh', '-c', trampoline, 'sh', encoded, term]
+    words += [base64.b64encode(str(a).encode()).decode() for a in arguments]
+    return ' '.join(shlex.quote(w) for w in words)
 
 
 def control(policy, script, args, data=b''):
-    completed = subprocess.run(ssh_args(policy, None) + [command(script, args)], input=data,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+    try:
+        completed = subprocess.run(ssh_args(policy) + [command(script, args)], input=data,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   timeout=120 if data else 45)
+    except subprocess.TimeoutExpired as error:
+        raise RemoteError('SSH control timed out; check reachability before retrying', 21) from error
     if completed.returncode:
-        # Never echo account startup output or arbitrary server diagnostics.
-        raise ValueError('SSH probe/stage failed (remote output withheld); inspect approved target privately')
+        last = completed.stderr.decode('utf-8', errors='replace').splitlines()[-1:] or ['']
+        prefix = 'envi-remote bootstrap: '
+        message = last[0][len(prefix):] if last[0].startswith(prefix) else ''
+        if completed.returncode == 23 and message in BOOTSTRAP_ERRORS:
+            raise RemoteError(message, BOOTSTRAP_ERRORS[message])
+        if completed.returncode == 255:
+            # Bound/control-strip client diagnostics; keep actionable host-key/auth/DNS errors.
+            safe = ''.join(c for c in last[0][:512] if c.isprintable())
+            diagnostic = ['ssh', '-F', '/dev/null', '-p', str(policy['port'])]
+            if policy['user'] is not None:
+                diagnostic += ['-l', policy['user']]
+            diagnostic += ['--', policy['target'], 'true']
+            raise RemoteError('SSH transport/authentication failed: ' + safe +
+                              '; diagnose with ' + shlex.join(diagnostic), 21)
+        raise RemoteError('remote bootstrap failed; unrecognized remote output withheld', 22)
     if len(completed.stdout) > 4096:
-        raise ValueError('remote control output exceeds protocol bound')
+        raise RemoteError('remote control output exceeds protocol bound', 22)
     return completed.stdout.decode('ascii')
 
 
@@ -155,31 +217,39 @@ def main():
         print('envi-remote: SSH minimal; no tmux; ' + policy['storage'] + '; release ' + artifact.digest,
               file=sys.stderr)
         script = (ROOT / 'remote/bootstrap.sh').read_text()
-        probe = control(policy, script, ['probe', policy['locale']])
-        lines = probe.splitlines()
-        if len(lines) != 13 or lines[:2] != ['protocol=1', 'tar=ustar'] or lines[2] not in (
-                'hash=sha256sum', 'hash=shasum') or lines[3] not in ('charmap=UTF-8', 'charmap=UTF8'):
-            raise ValueError('unsupported probe, locale or contaminated stdout')
-        for tool, line in zip(('nvim', 'git', 'starship', 'rg', 'fd', 'fdfind', 'fzf', 'tmux', 'mosh-server'), lines[4:]):
-            if line not in (tool + '=0', tool + '=1'):
-                raise ValueError('malformed probe')
-            if line.endswith('=0'):
-                print('envi-remote: optional ' + tool + ' unavailable', file=sys.stderr)
         parameters = [policy['root'], artifact.digest, artifact.archive_hash, artifact.manifest.decode(),
-                      policy['locale'], policy['storage']]
+                      policy['locale'], policy['storage'], *policy.get('path_extra', [])]
+        # One inspection login combines the fixed probe and verified cache lookup.
+        probe = control(policy, script, ['inspect', *parameters])
+        lines = probe.splitlines()
+        keys = ['protocol', 'tar', 'hash', 'charmap', 'locale', 'os', 'arch', 'bash', 'nvim_version',
+                'mosh_version', 'tmux_version', 'term', 'terminfo_xterm', 'terminfo_tmux',
+                'nvim', 'git', 'starship', 'rg', 'fd', 'fdfind', 'fzf', 'tmux', 'mosh-server']
+        if len(lines) != len(keys) + 1 or any(not line.startswith(key + '=') for key, line in zip(keys, lines)):
+            raise RemoteError('unsupported probe or contaminated stdout', 22)
+        caps = dict(line.split('=', 1) for line in lines[:-1])
+        if caps['protocol'] != '1' or caps['tar'] != 'ustar' or caps['hash'] not in ('sha256sum', 'shasum') or caps['charmap'] not in ('UTF-8', 'UTF8'):
+            raise RemoteError('unsupported probe or locale', 22)
+        identifier(caps['locale'])
+        parameters[4] = caps['locale']
+        for tool in keys[14:]:
+            if caps[tool] not in ('0', '1'):
+                raise RemoteError('malformed probe', 22)
+            if caps[tool] == '0':
+                print('envi-remote: optional ' + tool + ' unavailable', file=sys.stderr)
         ready = 'ready=' + artifact.digest + '\n'
-        response = control(policy, script, ['lookup', *parameters])
+        response = lines[-1] + '\n'
         if response == 'missing=' + artifact.digest + '\n':
             if args.use_cached:
-                raise ValueError('requested cached release missing; no upload')
+                raise RemoteError('requested cached release missing; no upload', 25)
             response = control(policy, script, ['stage', *parameters], artifact.archive)
         if response != ready:
-            raise ValueError('stage protocol mismatch; no attachment')
-        return subprocess.call(ssh_args(policy, alias, tty=True) + [command(script, ['launch', *parameters])])
+            raise RemoteError('stage protocol mismatch; no attachment', 25)
+        return subprocess.call(ssh_args(policy, tty=True) + [command(script, ['launch', *parameters])])
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, UnicodeError) as error:
         # Error text from local policy may contain a private path, never include its contents.
         print('envi-remote: ' + str(error), file=sys.stderr)
-        return 20
+        return error.code if isinstance(error, RemoteError) else 20
 
 
 if __name__ == '__main__':
