@@ -11,7 +11,8 @@
       "persist": false,
       "approved": true,
       "user": "example",
-      "port": 22
+      "port": 22,
+      "path_extra": []
     },
     "example-company": {
       "target": "approved.example.invalid",
@@ -23,7 +24,8 @@
       "persist": false,
       "approved": true,
       "user": "example",
-      "port": 22
+      "port": 22,
+      "path_extra": []
     }
   }
 }
