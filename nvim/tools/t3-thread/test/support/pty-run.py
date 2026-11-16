@@ -5,6 +5,7 @@
 stdout: the child's raw terminal output, unmodified.
 stdin, one command per line:
   resize ROWS COLS   TIOCSWINSZ on the PTY; the kernel sends SIGWINCH
+  input HEX          Send literal hex-encoded input bytes to the PTY
   stop               SIGTERM the child
 EOF on stdin also stops the child. Exits with the child's status.
 """
@@ -65,6 +66,8 @@ def main():
                 cmd = line.decode().split()
                 if cmd and cmd[0] == "resize":
                     winsize(master, int(cmd[1]), int(cmd[2]))
+                elif cmd and cmd[0] == "input":
+                    os.write(master, bytes.fromhex(cmd[1]))
                 elif cmd and cmd[0] == "stop":
                     child.send_signal(signal.SIGTERM)
         if child.poll() is not None and master not in ready:
