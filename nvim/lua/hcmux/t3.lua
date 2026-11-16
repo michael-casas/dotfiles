@@ -101,8 +101,8 @@ local function shown_display(win)
 end
 
 -- The colors a new T3 client is told from its first byte (terminal.run
--- display): the popover's own, so cells painted with the "default" background
--- match the float, not the editor's Normal. `win`: the popover it will start
+-- display): the popover's own, so a program asking for its background gets
+-- the float's, not the editor's Normal. `win`: the popover it will start
 -- in, if shown already (a broken hub leaves that window's look alone). nil:
 -- the terminal defaults (nvim's Normal), as before.
 local function popover_display(win)

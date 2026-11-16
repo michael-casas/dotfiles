@@ -13,6 +13,14 @@ there is no alternate screen or mouse reporting. Existing projected history is
 printed oldest first at startup. Item IDs prevent duplicate output after socket
 reconnects, snapshot resyncs, theme repaints, and hiding/reopening the same client.
 
+Blank history cells (empty rows, the rest of each line) are never painted by the
+client; they show the popover background. They used to show black: `hc attach`
+opens with `ESC[?1049l`, which also restores the saved cursor, and Neovim's
+terminal restores a never-saved cursor with an explicit black pen. hcmux now
+saves a clean cursor before starting each viewer (`nvim/lua/hcmux/README.md`).
+The popover colour negotiation (OSC 10/11, `terminal.run` display) is a separate
+fix for programs that ask for their background; it was not the cause of the bars.
+
 The conversation, composer and status share a centered column of at most 92
 cells, with three columns of outer padding. The supported small layout is
 80 × 24. Committed lines retain their original width/theme on resize or theme
