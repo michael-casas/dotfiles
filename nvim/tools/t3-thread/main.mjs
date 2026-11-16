@@ -62,7 +62,11 @@ function useSize() {
   const [size, setSize] = useState(read);
   useEffect(() => {
     const resize = () => setSize(read());
-    stdout.on("resize", resize);
+    // Ink repaints from its own "resize" listener, registered before this
+    // one. Run first so the tree already has the new size: otherwise Ink
+    // measures the old, taller live frame against the new height, clears the
+    // whole terminal (scrollback too) and replays every <Static> item.
+    stdout.prependListener("resize", resize);
     return () => stdout.off("resize", resize);
   }, [stdout]);
   return size;

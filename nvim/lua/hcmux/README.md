@@ -7,6 +7,11 @@ programs (shells, Claude, Codex, pi, …) run in herdr-core, not in nvim.
 - Reopening nvim in the same folder brings the whole layout back from its
   herdr-core session (see Sessions). Terminals attach when shown and replay
   2000 lines of scrollback.
+- Each viewer runs `/bin/sh -c "printf '\033%s' 7; exec \"$@\"" hcmux-viewer hc attach --history N <t>`.
+  `hc attach` opens with `ESC[?1049l`, which also restores the saved cursor; Neovim's terminal
+  restores a never-saved cursor with an explicit black pen, so blank rows and the rest of each
+  line stayed black (the "black bars" in T3 scrollback). The prelude saves a clean cursor first,
+  then execs hc: same pid and exit status, arguments only as `"$@"`.
 - nvim windows and tabs are the layout. herdr-core keeps the processes and
   their agent status (OSC 7501), streamed live through `hc events`.
 - In the Herdr app, they appear as **sub-agents of nvim's tab**: the app shows
@@ -195,6 +200,19 @@ INSERT `<Esc>` and `<C-]>` both go to COMMAND and never forward a raw Esc to the
 private `dismiss` control (`ESC[>777;6u`, `tools/t3-thread/control.mjs`), which closes a dialog, the model picker
 or a menu and never interrupts. COMMAND `<C-]>` returns to INSERT (a toggle); COMMAND `<Esc>` is a no-op.
 
+Colours (separate from the black bars above, which come from the viewer's opening sequence): a popover client is told
+the popover's own colours (the hub's `ui.fg`/`ui.popover`), both from its first byte (`terminal.run` display,
+`term.open{display}`) and as its buffer's OSC 10/11 answers, so a program that asks for its background gets the one
+it is shown on. These answers no longer depend on which window has focus (`nvim_get_hl(link = false)` resolves through
+the focused window's `winhighlight`). On every popover open, switch and theme change, and
+on `attach_in`, the buffer's answers are re-resolved from what that window shows (the T3 remap, or the editor's
+`Normal` when it has none, e.g. an untinted main pane), so a reused buffer never keeps another view's colours.
+When a view stops showing the client (COMMAND `q`, closing the window, or switching that window to another thread)
+the answers follow the view that remains, the focused one if it shows the client; with no view left they keep the
+last value until the next attach.
+With a missing/invalid hub a new popover keeps the editor's `Normal`; a shown window keeps its look. Other terminals
+answer with the global `Normal`/`Cursor`, whichever window has focus. Already printed history keeps its colours.
+
 T3 sets `vim.t.hcmux_session_skip = true`. The generic session serializer omits
 opted-out tab blocks and their exclusive buffers from the saved Vim script,
 without closing/recreating any live tab/window. Ordinary tabs and shared buffers
@@ -207,7 +225,14 @@ terminal restoration are otherwise unchanged.
 
 Headless checks: `nvim/tools/t3-thread/test/run-lua.sh` runs every Lua suite (or the named ones, e.g.
 `run-lua.sh layout sidebar`) and exits nonzero if one fails. A bare `nvim --headless '+luafile …' +qa` exits 0 even
-when the suite throws, so don't gate on it.
+when the suite throws, so don't gate on it. `scrollback-strikes.lua` opens real popovers (AGENT slot and direct
+route) in an embedded Neovim with an RGB UI and checks colour negotiation, resize/hide/switch identities and keys;
+its viewer is a synthetic stand-in for `hc attach` (it paints with the negotiated colour itself, so it tests the
+negotiation protocol, not the black-bar cause), never a real core or thread. `scrollback-lifecycle.lua` checks the
+answers at reopen, main-pane (hide, close, switch-away in both directions), theme-refresh, fresh-viewer and
+restart boundaries, before any further attach. `viewer-pen.lua` runs the real
+viewer command with `hc` swapped for `support/fake-hc-attach.sh` (hc's captured opening sequence) and checks that
+no history cell is black, in the T3 popover and in an ordinary terminal split.
 
 ## AGENT mode (`hcmux.agent`)
 

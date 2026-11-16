@@ -125,10 +125,18 @@ local function close_buf(buf)
   end
 end
 
+-- `hc attach` opens with ESC[?1049l, which also restores the saved cursor.
+-- Neovim's terminal restores a never-saved cursor with an explicit black pen,
+-- so every cell erased after it (blank rows, the rest of each line) stays
+-- black whatever the window's Normal. Save a clean cursor (ESC 7) first, then
+-- exec hc: the job keeps hc's pid and exit status, and the address and other
+-- arguments reach hc only as "$@", never as shell text.
+local VIEWER = { "/bin/sh", "-c", "printf '\\033%s' 7; exec \"$@\"", "hcmux-viewer" }
+
 -- Start the viewer in the current (empty) buffer.
 local function start_viewer(buf, addr)
   vim.b[buf].hcmux_closing = nil
-  local cmd = { "hc", "attach", "--history", tostring(M.config.history), addr }
+  local cmd = vim.list_extend(vim.list_slice(VIEWER), { "hc", "attach", "--history", tostring(M.config.history), addr })
   local opts = {
     on_exit = function(_, code)
       vim.schedule(function()
@@ -217,7 +225,10 @@ end
 
 --- Start a program in herdr-core and show it.
 ---@param argv? string[] nil = a shell
----@param o? {where?:string, cwd?:string, title?:string, name?:string, labels?:table<string,string>, session?:boolean, listed?:boolean, size?:number}
+---@param o? {where?:string, cwd?:string, title?:string, name?:string, labels?:table<string,string>, session?:boolean, listed?:boolean, size?:number, display?:{fg?:string, bg?:string, cursor?:string}}
+--- display: colors (#rrggbb) for this terminal instead of nvim's Normal/Cursor,
+--- e.g. a themed float's own background. The program gets them from its first
+--- byte (terminal.run) and as this buffer's OSC 10/11/12 answers. Default: none.
 function M.open(argv, o)
   o = o or {}
   if not core.available() then
@@ -241,8 +252,10 @@ function M.open(argv, o)
   vim.api.nvim_win_set_buf(win, buf)
   local size =
     { cols = math.max(vim.api.nvim_win_get_width(win), 1), rows = math.max(vim.api.nvim_win_get_height(win), 1) }
+  vim.b[buf].hcmux_display = o.display
 
-  local addr, err = core.run(argv, { cwd = o.cwd or vim.fn.getcwd(), name = o.name, labels = labels, size = size })
+  local addr, err =
+    core.run(argv, { cwd = o.cwd or vim.fn.getcwd(), name = o.name, labels = labels, size = size, display = o.display })
   if not addr then
     -- Undo the window we opened for it.
     if win ~= prev_win and vim.api.nvim_win_is_valid(win) then
@@ -473,7 +486,10 @@ function M.setup(cfg)
   -- `hc attach` asks its terminal (this buffer) for its colors with OSC
   -- 10/11/12 and reports them to herdr-core, which answers the program's own
   -- color queries with them. nvim leaves the queries unanswered, so programs
-  -- fall back to black backgrounds; answer with the colorscheme's colors.
+  -- fall back to black backgrounds; answer with the colorscheme's colors, or
+  -- the buffer's own display colors (vim.b.hcmux_display: M.open's display,
+  -- kept in step by its owner, e.g. hcmux.t3), never depending on
+  -- which window happens to have focus.
   vim.api.nvim_create_autocmd("TermRequest", {
     group = group,
     callback = function(ev)
@@ -485,9 +501,9 @@ function M.setup(cfg)
       if not code then
         return
       end
-      local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
-      local cursor = vim.api.nvim_get_hl(0, { name = "Cursor", link = false })
-      local color = ({ ["10"] = normal.fg, ["11"] = normal.bg, ["12"] = cursor.bg or normal.fg })[code]
+      local display = core.display(vim.b[ev.buf].hcmux_display)
+      local hex = ({ ["10"] = display.fg, ["11"] = display.bg, ["12"] = display.cursor })[code]
+      local color = type(hex) == "string" and tonumber(hex:match("^#(%x%x%x%x%x%x)$") or "", 16)
       local chan = vim.bo[ev.buf].channel
       if not color or not chan or chan <= 0 then
         return

@@ -13,6 +13,14 @@ there is no alternate screen or mouse reporting. Existing projected history is
 printed oldest first at startup. Item IDs prevent duplicate output after socket
 reconnects, snapshot resyncs, theme repaints, and hiding/reopening the same client.
 
+Blank history cells (empty rows, the rest of each line) are never painted by the
+client; they show the popover background. They used to show black: `hc attach`
+opens with `ESC[?1049l`, which also restores the saved cursor, and Neovim's
+terminal restores a never-saved cursor with an explicit black pen. hcmux now
+saves a clean cursor before starting each viewer (`nvim/lua/hcmux/README.md`).
+The popover colour negotiation (OSC 10/11, `terminal.run` display) is a separate
+fix for programs that ask for their background; it was not the cause of the bars.
+
 The conversation, composer and status share a centered column of at most 92
 cells, with three columns of outer padding. The supported small layout is
 80 × 24. Committed lines retain their original width/theme on resize or theme
@@ -27,6 +35,8 @@ change; only new output and the live region use the new settings.
   answer, pending request cards, completion/model menus, composer and status.
   It is capped at 20 rows and at two fewer than the terminal's height: Ink 5
   clears and reprints static output if its dynamic region reaches screen height.
+  On resize the client takes the new size before Ink's own resize repaint, so
+  shrinking the popover mid-stream never measures the old, taller frame.
   Long streams/details show a bounded preview; menus take priority over preview.
   Idle threads use only the composer/status rows, with no pinned heading.
 - The composer retains its theme surfaces, inverse insertion cursor, model/effort
@@ -333,6 +343,10 @@ requests (`test/data.test.mjs`). HTTP tests use `T3_URL` and a call-time
 `T3_SESSION_TOKEN` override so they never read or replace the real token file.
 They include success/cache behavior, rejection, resumable snapshots, invalid JSON
 and the five-second request timeout. Do not print or commit real credentials.
+`test/scrollback-resize.test.mjs` runs the real `main.mjs` on a real PTY
+(`test/support/pty-run.py`, resized with TIOCSWINSZ) against a local synthetic
+T3 server (`test/support/fake-t3.mjs`) and checks raw bytes for clears, history
+replays and redraw counts. Scenarios live in `test/t3-scrollback-strikes.feature`.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,

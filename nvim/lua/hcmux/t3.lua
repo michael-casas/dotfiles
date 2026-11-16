@@ -77,7 +77,69 @@ local function theme_highlights()
   vim.api.nvim_set_hl(0, "EnviT3Border", { fg = colors.border, bg = colors.bg })
   vim.api.nvim_set_hl(0, "EnviT3Title", { fg = colors.title, bg = colors.bg, bold = true })
   vim.api.nvim_set_hl(0, "EnviT3Mode", { fg = colors.bg, bg = colors.title, bold = true })
-  return true
+  return colors
+end
+
+local WINHL = "NormalFloat:EnviT3Normal,Normal:EnviT3Normal,FloatBorder:EnviT3Border,FloatTitle:EnviT3Title"
+
+-- The colors `win` actually shows default cells in when it carries the T3
+-- remap, else nil (the editor's Normal). Neovim appends terminal entries
+-- (EndOfBuffer:, StatusLine:…) to the value, and Vim restores a buffer's
+-- window-local options in each window it enters, so match the one entry.
+local function shown_display(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return nil
+  end
+  local key = vim.api.nvim_win_get_config(win).relative ~= "" and "NormalFloat" or "Normal"
+  if not ("," .. vim.wo[win].winhl):find("," .. key .. ":EnviT3Normal", 1, true) then
+    return nil
+  end
+  local hl = vim.api.nvim_get_hl(0, { name = "EnviT3Normal" })
+  if hl.fg and hl.bg then
+    return { fg = ("#%06x"):format(hl.fg), bg = ("#%06x"):format(hl.bg) }
+  end
+end
+
+-- The colors a new T3 client is told from its first byte (terminal.run
+-- display): the popover's own, so a program asking for its background gets
+-- the float's, not the editor's Normal. `win`: the popover it will start
+-- in, if shown already (a broken hub leaves that window's look alone). nil:
+-- the terminal defaults (nvim's Normal), as before.
+local function popover_display(win)
+  local colors = theme_highlights()
+  if colors then
+    return { fg = colors.fg, bg = colors.bg }
+  end
+  return shown_display(win)
+end
+
+-- Answer the shown buffer's OSC 10/11 queries with what `win` shows. Resolved
+-- on every attach and theme change, so a buffer reused in another view never
+-- keeps the previous view's colors. Runs before the event loop can deliver a
+-- new viewer's first query.
+local function sync_display(win)
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.b[vim.api.nvim_win_get_buf(win)].hcmux_display = shown_display(win)
+  end
+end
+
+-- `gone` stopped showing T3 buffer `buf` (closed, hidden, or switched to
+-- another client): answer what a remaining view shows, the focused one if it
+-- shows `buf`, e.g. the untinted main pane left behind by the popover. With
+-- no view left keep the last answer; the next attach re-resolves it.
+local function reconcile(buf, gone)
+  if not (buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].hcmux_float == MARK) then
+    return
+  end
+  local current, view = vim.api.nvim_get_current_win(), nil
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if win ~= gone and (win == current or not view) then
+      view = win
+    end
+  end
+  if view then
+    vim.b[buf].hcmux_display = shown_display(view)
+  end
 end
 
 -- Only the T3 float: COMMAND is terminal-normal mode, INSERT sends keys to Ink.
@@ -96,9 +158,12 @@ end
 local function theme_float()
   local win = pop_win()
   if win and theme_highlights() then
-    vim.wo[win].winhl = "NormalFloat:EnviT3Normal,Normal:EnviT3Normal,FloatBorder:EnviT3Border,FloatTitle:EnviT3Title"
+    vim.wo[win].winhl = WINHL
   end
   if win then
+    -- Later OSC queries (a re-attaching viewer) follow what the popover now
+    -- shows; committed history keeps the colors it was painted with.
+    sync_display(win)
     -- A new float copies the window options of the window it opened from, e.g.
     -- the T3 layout's main pane winbar ("T3 · <title>"). The popover has its own title.
     vim.api.nvim_set_option_value("winbar", "", { scope = "local", win = win })
@@ -191,6 +256,13 @@ local function mark(buf)
   vim.keymap.set("n", "<C-c>", function()
     confirm(5)
   end, { buffer = buf, silent = true, desc = "T3: confirm interrupt" })
+  -- Hiding (q) or closing a window that shows this buffer: follow what remains.
+  vim.api.nvim_create_autocmd("WinClosed", {
+    buffer = buf,
+    callback = function(ev)
+      reconcile(buf, tonumber(ev.match))
+    end,
+  })
   vim.api.nvim_create_autocmd({ "ModeChanged", "BufWinEnter", "BufLeave" }, {
     buffer = buf,
     callback = function()
@@ -256,10 +328,14 @@ function M.open(id, opts)
   end
   -- From here on, `where` == "current" means: reuse the focused popover window.
   local where = win and "current" or "float"
+  -- Switching in place: the client the popover showed may stay visible
+  -- elsewhere (the main pane); its answers then follow that view.
+  local leaving = win and vim.api.nvim_win_get_buf(win)
   if not id then
     local addr = live(last)
     if addr then
-      return show(addr, where, opts)
+      show(addr, where, opts)
+      return reconcile(leaving)
     end
   end
   local argv = { "node", main }
@@ -269,7 +345,8 @@ function M.open(id, opts)
   local name = id ~= "new" and name_for(id) or ("t3-new-" .. os.time())
   local addr = id ~= "new" and live(name)
   if addr then
-    return show(addr, where, opts)
+    show(addr, where, opts)
+    return reconcile(leaving)
   end
   if not ready() then
     return vim.notify("t3: run `npm install` in tools/t3-thread (and install node)", vim.log.levels.ERROR)
@@ -281,11 +358,13 @@ function M.open(id, opts)
     name = name,
     labels = { ["t3.thread"] = id or "" },
     cwd = opts.cwd,
+    display = popover_display(win),
   })
   mark(buf)
   theme_float()
   last = new
   command_mode(buf, opts)
+  reconcile(leaving)
 end
 
 --- Attach a thread client in exactly this window, never focus another viewer.
@@ -336,6 +415,10 @@ function M.attach_in(win, id)
     return
   end
   mark(buf)
+  sync_display(win)
+  if old ~= buf then
+    reconcile(old) -- e.g. still shown in the popover
+  end
   if old_addr and old ~= buf and vim.api.nvim_buf_is_valid(old) and #vim.fn.win_findbuf(old) == 0 then
     -- Move off it before detach: term.detach otherwise closes the main split.
     term.detach(old)
@@ -405,6 +488,7 @@ function M.restart()
     title = " T3 ",
     name = fact.name,
     labels = { ["t3.thread"] = id },
+    display = popover_display(),
   })
   M.restarting = nil -- never leave :T3Restart locked after a failed open
   if not ok then
