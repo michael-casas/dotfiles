@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import shlex
@@ -130,13 +131,15 @@ BOOTSTRAP_ERRORS = {
 def ssh_client_error(policy, line):
     # Exit 255 may be remote-chosen. Pin variable fields to this invocation;
     # even a complete match is a recognizable form, not proof of its source.
-    target = re.escape(policy['target'])
+    # ssh prints hostnames lowercased; match the target case-insensitively.
+    target = '(?i:' + re.escape(policy['target']) + ')'
     port = str(policy['port'])
-    prefix = re.escape(f"{policy['user']}@{policy['target']}: ") if policy['user'] else None
-    auth_prefix = f'(?:{prefix})?' if prefix else ''
+    # Without a policy user, ssh logs in (and prefixes messages) as the local account.
+    user = policy['user'] or pwd.getpwuid(os.getuid()).pw_name
+    auth_prefix = '(?:' + re.escape(user) + '@' + target + ': )?'
     method = r'(?:publickey|password|keyboard-interactive|hostbased|gssapi-with-mic)'
     peer = rf'(?:{target}|[0-9A-Fa-f.:]{{2,45}})'
-    key_host = target if policy['port'] == 22 else re.escape(f"[{policy['target']}]:{port}")
+    key_host = target if policy['port'] == 22 else r'\[' + target + r'\]:' + port
     pattern = (
         r'(?:Host key verification failed\.'
         rf'|{auth_prefix}Permission denied \({method}(?:,{method})*\)\.'
@@ -151,6 +154,7 @@ def ssh_client_error(policy, line):
         r'|Connection timed out during banner exchange'
         rf'|Connection (?:closed|reset) by {peer}(?: port {port})?'
         rf'|Connection to {target} closed by remote host\.'
+        rf'|Connection to {peer} port {port} timed out'
         r'|kex_exchange_identification: (?:Connection closed by remote host|read: Connection reset by peer)'
         rf'|No (?:RSA|ECDSA|ED25519|DSA) host key is known for {key_host} and you have requested strict checking\.)'
     )

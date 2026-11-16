@@ -1,6 +1,7 @@
 """Critic-round regressions. All transports are local shims, never SSH servers."""
 import json
 import os
+import pwd
 from pathlib import Path
 import shutil
 import subprocess
@@ -57,6 +58,32 @@ class RevisionTest(TransportTest):
                 self.assertIn(text.encode(), r.stderr)
                 self.assertIn(b'ssh -F /dev/null', r.stderr)
                 self.no_upload()
+
+    def test_revision_ssh_errors_real_client_forms(self):
+        # N6: with no policy user, ssh prefixes the LOCAL login name.
+        # N7: a banner timeout ends with "Connection to <peer> port N timed out".
+        # N8: ssh prints the hostname lowercased.
+        local = pwd.getpwuid(os.getuid()).pw_name
+        cases = [(None, f'{local}@fixture.invalid: Permission denied (publickey).'),
+                 (None, 'Connection to 192.0.2.1 port 22 timed out'),
+                 (None, 'Connection to fixture.invalid port 22 timed out')]
+        for _, text in cases:
+            with self.subTest(text=text):
+                r = self.cli('fixture', '--allow-dirty', FAKE_SSH_ERROR=text)
+                self.assertEqual(r.returncode, 21)
+                self.assertIn(text.encode(), r.stderr)
+                self.no_upload()
+        policy = dict(json.loads(self.policy.read_text())['hosts']['fixture'], target='Fixture.Invalid')
+        for text in ['ssh: connect to host fixture.invalid port 22: Connection refused',
+                     f'{local}@fixture.invalid: Permission denied (publickey).',
+                     'Connection to fixture.invalid port 22 timed out']:
+            with self.subTest(mixed_case=text):
+                self.assertTrue(cli.ssh_client_error(policy, text))
+        for text in ['someone-else@fixture.invalid: Permission denied (publickey).',
+                     'Connection to other.invalid port 22 timed out',
+                     'Connection to fixture.invalid port 2222 timed out']:
+            with self.subTest(withheld=text):
+                self.assertFalse(cli.ssh_client_error(policy, text))
 
     def test_revision_ssh_errors_pin_explicit_policy(self):
         self.update(user='fixture-user', port=2222)

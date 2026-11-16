@@ -300,7 +300,7 @@ shellcheck remote/bootstrap.sh remote/profile/bin/* remote/profile/shell/bashrc
 git diff --check
 ```
 
-Current correction gate: **62 Python tests: 61 passed, 1 skipped**;
+Current correction gate: **63 Python tests: 62 passed, 1 skipped**;
 **17/17 Lua suites** through `run-lua.sh` (exit 0); **173/173 Node tests** pass. ShellCheck, plain StyLua
 checks using the directory configs above, and `git diff --check` pass. The stale
 168/173 missing-dependency caveat is closed; REP supplied the existing Node
