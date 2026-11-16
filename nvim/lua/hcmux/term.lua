@@ -125,10 +125,18 @@ local function close_buf(buf)
   end
 end
 
+-- `hc attach` opens with ESC[?1049l, which also restores the saved cursor.
+-- Neovim's terminal restores a never-saved cursor with an explicit black pen,
+-- so every cell erased after it (blank rows, the rest of each line) stays
+-- black whatever the window's Normal. Save a clean cursor (ESC 7) first, then
+-- exec hc: the job keeps hc's pid and exit status, and the address and other
+-- arguments reach hc only as "$@", never as shell text.
+local VIEWER = { "/bin/sh", "-c", "printf '\\033%s' 7; exec \"$@\"", "hcmux-viewer" }
+
 -- Start the viewer in the current (empty) buffer.
 local function start_viewer(buf, addr)
   vim.b[buf].hcmux_closing = nil
-  local cmd = { "hc", "attach", "--history", tostring(M.config.history), addr }
+  local cmd = vim.list_extend(vim.list_slice(VIEWER), { "hc", "attach", "--history", tostring(M.config.history), addr })
   local opts = {
     on_exit = function(_, code)
       vim.schedule(function()
