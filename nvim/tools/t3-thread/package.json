@@ -1,0 +1,10 @@
+{
+  "name": "t3-thread",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Spike: render one T3 Code thread from its websocket stream in a terminal (Ink).",
+  "type": "module",
+  "bin": { "t3-thread": "./main.mjs" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "ink": "5.2.1", "ink-text-input": "6.0.0", "react": "18.3.1" }
+}

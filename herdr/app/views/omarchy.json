@@ -1,0 +1,12 @@
+{
+  "layout": "omarchy",
+  "clicks": {
+    "sidebar": {
+      "size": {
+        "px": 308.0
+      }
+    }
+  },
+  "omarchy_fork": "f4b5f291bd43c4b9dee3fc2684db04879a9fe7b3",
+  "saved": "2026-11-10"
+}

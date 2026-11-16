@@ -1,0 +1,7 @@
+{
+  "name": "herdr-world-tools",
+  "private": true,
+  "type": "module",
+  "description": "Offline tools for the world mod (model import). Not copied into the app.",
+  "devDependencies": { "three": "0.170.0" }
+}

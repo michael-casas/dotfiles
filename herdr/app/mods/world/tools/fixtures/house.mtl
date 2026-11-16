@@ -1,0 +1,5 @@
+newmtl brick
+Kd 1 0 0
+map_Kd deliberately-missing.png
+newmtl roof
+Kd 0 1 0
