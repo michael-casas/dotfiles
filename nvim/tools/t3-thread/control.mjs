@@ -1,6 +1,14 @@
 // Private CSI protocol shared with hcmux/t3.lua. No printable shortcut: these
 // reports are consumed before Ink sees stdin, including unknown/malformed ones.
 const PREFIX = "\x1b[>777;";
+// Ink 5 drops Home/End from its public key object. Normalize only these known
+// unmodified terminal keys to the equivalent line-editing controls. Keep this
+// byte map narrow: Herdr already sends Cmd-Left/Right/Backspace as Ctrl-A/E/U.
+const EDIT_KEYS = new Map([
+  ...["\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~"].map(bytes => [bytes, "\x01"]),
+  ...["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"].map(bytes => [bytes, "\x05"]),
+]);
+const ordinaryPrefix = tail => [...EDIT_KEYS.keys()].some(bytes => bytes.startsWith(tail));
 // "dismiss" = what a bare Esc did: close a dialog, the model picker or a menu; never interrupts.
 const ACTIONS = ["model", "compact", "yes", "cancel", "interrupt", "dismiss"];
 export const sequence = action => {
@@ -34,7 +42,14 @@ export function decode(chunk, state = {}) {
       continue;
     }
     const tail = input.slice(at);
-    if (PREFIX.startsWith(tail)) { pending = tail; break; }
+    const editKey = [...EDIT_KEYS.keys()].find(bytes => input.startsWith(bytes, at));
+    if (editKey) {
+      emitText();
+      events.push({ type: "text", text: EDIT_KEYS.get(editKey) });
+      at += editKey.length;
+      continue;
+    }
+    if (PREFIX.startsWith(tail) || ordinaryPrefix(tail)) { pending = tail; break; }
     text += input[at++];
   }
   emitText();
@@ -42,7 +57,7 @@ export function decode(chunk, state = {}) {
 }
 export function flush(state = {}) {
   // Once private '>' is recognized, never release its bytes as composer text.
-  return ["\x1b", "\x1b["].includes(state.pending) ? state.pending : "";
+  return state.pending && ordinaryPrefix(state.pending) ? state.pending : "";
 }
 export function escapeAction({ model, menu } = {}) {
   return model ? "close-model" : menu ? "close-menu" : "ignore";

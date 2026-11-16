@@ -21,7 +21,7 @@ export function createControlInput(source) {
       if (event.type === "text") stdin.write(event.text);
       else for (const listener of listeners) listener(event.action);
     }
-    if (state.pending === "\x1b" || state.pending === "\x1b[") {
+    if (flush(state)) {
       timer = setTimeout(() => {
         const text = flush(state);
         state = undefined;

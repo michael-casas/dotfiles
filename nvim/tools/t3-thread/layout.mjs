@@ -1,4 +1,5 @@
 import path from "node:path";
+import { graphemes, wide, cellWidth, displayWidth as cellDisplayWidth } from "./cells.mjs";
 import os from "node:os";
 import * as t3 from "./t3.mjs";
 import * as view from "./view.mjs";
@@ -12,35 +13,7 @@ export const safe = (value) =>
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
-const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const graphemes = (s) => [...segmenter.segment(s)].map((g) => g.segment);
-const wide = (n) =>
-  n >= 0x1100 &&
-  (n <= 0x115f ||
-    n === 0x2329 ||
-    n === 0x232a ||
-    (n >= 0x2e80 && n <= 0xa4cf && n !== 0x303f) ||
-    (n >= 0xac00 && n <= 0xd7a3) ||
-    (n >= 0xf900 && n <= 0xfaff) ||
-    (n >= 0xfe10 && n <= 0xfe19) ||
-    (n >= 0xfe30 && n <= 0xfe6f) ||
-    (n >= 0xff00 && n <= 0xff60) ||
-    (n >= 0xffe0 && n <= 0xffe6) ||
-    (n >= 0x1f000 && n <= 0x1faff) ||
-    (n >= 0x20000 && n <= 0x3fffd));
-function cellWidth(g) {
-  if (/^[\p{Mark}\u200d\ufe0f]+$/u.test(g)) return 0;
-  // Match Ink's emoji measurement even for text-default symbols (✳, ↪).
-  if (
-    g.includes("\ufe0f") ||
-    g.includes("\u20e3") ||
-    (g.codePointAt(0) > 0x7f && /\p{Emoji}/u.test(g))
-  )
-    return 2;
-  return wide(g.codePointAt(0)) ? 2 : 1;
-}
-export const displayWidth = (s) =>
-  graphemes(safe(s)).reduce((n, g) => n + cellWidth(g), 0);
+export const displayWidth = (s) => cellDisplayWidth(safe(s));
 export const lineText = (line) => line.map((s) => s.text).join("");
 // Ink 5 measures BMP emoji as two cells, but its output tokenizer emits one.
 // Apply AFTER Yoga measurement so coloured surfaces retain their last cell.

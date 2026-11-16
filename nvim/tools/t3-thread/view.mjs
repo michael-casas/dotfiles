@@ -1,4 +1,5 @@
 import { timeline, isActive, attemptId } from "./t3.mjs";
+import { graphemes, cellWidth, displayWidth } from "./cells.mjs";
 
 const WORK = new Set([
   "reasoning",
@@ -345,14 +346,34 @@ export function editInput(value, cursor, ch, key) {
     const prefix = value.slice(lineStart, cursor);
     return cursor - (prefix.match(/\S*\s*$/u)?.[0].length ?? 0);
   };
+  const vertical = (direction) => {
+    // Logical lines, not visual wraps. A short line clamps the column; the next
+    // press uses that new column (no invisible sticky-column state).
+    if (direction < 0 && lineStart === 0) return move(0);
+    if (direction > 0 && lineEnd === value.length) return move(value.length);
+    const start = direction < 0
+      ? (lineStart > 1 ? value.lastIndexOf("\n", lineStart - 2) + 1 : 0)
+      : lineEnd + 1;
+    const end = direction < 0 ? lineStart - 1 : value.indexOf("\n", start);
+    const line = value.slice(start, end < 0 ? value.length : end);
+    const column = displayWidth(value.slice(lineStart, cursor));
+    let to = start, cells = 0;
+    for (const glyph of graphemes(line)) {
+      const width = cellWidth(glyph);
+      if (cells + width > column) break; // don't land inside a wide glyph
+      cells += width;
+      to += glyph.length;
+    }
+    return move(to);
+  };
   if (key.meta) {
     if (key.backspace || key.delete) return remove(wordBack(), cursor, true);
-    if (ch === "b") {
+    if (ch === "b" || key.leftArrow) {
       const prefix = value.slice(lineStart, cursor);
       const word = prefix.match(/[\p{L}\p{N}]+[^\p{L}\p{N}]*$|[^\p{L}\p{N}]+$/u)?.[0] ?? "";
       return move(cursor - word.length);
     }
-    if (ch === "f") {
+    if (ch === "f" || key.rightArrow) {
       const suffix = value.slice(cursor, lineEnd);
       const word = suffix.match(/^[^\p{L}\p{N}]*[\p{L}\p{N}]+|^[^\p{L}\p{N}]+/u)?.[0] ?? "";
       return move(cursor + word.length);
@@ -373,7 +394,21 @@ export function editInput(value, cursor, ch, key) {
       case "d": return remove(cursor, nextCharacter(value, cursor));
       case "h": return remove(previousCharacter(value, cursor), cursor);
       case "y": return insert(lastKill);
-      // In particular Ctrl-C/O/Q remain main's, Ctrl-P/N outside menus no-op.
+      case "p": return vertical(-1);
+      case "n": return vertical(1);
+      case "t": {
+        // Never transpose across a newline; at EOL use the final pair.
+        const end = cursor === lineEnd ? cursor : nextCharacter(value, cursor);
+        const middle = previousCharacter(value, end);
+        if (middle <= lineStart) return unchanged;
+        const start = previousCharacter(value, middle);
+        return {
+          value: value.slice(0, start) + value.slice(middle, end) + value.slice(start, middle) + value.slice(end),
+          cursor: end,
+        };
+      }
+      // Ctrl-C/O/Q remain main's. In particular Ctrl-O is expanded work,
+      // not open-line. Herdr sends Cmd-Left/Right/Backspace as Ctrl-A/E/U.
       default: return unchanged;
     }
   }
@@ -382,15 +417,15 @@ export function editInput(value, cursor, ch, key) {
     key.tab ||
     key.return ||
     key.pageUp ||
-    key.pageDown ||
-    key.upArrow ||
-    key.downArrow
+    key.pageDown
   )
     return unchanged;
+  if (key.upArrow) return vertical(-1);
+  if (key.downArrow) return vertical(1);
   if (key.leftArrow) return move(previousCharacter(value, cursor));
   if (key.rightArrow) return move(nextCharacter(value, cursor));
-  if (key.home) return move(0);
-  if (key.end) return move(value.length);
+  if (key.home) return move(lineStart);
+  if (key.end) return move(lineEnd);
   // Ink 5 calls both DEL (0x7f) and forward Delete "delete"; keep its existing
   // backward behavior. Ctrl-D is the unambiguous forward-delete binding.
   if (key.backspace || key.delete)
