@@ -57,9 +57,18 @@ check_execution() (
     chmod 0700 "$test_file" || fail 'cannot create executable preflight'
     # Execute directly, not via sh (which would bypass a noexec mount).
     if ! "$test_file" >/dev/null 2>&1; then
+        rm -f -- "$test_file"
+        drop_empty_temporary
         fail 'approved root is on a noexec filesystem'
     fi
 )
+drop_empty_temporary() {
+    # Only this run's own, still-empty temporary child; rmdir never removes content.
+    [ "$mode" = temporary ] || return 0
+    case "${root##*/}" in temporary-[0-9a-f]*) ;; *) return 0 ;; esac
+    rmdir -- "$root/releases" 2>/dev/null || true
+    rmdir -- "$root" 2>/dev/null || true
+}
 check_release() {
     local release=$1 mode size expected path directory owner perms count=0
     [ -d "$release" ] && [ ! -L "$release" ] || return 1

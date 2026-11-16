@@ -192,6 +192,26 @@ class RevisionTest(TransportTest):
                 self.assertFalse((self.store / 'staging').exists())
                 self.assertFalse(list(self.store.rglob('exec-check.*')))
 
+    def test_revision_noexec_temporary_leaves_no_child(self):
+        # A deterministic preflight failure must not leave its empty temporary child behind.
+        real_chmod = shutil.which('chmod')
+        for suffix in ['', '/releases']:
+            with self.subTest(suffix=suffix):
+                if self.store.exists():
+                    shutil.rmtree(self.store)
+                self.log.unlink(missing_ok=True)
+                (self.shims / 'chmod').write_text(
+                    '#!/bin/bash\n' +
+                    f'case "$2" in "{self.store}"/temporary-*{suffix}/exec-check.*) exec "{real_chmod}" 0600 "$2" ;; esac\n' +
+                    f'exec "{real_chmod}" "$@"\n')
+                (self.shims / 'chmod').chmod(0o755)
+                r = self.cli('fixture', '--temporary', '--allow-dirty')
+                self.assertEqual(r.returncode, 22, r.stderr)
+                self.assertIn(b'approved root is on a noexec filesystem', r.stderr)
+                self.no_upload()
+                self.assertTrue(self.store.is_dir())
+                self.assertEqual(list(self.store.glob('temporary-*')), [])
+
     def test_revision_cached_release_noexec_rechecked_before_launch(self):
         artifact = pack.build(cli.ROOT, allow_dirty=True)
         self.assertEqual(self.stage(artifact).returncode, 0)
