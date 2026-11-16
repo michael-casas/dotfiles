@@ -177,7 +177,7 @@ test("three-level fold preserves final reply, notifications; live row only shows
 });
 test("composer filters control keys without inserting literal letters", async () => {
   const ui = await import("../view.mjs");
-  assert.equal(ui.editInput("hello", 5, "u", { ctrl: true }).value, "hello");
+  assert.equal(ui.editInput("hello", 5, "u", { ctrl: true }).value, "");
   assert.equal(ui.editInput("hello", 5, "d", { ctrl: true }).value, "hello");
   assert.equal(ui.editInput("hello", 5, "!", {}).value, "hello!");
 });

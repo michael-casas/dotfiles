@@ -315,11 +315,69 @@ export function rows(state, expanded = new Set(), now = Date.now()) {
   return out;
 }
 
-/** Explicit input ownership avoids ink-text-input treating Ctrl-U as printable "u". */
+// A single last-kill slot, shared by composer edits for this client process.
+// Empty kills and ordinary deletion never replace it; no kill-ring coalescing.
+let lastKill = "";
+const previousCharacter = (value, cursor) =>
+  cursor - ([...value.slice(0, cursor)].at(-1)?.length ?? 0);
+const nextCharacter = (value, cursor) =>
+  cursor + (value.codePointAt(cursor) > 0xffff ? 2 : cursor < value.length ? 1 : 0);
+
+/** Own editing here; main owns submit, menus, interrupt and work expansion.
+ * Cursor offsets remain UTF-16 for string slicing, motions respect code points.
+ * Word kills use readline whitespace words; Alt motions use letter/number words.
+ */
 export function editInput(value, cursor, ch, key) {
+  const unchanged = { value, cursor };
+  const move = (to) => ({ value, cursor: to });
+  const remove = (start, end, kill = false) => {
+    if (kill && end > start) lastKill = value.slice(start, end);
+    return { value: value.slice(0, start) + value.slice(end), cursor: start };
+  };
+  const insert = (text) => ({
+    value: value.slice(0, cursor) + text + value.slice(cursor),
+    cursor: cursor + text.length,
+  });
+  const lineStart = cursor > 0 ? value.lastIndexOf("\n", cursor - 1) + 1 : 0;
+  const nextNewline = value.indexOf("\n", cursor);
+  const lineEnd = nextNewline < 0 ? value.length : nextNewline;
+  const wordBack = () => {
+    const prefix = value.slice(lineStart, cursor);
+    return cursor - (prefix.match(/\S*\s*$/u)?.[0].length ?? 0);
+  };
+  if (key.meta) {
+    if (key.backspace || key.delete) return remove(wordBack(), cursor, true);
+    if (ch === "b") {
+      const prefix = value.slice(lineStart, cursor);
+      const word = prefix.match(/[\p{L}\p{N}]+[^\p{L}\p{N}]*$|[^\p{L}\p{N}]+$/u)?.[0] ?? "";
+      return move(cursor - word.length);
+    }
+    if (ch === "f") {
+      const suffix = value.slice(cursor, lineEnd);
+      const word = suffix.match(/^[^\p{L}\p{N}]*[\p{L}\p{N}]+|^[^\p{L}\p{N}]+/u)?.[0] ?? "";
+      return move(cursor + word.length);
+    }
+    return unchanged;
+  }
+  if (key.ctrl) {
+    switch (ch) {
+      case "a": return move(lineStart);
+      case "e": return move(lineEnd);
+      case "b": return move(previousCharacter(value, cursor));
+      case "f": return move(nextCharacter(value, cursor));
+      case "u":
+        return remove(cursor === lineStart ? Math.max(0, cursor - 1) : lineStart, cursor, true);
+      case "k":
+        return remove(cursor, cursor === lineEnd ? Math.min(value.length, cursor + 1) : lineEnd, true);
+      case "w": return remove(wordBack(), cursor, true);
+      case "d": return remove(cursor, nextCharacter(value, cursor));
+      case "h": return remove(previousCharacter(value, cursor), cursor);
+      case "y": return insert(lastKill);
+      // In particular Ctrl-C/O/Q remain main's, Ctrl-P/N outside menus no-op.
+      default: return unchanged;
+    }
+  }
   if (
-    key.ctrl ||
-    key.meta ||
     key.escape ||
     key.tab ||
     key.return ||
@@ -328,27 +386,20 @@ export function editInput(value, cursor, ch, key) {
     key.upArrow ||
     key.downArrow
   )
-    return { value, cursor };
-  if (key.leftArrow) return { value, cursor: Math.max(0, cursor - 1) };
-  if (key.rightArrow)
-    return { value, cursor: Math.min(value.length, cursor + 1) };
-  if (key.home) return { value, cursor: 0 };
-  if (key.end) return { value, cursor: value.length };
+    return unchanged;
+  if (key.leftArrow) return move(previousCharacter(value, cursor));
+  if (key.rightArrow) return move(nextCharacter(value, cursor));
+  if (key.home) return move(0);
+  if (key.end) return move(value.length);
+  // Ink 5 calls both DEL (0x7f) and forward Delete "delete"; keep its existing
+  // backward behavior. Ctrl-D is the unambiguous forward-delete binding.
   if (key.backspace || key.delete)
-    return cursor
-      ? {
-          value: value.slice(0, cursor - 1) + value.slice(cursor),
-          cursor: cursor - 1,
-        }
-      : { value, cursor };
+    return remove(previousCharacter(value, cursor), cursor);
   // Enter is owned by submit; a pasted multi-line chunk keeps its line breaks.
   const text = ch
     .replace(/\r\n?/g, "\n")
     .replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "");
-  return {
-    value: value.slice(0, cursor) + text + value.slice(cursor),
-    cursor: cursor + text.length,
-  };
+  return insert(text);
 }
 
 export function answerInput(question, text) {
