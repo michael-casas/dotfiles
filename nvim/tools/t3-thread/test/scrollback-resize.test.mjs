@@ -28,7 +28,10 @@ const count = (text, needle) => text.split(needle).length - 1;
 async function client({ rows, cols, initial }) {
   const fake = await startFakeT3({ initial });
   const env = { ...process.env, T3_URL: fake.url, T3_SESSION_TOKEN: "synthetic", FORCE_COLOR: "3", TERM: "xterm-256color", COLORTERM: "truecolor" };
-  for (const k of ["CI", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "RUN_ID", "T3_THREAD_DEBUG"]) delete env[k];
+  for (const k of ["CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "RUN_ID", "T3_THREAD_DEBUG"]) delete env[k];
+  // Ink's is-in-ci also treats any CI_* key as CI; CI=0 is its supported
+  // override, so the child always renders interactively.
+  env.CI = "0";
   const child = spawn("python3", [PTY, String(rows), String(cols), "--", process.execPath, MAIN, S.THREAD_ID], {
     env,
     stdio: ["pipe", "pipe", "inherit"],
