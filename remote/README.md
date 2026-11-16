@@ -146,3 +146,16 @@ local-view restore, reconnect/outage semantics and policy-specific cleanup.
 The read-only pilot probe should guard/bound uname OS/arch, command presence,
 Bash/Mosh/tmux/Neovim versions, locale/charmap, terminfo, and approved-root owner/
 filesystem checks only. No environment, SSH config, credentials or host dumps.
+
+### Offline minimal editor
+
+`editor` requires an existing Neovim 0.9+ (tested candidate: local 0.11.6),
+uses built-in syntax only and disables plugins, project exrc, modelines, swap,
+persistent undo/shada, clipboard and external language providers. No parser,
+LSP, formatter, Node, hc or T3 dependency. `<Space>w` saves, `<Space>/` clears
+search highlights, `<Space>v`/`<Space>s` split; ordinary `/`, `n` and Ctrl-w
+remain built-in. The passive ANSI/256 Nordic-inspired palette does not advertise
+RGB. `python3 -m unittest discover -s remote/test -p test_editor.py -v` exercises
+offline open/edit/save/reopen/search/split in disposable HOME/XDG roots, plus
+missing/unsupported editor recovery. Startup assertions are checked by a success
+marker as Neovim can otherwise exit 0 after a `:luafile` assertion error.
