@@ -3,6 +3,50 @@
 -- survive closing buffers, windows and nvim. Sessions live in herdr-core too:
 -- plain `nvim` attaches to the folder's session and quitting detaches.
 -- Code: lua/hcmux/, docs: README.md there.
+
+-- Whiteboard (lua/hcmux/board.lua, *.wb.md). No bindings are passed: source-pin
+-- trust (bindings.repo) is never inferred from cwd for arbitrary files.
+local last_board -- last board this entry point opened (board.lua keeps its own private)
+local function open_board(path)
+  path = vim.fn.fnamemodify(vim.fn.expand(path), ":p")
+  if not path:match("%.wb%.md$") then
+    return vim.notify("EnviBoard: not a *.wb.md file: " .. path, vim.log.levels.WARN)
+  end
+  if vim.fn.filereadable(path) == 0 then
+    return vim.notify("EnviBoard: no such file: " .. path, vim.log.levels.WARN)
+  end
+  last_board = path
+  require("hcmux.board").open(path)
+end
+local function board_prompt()
+  vim.ui.input({ prompt = "Board file (*.wb.md): ", completion = "file" }, function(input)
+    if input and input ~= "" then
+      open_board(input)
+    else
+      vim.notify("EnviBoard: open a *.wb.md and press <leader>hw, or :EnviBoard <file>")
+    end
+  end)
+end
+--- <leader>hw / :EnviBoard [file]: an argument or the current *.wb.md opens (or focuses) that board;
+--- otherwise close the shown board, reopen the last one, or prompt for a file.
+local function board_entry(arg)
+  if arg and arg ~= "" then
+    return open_board(arg)
+  end
+  local name = vim.api.nvim_buf_get_name(0)
+  if vim.bo.buftype == "" and name:match("%.wb%.md$") then
+    return open_board(name)
+  end
+  local board = require("hcmux.board")
+  if board.active then
+    return board.close()
+  end
+  if last_board then
+    return open_board(last_board)
+  end
+  board_prompt()
+end
+
 return {
   {
     "hcmux",
@@ -64,6 +108,13 @@ return {
         desc = "Layout switcher (nvim | T3)",
       },
       {
+        "<leader>hw",
+        function()
+          board_entry()
+        end,
+        desc = "Whiteboard (*.wb.md): open this / toggle last",
+      },
+      {
         "<leader>hn",
         function()
           require("hcmux.desk").helpdesk({ fresh = true })
@@ -75,6 +126,9 @@ return {
       require("hcmux").setup(opts)
       require("hcmux.desk").setup(opts.desk)
       require("hcmux.t3").setup(opts.t3) -- spike: :T3Thread
+      vim.api.nvim_create_user_command("EnviBoard", function(a)
+        board_entry(a.args)
+      end, { nargs = "?", complete = "file", desc = "Open a *.wb.md whiteboard (default: this buffer)" })
       -- <leader>b toggles the T3 sidebar in the T3 tab and is the LazyVim buffer group elsewhere.
       -- which-key treats <leader>b as a group and never fires a global bare map, so the toggle is
       -- a buffer-local nowait map: permanent on the sidebar, and on the focused non-float window's
@@ -157,7 +211,7 @@ return {
     optional = true,
     opts = function(_, opts)
       opts.sections = opts.sections or {}
-      -- PR (lua/hcmux/prs.lua), then AGENT (lua/hcmux/agent.lua), relabel the mode component.
+      -- PR (lua/hcmux/prs.lua), AGENT (lua/hcmux/agent.lua), then BOARD (lua/hcmux/board.lua) relabel the mode.
       for i, c in ipairs(opts.sections.lualine_a or {}) do
         if c == "mode" or (type(c) == "table" and c[1] == "mode") then
           c = type(c) == "table" and c or { "mode" }
@@ -168,6 +222,9 @@ return {
             end
             if package.loaded["hcmux.agent"] and require("hcmux.agent").active then
               return "AGENT"
+            end
+            if package.loaded["hcmux.board"] and require("hcmux.board").active then
+              return "BOARD"
             end
             return fmt and fmt(label, ...) or label
           end
