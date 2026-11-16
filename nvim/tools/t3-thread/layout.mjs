@@ -825,9 +825,9 @@ export function questionLines(request, card, width, T, ui, maxRows) {
   const items = [...(q.options || []), ...(q.allowCustomAnswer !== false ? [{label: "Type your answer…"}] : [])];
   if (!items.length) items.push({label: "No answers available"});
   const room = maxRows - 3; // top, single-line header, bottom
-  // At small heights use one rounded-outline row per bubble. Normal bubbles
-  // have half-row caps, matching the composer's filled rounded language.
-  const bubbleRows = room >= 6 ? 3 : 1;
+  // Preserve every answer before scrolling: use the composer's half-row caps
+  // only when all bubbles fit; otherwise spend one compact row per bubble.
+  const bubbleRows = room >= items.length * 3 ? 3 : 1;
   const count = Math.min(items.length, Math.floor(room / bubbleRows));
   const start = Math.max(0, Math.min(current.selected - Math.floor(count / 2), items.length - count));
   const lines = [rounded(true, width, T.surface ?? T.border), fill(header)];
@@ -906,7 +906,7 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
   const pending = t3.pendingRequests(state)[0];
   const questionCard = pending?.kind === "user_input" && pending.responseCapability?.type !== "not_resumable"
     ? t3.timeline(state).find(i => i.requestId === pending.id) : null;
-  const questionWidth = Math.min(width, Math.max(30, Math.round(cols * 0.6)));
+  const questionWidth = Math.min(width, Math.max(30, Math.round(width * 0.6)));
   // Leave a compact question viewport even for a six-line/pasted draft. Keep
   // the accepted editor viewport rather than forcing custom answers to one row.
   const card = composer(width, T, { ...ui, browse: false, inputRows: Math.max(1, Math.min(6, cap - (questionCard ? 9 : 6))) }, model, working);

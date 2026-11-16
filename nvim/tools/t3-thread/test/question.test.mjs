@@ -14,14 +14,16 @@ function state(card = fixture, capability = {type: "resumable"}) {
     turnItems: [card], visibleTurnItems: [{position: 0, item: card}],
   }});
 }
-for (const cols of [40, 80, 120]) test(`question window at ${cols}: width, centering, directly above composer and separate bubbles`, () => {
+for (const cols of [40, 80, 120, 160]) test(`question window at ${cols}: width, centering, directly above composer and separate bubbles`, () => {
   const f = L.frame({state: state(), cols, rows: 30, tokens: T});
   const strings = f.lines.map(text);
   const top = strings.findIndex(s => s.includes("Which palette"));
   assert.ok(top >= 0);
   const edge = strings[top - 1];
-  const w = Math.min(L.geometry(cols).column, Math.max(30, Math.round(cols * .6)));
+  const column = L.geometry(cols).column;
+  const w = Math.min(column, Math.max(30, Math.round(column * .6)));
   assert.equal(edge.trim().length, w);
+  assert.ok(w < column, "answer window remains narrower than the composer");
   assert.equal(edge.indexOf("▗"), Math.floor((cols - w) / 2));
   const bottom = strings.findLastIndex(s => s.trim() === "▝" + "▀".repeat(w - 2) + "▘");
   assert.ok(bottom >= top);
@@ -80,4 +82,39 @@ test("question keys: arrows/control motions, digits, multi toggles, custom edito
   assert.equal(press("unexpected", {}, multi).editor.value, "");
   assert.equal(Q.selection("new-request", q, selection).selected, 0);
   assert.equal(Q.input(q, Q.selection("r", q, {requestId: "r", questionId: q.id, selected: 2}), {value: "", cursor: 0}, "", {return:true}).answer, undefined);
+});
+
+// REP fix-round contract: spend height on all compact options before scrolling.
+for (const optionCount of [3, 4, 6, 9]) test(`160x47: ${optionCount} options plus custom all fit inside the unchanged 20-row live cap`, () => {
+  const card = structuredClone(fixture);
+  card.questions = [{id: "checks", question: "Which checks should run?", multiSelect: true,
+    options: Array.from({length: optionCount}, (_, i) => ({label: `Check ${i + 1}`}))}];
+  for (const selected of [0, optionCount - 1, optionCount]) {
+    const f = L.frame({state: state(card), cols: 160, rows: 47, tokens: T,
+      ui: {questionSelection: {requestId: card.requestId, questionId: "checks", selected, checked: [0]}}});
+    const strings = f.lines.map(text);
+    assert.equal(f.cap, 20);
+    assert.ok(f.lines.length <= 20);
+    for (let i = 0; i < optionCount; i++) {
+      const label = `${i === 0 ? "☑" : "☐"} ${i + 1} Check ${i + 1}`;
+      assert.ok(strings.some(s => s.includes(label)), `${label} visible with selection ${selected}`);
+    }
+    assert.ok(strings.some(s => s.includes(`${optionCount + 1} Type your answer…`)));
+    const selectedLabel = selected === optionCount ? "Type your answer…" : `${selected + 1} Check ${selected + 1}`;
+    assert.ok(f.lines.flat().some(s => s.bg === T.accent && s.text.includes(selectedLabel)), "accent focus remains visible");
+    assert.ok(strings.some(s => s.includes("╭")), "uses compact one-row bubbles instead of hiding options");
+  }
+});
+
+test("160x47: scrolling starts only after compact capacity is exceeded", () => {
+  const card = structuredClone(fixture);
+  card.questions = [{id: "checks", question: "Choose checks", multiSelect: true, allowCustomAnswer: false,
+    options: Array.from({length: 20}, (_, i) => ({label: `Check ${i + 1}`}))}];
+  const f = L.frame({state: state(card), cols: 160, rows: 47, tokens: T,
+    ui: {questionSelection: {requestId: card.requestId, questionId: "checks", selected: 15, checked: [15]}}});
+  const strings = f.lines.map(text);
+  assert.equal(strings.filter(s => s.includes("Check ")).length, 11, "all eleven available option rows are used");
+  assert.ok(strings.some(s => s.includes("☑ 16 Check 16")));
+  assert.ok(!strings.some(s => /1 Check 1\b/.test(s)));
+  assert.ok(f.lines.length <= 20);
 });

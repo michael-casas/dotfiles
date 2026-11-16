@@ -238,8 +238,8 @@ This does not switch the editor colorscheme or configure other applications.
 - With an approval pending and an empty composer: **y** approve, **a** approve for
   this session, **n** decline. Non-resumable requests explain why they cannot act.
 - With input requested: a rounded question window sits directly above the
-  composer, centered at 60% of terminal width (minimum 30 cells, limited to the
-  conversation column). **↑/↓ / Ctrl-P/Ctrl-N** move between answer bubbles;
+  composer, centered at 60% of composer/column width (minimum 30 cells, or the
+  full column when narrower). **↑/↓ / Ctrl-P/Ctrl-N** move between answer bubbles;
   **1–9** pick a bubble directly. **Enter** confirms the highlighted option.
   For multi-select, **Space** or a number toggles a checkbox, then Enter submits
   the checked options in option order. Typing switches to **Type your answer…**
@@ -248,8 +248,10 @@ This does not switch the editor colorscheme or configure other applications.
   to return to numbered choices. Composer emacs editing and Esc/dismiss policy
   are unchanged. The header shows progress across questions; drafts collect
   before one final response. Options use their wire value when present,
-  otherwise their label. Long option lists scroll around the selected bubble;
-  short terminals use compact bubbles and prioritize keeping the live frame
+  otherwise their label. When full-height bubbles do not all fit, the window
+  switches to compact one-row bubbles before scrolling around the selection.
+  Only lists exceeding compact capacity scroll, keeping focus and checkbox
+  states visible. Short terminals prioritize keeping the live frame
   strictly below terminal height. Requests answered elsewhere remove the window.
   Non-resumable requests retain their explanatory message.
 - **`/` at the start of a message, or `$` anywhere:** a completion list of the
