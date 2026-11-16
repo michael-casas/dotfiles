@@ -155,7 +155,7 @@ def main():
         print('envi-remote: SSH minimal; no tmux; ' + policy['storage'] + '; release ' + artifact.digest,
               file=sys.stderr)
         script = (ROOT / 'remote/bootstrap.sh').read_text()
-        probe = control(policy, script, ['probe'])
+        probe = control(policy, script, ['probe', policy['locale']])
         lines = probe.splitlines()
         if len(lines) != 13 or lines[:2] != ['protocol=1', 'tar=ustar'] or lines[2] not in (
                 'hash=sha256sum', 'hash=shasum') or lines[3] not in ('charmap=UTF-8', 'charmap=UTF8'):
@@ -167,9 +167,13 @@ def main():
                 print('envi-remote: optional ' + tool + ' unavailable', file=sys.stderr)
         parameters = [policy['root'], artifact.digest, artifact.archive_hash, artifact.manifest.decode(),
                       policy['locale'], policy['storage']]
-        response = control(policy, script, ['cached' if args.use_cached else 'stage', *parameters],
-                           b'' if args.use_cached else artifact.archive)
-        if response != 'ready=' + artifact.digest + '\n':
+        ready = 'ready=' + artifact.digest + '\n'
+        response = control(policy, script, ['lookup', *parameters])
+        if response == 'missing=' + artifact.digest + '\n':
+            if args.use_cached:
+                raise ValueError('requested cached release missing; no upload')
+            response = control(policy, script, ['stage', *parameters], artifact.archive)
+        if response != ready:
             raise ValueError('stage protocol mismatch; no attachment')
         return subprocess.call(ssh_args(policy, alias, tty=True) + [command(script, ['launch', *parameters])])
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, UnicodeError) as error:

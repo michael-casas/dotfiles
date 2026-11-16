@@ -58,10 +58,15 @@ check_release() {
         count=$((count + 1))
     done <<< "$manifest"
     [ "$(find "$release" -type f | wc -l | tr -d ' ')" = "$((count + 1))" ] || return 1
-    [ -z "$(find "$release" -type l -print)" ] || return 1
+    [ -z "$(find "$release" ! -type d ! -type f -print)" ] || return 1
 }
 operation=$1
 if [ "$operation" = probe ]; then
+    locale_name=${2:-}
+    if [ -n "$locale_name" ]; then
+        locale -a | grep -Fx -- "$locale_name" >/dev/null || fail 'approved locale unavailable'
+        export LC_ALL="$locale_name"
+    fi
     [ -x /bin/bash ] || fail 'Bash /bin/bash required'
     case "$(tar --version 2>/dev/null)" in *'GNU tar'*|*bsdtar*) ;; *) fail 'unsupported tar' ;; esac
     if command -v sha256sum >/dev/null 2>&1; then hash_tool=sha256sum
@@ -77,10 +82,10 @@ fi
 root=$2
 digest=$3
 archive_hash=$4
-manifest=$5
+manifest=$(printf '%s' "$5")
 locale_name=$6
 mode=$7
-case "$operation" in stage|cached|launch) ;; *) fail 'unknown operation' ;; esac
+case "$operation" in stage|cached|lookup|launch) ;; *) fail 'unknown operation' ;; esac
 case "$mode" in persistent|temporary) ;; *) fail 'bad storage mode' ;; esac
 [ "${#digest}" = 64 ] && [ "${#archive_hash}" = 64 ] || fail 'bad digest'
 case "$digest$archive_hash" in *[!a-f0-9]*) fail 'bad digest alphabet' ;; esac
@@ -88,6 +93,15 @@ case "$digest$archive_hash" in *[!a-f0-9]*) fail 'bad digest alphabet' ;; esac
 private_path "$root"
 for dir in releases staging locks state; do private_path "$root/$dir"; done
 release="$root/releases/$digest"
+if [ "$operation" = lookup ]; then
+    if [ -e "$release" ] || [ -L "$release" ]; then
+        check_release "$release" || fail 'cached release invalid'
+        printf 'ready=%s\n' "$digest"
+    else
+        printf 'missing=%s\n' "$digest"
+    fi
+    exit
+fi
 if [ "$operation" = launch ]; then
     check_release "$release" || fail 'cached release invalid'
     state=$(mktemp -d "$root/state/session.XXXXXXXX") || fail 'state creation failed'
@@ -116,7 +130,7 @@ dd bs=1 count=262145 of="$stage/archive.tgz" 2>/dev/null
 [ "$(hash "$stage/archive.tgz")" = "$archive_hash" ] || fail 'archive hash mismatch'
 # Exact archive bytes are already approved by the local closed packer/validator.
 mkdir "$stage/release"
-tar -xzf "$stage/archive.tgz" -C "$stage/release" || fail 'extract failed'
+tar -xzpf "$stage/archive.tgz" -C "$stage/release" || fail 'extract failed'
 check_release "$stage/release" || fail 'extracted release invalid'
 # Same-filesystem rename under a non-stealable per-release lock. No live mutation.
 mv "$stage/release" "$release" || fail 'publish failed'
