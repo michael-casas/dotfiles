@@ -48,6 +48,7 @@ if os.environ.get('FAKE_NOISE'):
 body = sys.stdin.buffer.read() if '-T' in args else b''
 if os.environ.get('FAKE_UPLOAD') == 'corrupt' and body: body = body[:-1]+bytes([body[-1]^1])
 if os.environ.get('FAKE_UPLOAD') == 'interrupt' and body: body = body[:100]
+with open(os.environ['FAKE_LOG'] + '.bytes', 'a') as log: log.write(str(len(body))+'\\n')
 if '-tt' in args:
     body = b"printf 'SESSION_OK\\\\n'; printf '%s\\\\n' \\\"$HOME\\\"; test -z \\\"${BASH_ENV-}${LD_PRELOAD-}${HCMUX_SESSION-}\\\" || exit 91; exit 7\\n"
 env = dict(os.environ, HOME=os.environ['FAKE_HOME'])
@@ -84,11 +85,13 @@ sys.exit(result.returncode)
         releases = list((self.store / 'releases').iterdir())
         self.assertEqual(len(releases), 1)
         mtime = releases[0].stat().st_mtime_ns
-        result = self.cli('fixture', '--use-cached', '--allow-dirty')
+        result = self.cli('fixture', '--allow-dirty')
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertEqual(releases[0].stat().st_mtime_ns, mtime)
         self.assertFalse(list((self.store / 'staging').iterdir()))
         self.assertFalse(list((self.store / 'locks').iterdir()))
+        transfers = [int(n) for n in Path(str(self.log) + '.bytes').read_text().splitlines()]
+        self.assertEqual(sum(n > 0 for n in transfers), 1, 'warm connect must not retransmit archive')
 
     def test_unknown_and_malformed_fail_before_ssh(self):
         for alias in ['unknown', 'bad;command', '-option']:
@@ -171,6 +174,27 @@ sys.exit(result.returncode)
         result = self.cli('fixture', '--allow-dirty')
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.store.exists())
+
+    def test_cached_hardlink_and_writable_directory_refused(self):
+        a = pack.build(ROOT, allow_dirty=True)
+        self.assertEqual(self.stage(a).returncode, 0)
+        release = self.store / 'releases' / a.digest
+        os.link(release / 'bin/enter', self.base / 'outside-link')
+        self.assertNotEqual(self.stage(a).returncode, 0)
+        (self.base / 'outside-link').unlink()
+        (release / 'bin').chmod(0o777)
+        self.assertNotEqual(self.stage(a).returncode, 0)
+
+    def test_publish_failure_never_activates_and_releases_lock(self):
+        # Fault injection executes the trusted bootstrap locally, never a host.
+        mv = self.shims / 'mv'
+        mv.write_text('#!/bin/sh\nexit 1\n')
+        mv.chmod(0o755)
+        result = self.stage()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(list((self.store / 'releases').iterdir()))
+        self.assertFalse(list((self.store / 'staging').iterdir()))
+        self.assertFalse(list((self.store / 'locks').iterdir()))
 
     def test_shell_bash32_syntax_and_no_services(self):
         scripts = [ROOT / 'remote/bootstrap.sh', *list((ROOT / 'remote/profile/bin').iterdir()),

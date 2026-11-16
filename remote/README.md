@@ -159,3 +159,21 @@ RGB. `python3 -m unittest discover -s remote/test -p test_editor.py -v` exercise
 offline open/edit/save/reopen/search/split in disposable HOME/XDG roots, plus
 missing/unsupported editor recovery. Startup assertions are checked by a success
 marker as Neovim can otherwise exit 0 after a `:luafile` assertion error.
+
+### Host-free validation receipt
+
+On this macOS checkout: **34 Python unittest cases pass**, including real local
+Bash 3.2/BSD utility execution and three offline-editor cases. New mocked hcmux
+suite passes; all **16** `nvim/tools/t3-thread/test/*.lua` suites (15 existing +
+1 new) pass. `stylua --check` on all four touched/new Lua files, shellcheck on
+bootstrap/launchers/bashrc, and `git diff --check` pass. Test-first RED evidence
+included missing packer/action, locale/mode/manifest failures, editor isolation/
+version failures and cached hardlink refusal before their fixes.
+
+Existing Node suite command `cd nvim/tools/t3-thread && node --test
+test/*.test.mjs` ran: **168 pass, 5 fail out of 173** because this fresh worktree
+has no installed dependencies (`string-width`, `@alcalzone/ansi-tokenize`,
+`react`, and the Ink integration dependency tree). No dependency installation
+was authorized or performed, and nothing under that package was changed except
+the new standalone Lua test. REP must provide the existing dependency environment
+and rerun before declaring the existing-suite gate green.

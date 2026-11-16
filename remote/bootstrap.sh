@@ -43,9 +43,18 @@ private_path() {
     [ "$owner" = "$uid" ] && [ "$perms" = 700 ] || fail 'root must be owned mode 0700'
 }
 check_release() {
-    local release=$1 mode size expected path count=0
+    local release=$1 mode size expected path directory owner perms count=0
     [ -d "$release" ] && [ ! -L "$release" ] || return 1
+    # Cached trees are revalidated, including parent directories and hardlinks.
+    while IFS= read -r directory; do
+        read -r owner perms <<< "$(metadata "$directory")"
+        [ "$owner" = "$(id -u)" ] || return 1
+        (( (8#$perms & 0022) == 0 )) || return 1
+    done < <(find "$release" -type d -print)
+    [ -z "$(find "$release" -type f -links +1 -print)" ] || return 1
     [ -f "$release/MANIFEST" ] && [ ! -L "$release/MANIFEST" ] || return 1
+    read -r owner perms <<< "$(metadata "$release/MANIFEST")"
+    [ "$owner" = "$(id -u)" ] && [ "$perms" = 644 ] || return 1
     [ "$(hash "$release/MANIFEST")" = "$digest" ] || return 1
     [ "$(cat "$release/MANIFEST")" = "$manifest" ] || return 1
     while read -r mode size expected path; do
