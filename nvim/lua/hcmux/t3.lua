@@ -82,22 +82,44 @@ end
 
 local WINHL = "NormalFloat:EnviT3Normal,Normal:EnviT3Normal,FloatBorder:EnviT3Border,FloatTitle:EnviT3Title"
 
--- The colors a T3 client is told (terminal.run display from its first byte,
--- the buffer's OSC 10/11 answers): the popover's own, so cells painted with the
--- "default" background match the float, not the editor's Normal. `win`: the
--- popover the client will be shown in, if it exists already (a broken hub
--- leaves that window's look alone, so the client keeps matching it). nil: the
--- terminal defaults (nvim's Normal), as before.
+-- The colors `win` actually shows default cells in when it carries the T3
+-- remap, else nil (the editor's Normal). Neovim appends terminal entries
+-- (EndOfBuffer:, StatusLine:…) to the value, and Vim restores a buffer's
+-- window-local options in each window it enters, so match the one entry.
+local function shown_display(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return nil
+  end
+  local key = vim.api.nvim_win_get_config(win).relative ~= "" and "NormalFloat" or "Normal"
+  if not ("," .. vim.wo[win].winhl):find("," .. key .. ":EnviT3Normal", 1, true) then
+    return nil
+  end
+  local hl = vim.api.nvim_get_hl(0, { name = "EnviT3Normal" })
+  if hl.fg and hl.bg then
+    return { fg = ("#%06x"):format(hl.fg), bg = ("#%06x"):format(hl.bg) }
+  end
+end
+
+-- The colors a new T3 client is told from its first byte (terminal.run
+-- display): the popover's own, so cells painted with the "default" background
+-- match the float, not the editor's Normal. `win`: the popover it will start
+-- in, if shown already (a broken hub leaves that window's look alone). nil:
+-- the terminal defaults (nvim's Normal), as before.
 local function popover_display(win)
   local colors = theme_highlights()
   if colors then
     return { fg = colors.fg, bg = colors.bg }
   end
-  if win and vim.api.nvim_win_is_valid(win) and vim.wo[win].winhl == WINHL then
-    local hl = vim.api.nvim_get_hl(0, { name = "EnviT3Normal" })
-    if hl.fg and hl.bg then
-      return { fg = ("#%06x"):format(hl.fg), bg = ("#%06x"):format(hl.bg) }
-    end
+  return shown_display(win)
+end
+
+-- Answer the shown buffer's OSC 10/11 queries with what `win` shows. Resolved
+-- on every attach and theme change, so a buffer reused in another view never
+-- keeps the previous view's colors. Runs before the event loop can deliver a
+-- new viewer's first query.
+local function sync_display(win)
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.b[vim.api.nvim_win_get_buf(win)].hcmux_display = shown_display(win)
   end
 end
 
@@ -116,14 +138,13 @@ end
 
 local function theme_float()
   local win = pop_win()
-  local colors = win and theme_highlights()
-  if colors then
+  if win and theme_highlights() then
     vim.wo[win].winhl = WINHL
-    -- Later OSC queries (a re-attaching viewer) follow the selected theme;
-    -- committed history keeps the colors it was painted with.
-    vim.b[vim.api.nvim_win_get_buf(win)].hcmux_display = { fg = colors.fg, bg = colors.bg }
   end
   if win then
+    -- Later OSC queries (a re-attaching viewer) follow what the popover now
+    -- shows; committed history keeps the colors it was painted with.
+    sync_display(win)
     -- A new float copies the window options of the window it opened from, e.g.
     -- the T3 layout's main pane winbar ("T3 · <title>"). The popover has its own title.
     vim.api.nvim_set_option_value("winbar", "", { scope = "local", win = win })
@@ -252,8 +273,7 @@ local function command_mode(buf, opts)
 end
 
 local function show(addr, where, opts)
-  local display = popover_display(where == "current" and pop_win() or nil)
-  local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 ", display = display })
+  local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 " })
   mark(buf)
   theme_float()
   last = addr
@@ -363,6 +383,7 @@ function M.attach_in(win, id)
     return
   end
   mark(buf)
+  sync_display(win)
   if old_addr and old ~= buf and vim.api.nvim_buf_is_valid(old) and #vim.fn.win_findbuf(old) == 0 then
     -- Move off it before detach: term.detach otherwise closes the main split.
     term.detach(old)

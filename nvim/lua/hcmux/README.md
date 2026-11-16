@@ -197,9 +197,11 @@ or a menu and never interrupts. COMMAND `<C-]>` returns to INSERT (a toggle); CO
 
 Colours: a popover client is told the popover's own colours (the hub's `ui.fg`/`ui.popover`), both from its first
 byte (`terminal.run` display, `term.open{display}`) and as its buffer's OSC 10/11 answers, so cells painted with the
-"default" background match the float rather than the editor. With a missing/invalid hub a new popover keeps the
-editor's `Normal`; switching in place keeps the shown window's colours. Other terminals answer with the global
-`Normal`/`Cursor`, whichever window has focus. Already printed history keeps the colours it was painted with.
+"default" background match the float rather than the editor. On every popover open, switch and theme change, and
+on `attach_in`, the buffer's answers are re-resolved from what that window shows (the T3 remap, or the editor's
+`Normal` when it has none, e.g. an untinted main pane), so a reused buffer never keeps another view's colours.
+With a missing/invalid hub a new popover keeps the editor's `Normal`; a shown window keeps its look. Other terminals
+answer with the global `Normal`/`Cursor`, whichever window has focus. Already printed history keeps its colours.
 
 T3 sets `vim.t.hcmux_session_skip = true`. The generic session serializer omits
 opted-out tab blocks and their exclusive buffers from the saved Vim script,

@@ -187,13 +187,9 @@ end
 
 --- Show terminal `addr` in a window. Reuses its buffer if one exists.
 ---@param where? "current"|"split"|"vsplit"|"tab"
----@param o? {size?:number, title?:string, display?:table} float options; display: colors
----   this buffer answers the program's OSC 10/11/12 queries with (see M.open)
+---@param o? {size?:number, title?:string} float options
 function M.attach(addr, where, o)
   local buf = M.buf_of(addr)
-  if buf and o and o.display then
-    vim.b[buf].hcmux_display = o.display
-  end
   if buf then
     local win = vim.fn.win_findbuf(buf)[1]
     if win and (where == nil or where == "current") then
@@ -210,7 +206,6 @@ function M.attach(addr, where, o)
   in_window(where, o)
   buf = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_set_current_buf(buf)
-  vim.b[buf].hcmux_display = o and o.display or nil
   if not start_viewer(buf, addr) then
     return
   end
@@ -484,7 +479,8 @@ function M.setup(cfg)
   -- 10/11/12 and reports them to herdr-core, which answers the program's own
   -- color queries with them. nvim leaves the queries unanswered, so programs
   -- fall back to black backgrounds; answer with the colorscheme's colors, or
-  -- the buffer's own display colors (M.open/M.attach), never depending on
+  -- the buffer's own display colors (vim.b.hcmux_display: M.open's display,
+  -- kept in step by its owner, e.g. hcmux.t3), never depending on
   -- which window happens to have focus.
   vim.api.nvim_create_autocmd("TermRequest", {
     group = group,
