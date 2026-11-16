@@ -115,6 +115,11 @@ local function run_case(name, open, want)
         for col = 0, s.width - 1 do
           local cell = vim.rpcrequest(ch, "nvim__inspect_cell", g, dr + r, dc + col)
           local bg = cell[2].background and ("#%06x"):format(cell[2].background) or "default"
+          -- On grid 1 a cell in the editor's own Normal carries no background
+          -- attribute: "default" there is Normal, never black.
+          if bg == "default" and not s.float then
+            bg = O.normal_bg
+          end
           if bg ~= want then
             bad[#bad + 1] = ("row %d col %d %q bg %s"):format(r, col, text, bg)
           end
