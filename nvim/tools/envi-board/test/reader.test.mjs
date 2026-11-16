@@ -187,3 +187,85 @@ test("initial missing file gives a safe snapshot and can manually recover withou
     rmSync(dir, { recursive: true });
   }
 });
+
+test("projection splits all multiline metadata/status into physical rows with stable mapping", async () => {
+  const { parseBoard } = await import("../document.mjs");
+  const { project, viewport } = await import("../view.mjs");
+  const bytes = Buffer.from(
+    example
+      .toString()
+      .replace('"author": "reviewer-demo"', '"author": "reviewer\\ndemo"')
+      .replace(
+        '"label": "Existing clipboard option; evidence pin, not board implementation"',
+        '"label": "Evidence\\nlabel\\rnext\\r\\nlast"',
+      ),
+  );
+  const document = parseBoard(bytes);
+  assert.equal(document.valid, true);
+  const view = project({
+    document,
+    stale: true,
+    error: "failed\nretry\rnow",
+    watchError: "watch\r\nretry",
+  });
+  assert.ok(
+    view.rows.every((row) => !/[\r\n]/.test(row)),
+    "every projected row is one physical line",
+  );
+  assert.equal(view.rows.length, view.mapping.length);
+  const author = view.rows.indexOf("reviewer");
+  assert.ok(author >= 0);
+  assert.equal(view.rows[author + 1], "demo:");
+  assert.equal(view.mapping[author].id, "thread-fallback");
+  assert.deepEqual(view.mapping[author], view.mapping[author + 1]);
+  const label = view.rows.indexOf("[source source-options] Evidence");
+  assert.deepEqual(view.rows.slice(label + 1, label + 4), [
+    "label",
+    "next",
+    "last",
+  ]);
+  for (const item of view.mapping.slice(label, label + 4))
+    assert.equal(item.id, "source-options");
+  assert.ok(viewport(view.rows, { width: 80, height: 24 }).length <= 22);
+});
+
+test("watch failure is published on unchanged bytes and manual retry publishes recovery", async () => {
+  const { BoardSession } = await import("../session.mjs");
+  const { project } = await import("../view.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "board-watch-error-")),
+    path = join(dir, "demo.wb.md");
+  writeFileSync(path, example);
+  const session = new BoardSession({ path }),
+    events = [];
+  session.subscribe((s) => events.push(s));
+  session.start();
+  try {
+    await session.refresh();
+    const initial = session.snapshot;
+    session.watcher.emit("error", new Error("synthetic watch error"));
+    await session.refresh();
+    assert.ok(
+      session.snapshot.watchError,
+      "watch failure must be visible even with an unchanged hash",
+    );
+    assert.ok(session.snapshot.generation > initial.generation);
+    assert.ok(
+      project(session.snapshot).rows.some((r) =>
+        r.includes("Watch unavailable"),
+      ),
+    );
+    const failed = session.snapshot;
+    await session.retry();
+    assert.equal(session.snapshot.watchError, null);
+    assert.ok(session.snapshot.generation > failed.generation);
+    assert.equal(session.snapshot.document.hash, initial.document.hash);
+    assert.equal(
+      events.length,
+      3,
+      "initial, failed watcher, recovered watcher; no duplicate hash notifications",
+    );
+  } finally {
+    session.close();
+    rmSync(dir, { recursive: true });
+  }
+});

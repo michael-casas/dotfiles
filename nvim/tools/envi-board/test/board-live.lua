@@ -4,6 +4,14 @@ local dir = vim.fn.tempname()
 vim.fn.mkdir(dir, "p")
 local path = dir .. "/demo.wb.md"
 local fixture = vim.fn.readfile("nvim/tools/envi-board/test/fixtures/example.wb.md", "b")
+fixture = vim.split(
+  table
+    .concat(fixture, "\n")
+    :gsub('"author": "reviewer%-demo"', '"author": "reviewer\\ndemo"')
+    :gsub('"label": "Existing clipboard option; evidence pin, not board implementation"', '"label": "Evidence\\nlabel"'),
+  "\n",
+  { plain = true }
+)
 vim.fn.writefile(fixture, path, "b")
 local hub = vim.fn.json_decode(table.concat(vim.fn.readfile("theme/theme.json"), "\n"))
 local theme_file = dir .. "/theme.json"
@@ -15,8 +23,13 @@ api.nvim_buf_set_lines(draft, 0, -1, false, { "unsaved draft" })
 local function wait(fn, reason)
   assert(vim.wait(6000, fn, 20), reason)
 end
-M.open(path)
+M.open(dir .. "/nosuch/../demo.wb.md")
 local win, buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
+local errors = {}
+local previous_error_handler = vim._on_error
+vim._on_error = function(message)
+  errors[#errors + 1] = tostring(message)
+end
 local function text()
   return table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
 end
@@ -24,8 +37,11 @@ wait(function()
   return text():find("approximate text", 1, true)
 end, "real worker renders")
 assert(text():find("flowchart LR", 1, true) and text():find("attached", 1, true))
+assert(text():find("reviewer\ndemo:", 1, true), "multiline author paints as separate rows")
+assert(text():find("Evidence\nlabel", 1, true), "multiline source label paints as separate rows")
+assert(#errors == 0, table.concat(errors, "\n"))
 assert(not vim.bo[buf].modified and not vim.bo[buf].modifiable)
-M.open(path)
+M.open(dir .. "/nosuch/../demo.wb.md")
 assert(api.nvim_get_current_win() == win)
 hub.active = "gruvbox-dark"
 vim.fn.writefile({ vim.json.encode(hub) }, theme_file .. ".tmp")
@@ -67,4 +83,6 @@ vim.wait(600, function()
   return false
 end)
 vim.fn.delete(dir, "rf")
+assert(#errors == 0, table.concat(errors, "\n"))
+vim._on_error = previous_error_handler
 print("board real worker/theme/watch/source checks passed")

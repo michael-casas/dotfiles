@@ -70,7 +70,7 @@ atomic recovery and normal source-buffer opening without losing an unsaved draft
 A real foreground PTY test checks 80x24 boot, resize, q exit and canonical/echo
 restoration, with no alternate screen/mouse. No browser/network/hc/T3 calls.
 
-Standing gates: **173/173 existing T3 Node tests**; **all 15 existing T3 Lua
+Standing gates: **173/173 existing T3 Node tests**; **all 16 existing T3 Lua
 harnesses**, no Lua error output. All new `.mjs` pass `node --check`; stylua
 `--config-path nvim/stylua.toml --check` passes for `board.lua` and both harnesses;
 `git diff --check` passes. Tool-local Prettier formatting was applied once the
@@ -83,3 +83,46 @@ renderer sandbox, no hard instantaneous memory-cap guarantee. No network-denial
 probe is attempted by tests (policy has no network allowance; runtime has no
 network code path). REP owns manual E2E/independent critics; keybinder owns
 leader/command/statusline wiring. No push/PR/merge/rebase/global installation.
+
+## Critic round 1 corrective pass
+
+Baseline: REP-rebased `036f881` on `66aa494`; no additional rebase/amend.
+The critic's 3/5 is an independent review result, not superseded by a self-score.
+
+- **M1:** projection splits LF/CR/CRLF in every pushed field while retaining a
+  mapping per physical row; Lua escapes LF as defense in depth. New Node
+  projection and real-worker/native regressions use multiline author/label;
+  the mocked native harness also feeds a malformed unsplit LF row. RED reproduced
+  invalid physical rows/native newline errors; all three checks now pass.
+- **M2:** source-edit splits beside any non-file (including terminal) or modified
+  invoker. The mocked real-window terminal-invoker regression failed before the
+  guard and now confirms the original window still shows the terminal buffer.
+- **m1:** watcher error immediately publishes a new generation even with
+  unchanged bytes. Hash no-op suppression also compares watcher state, allowing
+  manual retry to publish recovery. New Node test observes exactly initial,
+  failed and recovered snapshots; RED previously observed `watchError:null`.
+- **m2:** worker echoes the requested absolute path unchanged, resolving only
+  internally. A Node `nosuch/../` identity regression and real native-worker
+  open/edit check pass; source-edit normalizes its explicit editor path too.
+- **m3:** README uses fail-closed runners. The tool-local `test/run-lua.sh` uses
+  `pcall`/`cquit 1`; a temporary throwing probe confirmed exit **1**, then was
+  removed. Existing T3 suite count is **16**, not 15.
+- **m4:** cache keys omit ignored width/theme; same-revision graphs stay visible
+  while replacements are pending; new jobs show `rendering…`. New worker test
+  checks first render, resize and live theme update. New cache test makes the
+  Ruby path unusable after the first result and still reuses output with changed
+  width/theme. Both had meaningful RED before repair. Ink uses the same retention
+  policy; revision guards still reject stale output.
+- **n1:** pinned CRLF display strips CR only at line boundaries; a new committed
+  CRLF blob regression verifies readable lines and unchanged Git blob bytes.
+- **n2:** removed unused `.vendor/`/`.cache/` ignores and unreachable duplicate
+  Ctrl-C branch.
+- **n3:** shared theme reader deliberately remains in place, per REP's direction;
+  no optional relocation or extra coupling churn in this corrective pass.
+
+Corrective gate results: **38/38 envi-board Node tests** (six added), **2/2
+board Lua harnesses**, **16/16 T3 Lua suites**, **173/173 T3 Node tests**; all
+exit 0. Stylua on touched Lua, `node --check` on all tool modules, shell syntax
+and `git diff --check` pass. Node/Lua tests remain synthetic, offline and without
+hc/T3/browser calls. Manual Herdr E2E and the independent next critic verdict
+remain REP's responsibility; no claim of 5/5 acceptance is made here.

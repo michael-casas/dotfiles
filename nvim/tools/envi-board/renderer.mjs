@@ -27,7 +27,7 @@ export class DiagramRenderer {
     this.queue = [];
     this.closed = false;
   }
-  render(source, { width = 80, theme = "ansi", revision = "" } = {}) {
+  render(source, { revision = "" } = {}) {
     const p = diagramProfile(source),
       fallback = (reason) => ({
         kind: "unsupported",
@@ -36,8 +36,9 @@ export class DiagramRenderer {
         revision,
       });
     if (!p.supported) return Promise.resolve(fallback(p.reason));
+    // The backend is color:false, fit:nil: geometry and palette do not affect bytes.
     const key = createHash("sha256")
-      .update(JSON.stringify(["merminal-0.1.0", PROFILE, source, width, theme]))
+      .update(JSON.stringify(["merminal-0.1.0", PROFILE, source]))
       .digest("hex");
     if (this.cache.has(key))
       return Promise.resolve({ ...this.cache.get(key), revision });

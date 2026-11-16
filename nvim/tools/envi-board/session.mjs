@@ -61,7 +61,8 @@ export class BoardSession {
     if (
       !invalid &&
       this.snapshot?.document?.hash === document.hash &&
-      !this.snapshot.stale
+      !this.snapshot.stale &&
+      this.snapshot.watchError === (this.watchError ?? null)
     )
       return;
     if (document?.valid) this.lastGood = document;
@@ -103,7 +104,13 @@ export class BoardSession {
       this.watcher.on("error", () => {
         this.watcher?.close();
         this.watchError = "Watch unavailable; use R to refresh";
-        void this.refresh();
+        if (this.snapshot)
+          this.publish({
+            ...this.snapshot,
+            generation: ++this.generation,
+            watchError: this.watchError,
+          });
+        else void this.refresh();
       });
       this.watcher.unref();
       this.watchError = null;

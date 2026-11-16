@@ -157,3 +157,27 @@ test("vendored merminal tree matches pinned release manifest", async () => {
       path,
     );
 });
+
+test("renderer reuses uncolored no-fit output across width/theme changes without another Ruby job", async () => {
+  const renderer = new DiagramRenderer();
+  try {
+    const first = await renderer.render(fixtures.flowchart, {
+      width: 80,
+      theme: "nord",
+      revision: "a",
+    });
+    assert.equal(first.kind, "text-approximate");
+    renderer.ruby = "/no/such/ruby"; // A second backend launch cannot succeed.
+    const cached = await renderer.render(fixtures.flowchart, {
+      width: 140,
+      theme: "gruvbox-dark",
+      revision: "b",
+    });
+    assert.equal(cached.kind, "text-approximate");
+    assert.equal(cached.revision, "b");
+    assert.deepEqual(cached.lines, first.lines);
+    assert.equal(renderer.cache.size, 1);
+  } finally {
+    renderer.close();
+  }
+});

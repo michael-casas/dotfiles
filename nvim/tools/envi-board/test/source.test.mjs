@@ -154,3 +154,26 @@ test("unknown board version never resolves sources even with host binding", () =
     rmSync(dir, { recursive: true });
   }
 });
+
+test("pinned CRLF source displays ordinary line endings without mutating committed bytes", async () => {
+  const { root, git } = fixture();
+  try {
+    git("init", "-q");
+    git("config", "core.autocrlf", "false");
+    writeFileSync(join(root, "lines.txt"), "one\r\ntwo\r\n");
+    git("add", ".");
+    git("commit", "-qm", "CRLF fixture");
+    const record = {
+      root: "repo",
+      path: "lines.txt",
+      commit: git("rev-parse", "HEAD"),
+      lines: { start: 1, end: 2 },
+    };
+    const source = await pinnedSource(record, { repo: root });
+    assert.equal(source.state, "available");
+    assert.deepEqual(source.lines, ["one", "two"]);
+    assert.equal(git("cat-file", "blob", source.blob), "one\r\ntwo");
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});

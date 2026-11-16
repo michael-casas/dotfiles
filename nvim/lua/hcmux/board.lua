@@ -30,7 +30,7 @@ local function geometry()
 end
 
 local function safe(s)
-  return tostring(s):gsub("[%z\1-\8\11-\31\127]", function(c)
+  return tostring(s):gsub("[%z\1-\31\127]", function(c)
     return string.format("<U+%04X>", string.byte(c))
   end)
 end
@@ -381,7 +381,7 @@ function M.open(path, opts)
   end)
   map("e", function()
     local m = s.snapshot and s.snapshot.mapping[api.nvim_win_get_cursor(s.win)[1]]
-    local file, line, invoker = s.path, m and m.line or 1, s.invoker
+    local file, line, invoker = vim.fs.normalize(s.path), m and m.line or 1, s.invoker
     M.close()
     if valid(invoker) then
       api.nvim_set_current_win(invoker)
@@ -390,7 +390,8 @@ function M.open(path, opts)
     -- modified buffer. The normal source buffer participates in reload safety.
     local buf = vim.fn.bufadd(file)
     vim.fn.bufload(buf)
-    if vim.bo[api.nvim_get_current_buf()].modified and api.nvim_get_current_buf() ~= buf then
+    local cur = api.nvim_get_current_buf()
+    if cur ~= buf and (vim.bo[cur].modified or vim.bo[cur].buftype ~= "") then
       vim.cmd("split")
     end
     api.nvim_set_current_buf(buf)

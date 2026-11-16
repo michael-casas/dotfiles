@@ -112,7 +112,7 @@ export async function pinnedSource(record, bindings = {}) {
     } catch {
       return unavailable("Non-UTF-8 blob is not a source-line target");
     }
-    const lines = text.split("\n");
+    const lines = text.split(/\r?\n/);
     if (lines.at(-1) === "") lines.pop();
     if (record.lines.end > lines.length)
       return unavailable("Source range exceeds committed blob");

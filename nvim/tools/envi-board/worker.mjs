@@ -15,6 +15,8 @@ export async function worker() {
     serial = 0,
     closed = false,
     requestId = null,
+    requestedPath = null,
+    diagramsHash = null,
     renderToken = 0,
     diagrams = new Map();
   let buffer = "",
@@ -52,7 +54,7 @@ export async function worker() {
       doc = snap.document,
       view = project(snap, { diagrams });
     const payload = JSON.stringify({
-      path: session.path,
+      path: requestedPath,
       generation: snap.generation,
       hash: doc?.hash ?? null,
       stale: snap.stale,
@@ -112,11 +114,24 @@ export async function worker() {
   const refreshRendering = (snap) => {
     const token = ++renderToken,
       doc = snap.document;
-    diagrams = new Map();
+    const blocks =
+      doc?.valid && !doc.opaque
+        ? doc.blocks.filter((b) => b.kind === "mermaid")
+        : [];
+    // Keep completed drawings for this revision during palette/viewport refresh.
+    diagrams = new Map(
+      blocks.map((b) => [
+        b.id,
+        diagramsHash === doc.hash && diagrams.has(b.id)
+          ? diagrams.get(b.id)
+          : { kind: "rendering", source: b.content },
+      ]),
+    );
+    diagramsHash = doc?.hash ?? null;
     publish();
-    if (!doc?.valid || doc.opaque) return;
+    if (!blocks.length) return;
     (async () => {
-      for (const b of doc.blocks.filter((b) => b.kind === "mermaid")) {
+      for (const b of blocks) {
         const result = await renderer.render(b.content, {
           width,
           theme: JSON.stringify(snap.theme),
@@ -177,6 +192,8 @@ export async function worker() {
       bindings = b;
       width = Math.max(20, Math.min(400, Number(req.width) || 80));
       requestId = req.id;
+      requestedPath = req.path;
+      diagramsHash = null;
       diagrams = new Map();
       renderer = new DiagramRenderer();
       session = new BoardSession({ path: resolve(req.path) });

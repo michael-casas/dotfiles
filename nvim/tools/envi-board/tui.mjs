@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { render, Text, Box, useInput, useApp, useStdout } from "ink";
 import { BoardSession } from "./session.mjs";
 import { viewport, project } from "./view.mjs";
@@ -15,6 +15,7 @@ export async function openTui(opts) {
       { stdout } = useStdout();
     const [snapshot, setSnapshot] = useState(session.snapshot),
       [size, setSize] = useState([stdout.columns ?? 80, stdout.rows ?? 24]);
+    const diagramsHash = useRef(null);
     const [diagrams, setDiagrams] = useState(new Map()),
       [sourcePane, setSourcePane] = useState(null),
       [sourceOnly, setSourceOnly] = useState(false);
@@ -32,12 +33,28 @@ export async function openTui(opts) {
     }, []);
     useEffect(() => {
       let current = true;
-      setDiagrams(new Map());
       setSourcePane(null);
       const doc = snapshot?.document;
+      const blocks =
+        doc?.valid && !doc.opaque
+          ? doc.blocks.filter((b) => b.kind === "mermaid")
+          : [];
+      const sameRevision = diagramsHash.current === doc?.hash;
+      diagramsHash.current = doc?.hash ?? null;
+      setDiagrams(
+        (previous) =>
+          new Map(
+            blocks.map((b) => [
+              b.id,
+              sameRevision && previous.has(b.id)
+                ? previous.get(b.id)
+                : { kind: "rendering", source: b.content },
+            ]),
+          ),
+      );
       if (doc?.valid && !doc.opaque)
         (async () => {
-          for (const b of doc.blocks.filter((b) => b.kind === "mermaid")) {
+          for (const b of blocks) {
             const value = await renderer.render(b.content, {
               width: size[0],
               theme: JSON.stringify(snapshot.theme),
@@ -79,7 +96,7 @@ export async function openTui(opts) {
         else if (!key.ctrl && !key.meta) setQuery((q) => safeText(q + input));
         return;
       }
-      if (input === "q" || (key.ctrl && input === "c")) {
+      if (input === "q") {
         if (help) setHelp(false);
         else if (sourcePane) {
           setSourcePane(null);

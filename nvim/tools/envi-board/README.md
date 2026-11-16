@@ -71,8 +71,8 @@ Keybinder owns the leader/statusline wiring and can add `:EnviBoard` separately.
 Native motions/search/yank work normally; `[s`/`]s` jump headings, Tab opens an
 outline, `s` finds the exact Mermaid source, Enter opens a pinned read-only source
 buffer, `e` opens the actual board in an ordinary editor buffer at its source
-line (preserving an already-modified invoker), `R` retries, `?` opens help, `q`
-closes. Esc stays in navigation; in an overlay q/Esc dismiss only the overlay.
+line (opening a split for modified or non-file/terminal invokers), `R` retries,
+`?` opens help, `q` closes. Esc stays in navigation; in an overlay q/Esc dismiss only the overlay.
 Leaving focus does not close. Resize recenters; live hub updates and ColorScheme
 reapply only `EnviBoard*` groups. Scratch views are not session-persistent.
 Close/external WinClosed/BufWipeout/VimLeavePre owns one EOF cleanup; a 500ms
@@ -92,8 +92,11 @@ block IDs and original source lines; themes contain literal hex or null/inherit,
 never terminal ANSI names masquerading as RGB. Each NDJSON frame is <256 KiB;
 snapshot assembly is capped at 32 MiB, pending requests at 64. Split UTF-8,
 malformed/oversized/late frames and EOF are covered in tests. Stale source requests
-are refused; renderer results carry revision/theme/width keys and late work is
-ignored. Slow-reader output is coalesced behind a bounded snapshot backlog.
+are refused; renderer results are revision-guarded and late work is ignored.
+Uncolored, no-fit renderer bytes are cached by engine/profile/source, not ignored
+width/theme settings; completed graphs stay visible across resize/theme updates
+and new jobs are labeled `rendering…`. Slow-reader output is coalesced behind a
+bounded snapshot backlog.
 
 ## Supported Mermaid profile (`envi-text-v0.1`)
 
@@ -135,7 +138,8 @@ not a structural error in the containing board.
   disabled and no inherited credentials. Other platforms fail closed to source.
 - One isolated job at a time; queue 64; 50 KiB/diagram; <=500 nodes/edges when
   countable; 4s CPU/5s parent deadline; 16 MiB stdout; diagnostics discard all
-  stdout. Cache: 64 entries/8 MiB, keyed engine/profile/source/theme/width.
+  stdout. Cache: 64 entries/8 MiB, keyed engine/profile/source (width/theme do
+  not affect backend output).
 - macOS does not implement usable Ruby AS/DATA/RSS limits. Parent samples only
   the owned process RSS every 100ms, killing above 256 MiB. **Not a hard
   instantaneous allocation cap.** This limitation is explicit, not a sandbox
@@ -192,19 +196,15 @@ path opener. No hidden retention ref is written; GC can remove old objects.
 ## Checks
 
 ```sh
-cd nvim/tools/envi-board
-npm test
-for file in *.mjs; do node --check "$file" || exit; done
-# repository root
-nvim --headless -u NONE '+luafile nvim/tools/envi-board/test/board.lua' +qa
-nvim --headless -u NONE '+luafile nvim/tools/envi-board/test/board-live.lua' +qa!
+# From the repository root; both Lua runners use pcall + cquit on failure.
+(cd nvim/tools/envi-board && npm test)
+for file in nvim/tools/envi-board/*.mjs; do node --check "$file" || exit; done
+nvim/tools/envi-board/test/run-lua.sh
 ~/.local/share/envi/mason/bin/stylua --config-path nvim/stylua.toml --check \
   nvim/lua/hcmux/board.lua nvim/tools/envi-board/test/*.lua
 # existing regression gates
 (cd nvim/tools/t3-thread && node --test test/*.test.mjs)
-for file in nvim/tools/t3-thread/test/*.lua; do
-  nvim --headless -u NONE "+luafile $file" +qa || exit
-done
+nvim/tools/t3-thread/test/run-lua.sh # 16 existing suites
 ```
 
 See `docs/validation.md` for RED/GREEN and evidence limits. Headless/native/PTTY

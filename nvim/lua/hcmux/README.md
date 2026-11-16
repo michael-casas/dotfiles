@@ -434,7 +434,7 @@ keybinder owns leader/command/statusline integration. `User EnviBoard` provides
 Native motion/search/yank work. `[s`/`]s` jump headings; Tab outlines; `s` finds
 exact Mermaid source; Enter on a source record opens immutable commit bytes in
 a read-only child; `e` opens the board file as an ordinary editable buffer at
-its original source line, preserving a modified invoker. `R` refreshes, `?`
+its original source line, preserving modified and terminal/non-file invokers in their own panes. `R` refreshes, `?`
 helps, `q` closes. Navigation Esc stays; q/Esc in a child dismiss only the child.
 Leaving focus keeps the view open. Resize recenters; live theme-hub changes and
 ColorScheme touch only `EnviBoard*`. Invalid saves retain last good **STALE**

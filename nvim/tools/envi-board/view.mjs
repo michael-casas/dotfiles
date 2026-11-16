@@ -35,12 +35,14 @@ export function project(
   const rows = [],
     mapping = [];
   const push = (line, block) => {
-    rows.push(safeText(line));
-    mapping.push({
-      id: block?.id ?? null,
-      kind: block?.kind ?? null,
-      line: block?.line ?? 1,
-    });
+    for (const part of String(line).split(/\r\n|\n|\r/)) {
+      rows.push(safeText(part));
+      mapping.push({
+        id: block?.id ?? null,
+        kind: block?.kind ?? null,
+        line: block?.line ?? 1,
+      });
+    }
   };
   if (snapshot.stale) push(`STALE: ${snapshot.error}`);
   if (snapshot.watchError) push(snapshot.watchError);
@@ -57,7 +59,7 @@ export function project(
       if (b.kind === "mermaid") {
         const render = diagrams.get(b.id);
         push(
-          `[diagram ${b.id}: ${render?.kind === "text-approximate" ? "approximate text" : (render?.reason ?? "source; renderer not requested")}]`,
+          `[diagram ${b.id}: ${render?.kind === "text-approximate" ? "approximate text" : render?.kind === "rendering" ? "rendering…" : (render?.reason ?? "source; renderer not requested")}]`,
           b,
         );
         if (!sourceOnly && render?.kind === "text-approximate")

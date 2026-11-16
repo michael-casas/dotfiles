@@ -140,6 +140,35 @@ M.open(path)
 local new_buf = api.nvim_get_current_buf()
 api.nvim_buf_delete(new_buf, { force = true })
 assert(not M.active, "wipe closes")
+-- Defense in depth: even a malformed worker row cannot inject a physical LF.
+M.open(path)
+win, buf, job = api.nvim_get_current_win(), api.nvim_get_current_buf(), next_job
+feed(snapshot(1, { "malformed\nrow", "source pin" }))
+assert(api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "malformed<U+000A>row")
+M.close()
+
+-- A terminal invoker is never replaced by board-source editing.
+local terminal = api.nvim_create_buf(false, true)
+api.nvim_set_current_buf(terminal)
+api.nvim_open_term(terminal, {})
+assert(vim.bo[terminal].buftype == "terminal" and not vim.bo[terminal].modified)
+local terminal_win = api.nvim_get_current_win()
+M.open(path)
+local edit
+for _, map in ipairs(api.nvim_buf_get_keymap(api.nvim_get_current_buf(), "n")) do
+  if map.lhs == "e" then
+    edit = map.callback
+  end
+end
+assert(edit)
+edit()
+assert(
+  api.nvim_win_is_valid(terminal_win) and api.nvim_win_get_buf(terminal_win) == terminal,
+  "terminal invoker retains its terminal"
+)
+assert(api.nvim_get_current_win() ~= terminal_win, "board source must open in a split beside a terminal")
+api.nvim_win_close(api.nvim_get_current_win(), true)
+api.nvim_buf_delete(terminal, { force = true })
 for k, v in pairs(real) do
   vim.fn[k] = v
 end

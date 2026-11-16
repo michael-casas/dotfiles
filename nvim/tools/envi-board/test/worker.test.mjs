@@ -5,9 +5,10 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 const main = new URL("../main.mjs", import.meta.url).pathname;
-function client() {
+function client(env = {}) {
   const child = spawn(process.execPath, [main, "worker"], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ...env },
   });
   let buffer = "",
     frames = [],
@@ -119,6 +120,111 @@ test("worker rejects malformed, oversized and executable requests with safe erro
   } finally {
     c.child.stdin.destroy();
     if (c.child.exitCode === null) c.child.kill();
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("worker echoes the requested absolute path even when internal resolution normalizes missing/../", async () => {
+  const c = client(),
+    dir = mkdtempSync(join(tmpdir(), "board-worker-path-"));
+  try {
+    writeFileSync(
+      join(dir, "ok.wb.md"),
+      readFileSync(new URL("./fixtures/example.wb.md", import.meta.url)),
+    );
+    const path = dir + "/nosuch/../ok.wb.md";
+    c.send({ v: 1, id: 20, op: "open", path });
+    const end = await c.until((fs) =>
+      fs.find((f) => f.type === "end" && f.id === 20),
+    );
+    const data = decode(c.frames, end);
+    assert.equal(
+      data.path,
+      path,
+      "reply identity must not change during internal path resolution",
+    );
+    assert.ok(data.rows.some((s) => s.includes("flowchart LR")));
+    c.child.stdin.end();
+    await new Promise((resolve) => c.child.once("exit", resolve));
+    assert.equal(c.child.exitCode, 0);
+  } finally {
+    c.child.stdin.destroy();
+    if (c.child.exitCode === null) c.child.kill();
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("worker labels pending renders and retains completed diagrams across resize and theme changes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-worker-render-"));
+  const hubFile = join(dir, "theme.json");
+  const hub = JSON.parse(
+    readFileSync(new URL("../../../../theme/theme.json", import.meta.url)),
+  );
+  // The child gets its own theme file through the test client's explicit env.
+  // Never modify the host's actual hub.
+  writeFileSync(hubFile, JSON.stringify(hub));
+  const workerClient = client({ ENVI_THEME_FILE: hubFile });
+  try {
+    const path = new URL("./fixtures/example.wb.md", import.meta.url).pathname;
+    workerClient.send({ v: 1, id: 30, op: "open", path });
+    const first = await workerClient.until((fs) =>
+      fs.find((f) => f.type === "end"),
+    );
+    const initial = decode(workerClient.frames, first);
+    assert.ok(
+      initial.rows.some((s) => s.includes("rendering…")),
+      "in-flight render is explicitly labeled",
+    );
+    const complete = await workerClient.until((fs) =>
+      fs
+        .filter((f) => f.type === "end")
+        .map((e) => decode(fs, e))
+        .find(
+          (d) =>
+            d.rows.filter((s) => s.includes("approximate text")).length === 2,
+        ),
+    );
+    const previous = workerClient.frames.length;
+    workerClient.send({ v: 1, id: 31, op: "render", width: 140 });
+    const resized = await workerClient.until((fs) =>
+      fs.slice(previous).find((f) => f.type === "end" && f.id === 31),
+    );
+    assert.equal(
+      decode(workerClient.frames, resized).rows.filter((s) =>
+        s.includes("approximate text"),
+      ).length,
+      2,
+      "resize must not blank completed graphs",
+    );
+    hub.active = "gruvbox-dark";
+    writeFileSync(hubFile, JSON.stringify(hub));
+    const repainted = await workerClient.until((fs) =>
+      fs
+        .filter((f) => f.type === "end")
+        .map((e) => decode(fs, e))
+        .find((d) => d.theme.id === "gruvbox-dark"),
+    );
+    assert.equal(
+      repainted.rows.filter((s) => s.includes("approximate text")).length,
+      2,
+      "theme-only update retains graphs",
+    );
+    for (const end of workerClient.frames
+      .slice(previous)
+      .filter((f) => f.type === "end"))
+      assert.equal(
+        decode(workerClient.frames, end).rows.filter((s) =>
+          s.includes("approximate text"),
+        ).length,
+        2,
+      );
+    assert.equal(repainted.hash, complete.hash);
+    workerClient.child.stdin.end();
+    await new Promise((resolve) => workerClient.child.once("exit", resolve));
+    assert.equal(workerClient.child.exitCode, 0);
+  } finally {
+    workerClient.child.stdin.destroy();
+    if (workerClient.child.exitCode === null) workerClient.child.kill();
     rmSync(dir, { recursive: true });
   }
 });
