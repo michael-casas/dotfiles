@@ -53,7 +53,7 @@ local function check(ok, msg)
   end
 end
 
-local function spawn()
+local function c_spawn()
   local ch = vim.fn.jobstart({ "nvim", "--embed", "-u", "NONE", "-i", "NONE", "-n" }, { rpc = true })
   assert(ch > 0, "could not start an embedded nvim")
   children[#children + 1] = ch
@@ -123,11 +123,54 @@ local function canvas_bg(c, s)
   end
 end
 
+-- A client started in the untinted tiled main pane, then opened in the popover
+-- too: one buffer, two views, the popover's answers (it attached last).
+local function to_main(c)
+  return c.lua([[for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative == "" then
+        require("hcmux.t3").attach_in(w, "owned-main")
+        return { win = w, buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight }
+      end
+    end]])
+end
+local function shared(c)
+  local main = to_main(c)
+  c.ready("ownedmain")
+  check(not themed(main.winhl), "main pane is untinted")
+  check_osc(c, main.buf, GLOBAL, "main pane start")
+  c.open("owned-main")
+  local pop = c.state()
+  check(pop.buf == main.buf and themed(pop.winhl), "same buffer in the themed popover")
+  check_osc(c, pop.buf, NORD, "popover")
+  check(c.lua("return vim.api.nvim_win_get_buf(...)", main.win) == main.buf, "main pane still shows it")
+  return c, main
+end
+-- The surviving main pane: still showing the same buffer/viewer/client, still
+-- untinted, its default cells drawn in the editor's Normal - and the buffer
+-- now answers that, not the popover's colours.
+local function check_main(c, main, label, runs)
+  local now = c.lua(
+    [[local w, b = ... return { buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight,
+      pos = vim.api.nvim_win_get_position(w), width = vim.api.nvim_win_get_width(w),
+      height = vim.api.nvim_win_get_height(w), job = vim.b[b].terminal_job_id }]],
+    main.win,
+    main.buf
+  )
+  check(now.buf == main.buf and not themed(now.winhl), label .. ": main pane shows the buffer, untinted")
+  local cell = vim.rpcrequest(c.ch, "nvim__inspect_cell", 1, now.pos[1] + now.height - 1, now.pos[2] + now.width - 1)
+  local bg = cell[2].background and ("#%06x"):format(cell[2].background) or GLOBAL.bg -- grid 1: none = Normal
+  check(bg == GLOBAL.bg, label .. ": main pane canvas " .. bg)
+  check(c.lua("return #STRIKE.runs") == (runs or 1), label .. ": no client recreated")
+  check(c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 1, label .. ": one viewer")
+  check(c.lua("return vim.fn.jobwait({ ... }, 0)[1] == -1", now.job), label .. ": viewer still running")
+  check_osc(c, main.buf, GLOBAL, label)
+end
+
 local scenarios = {
   {
     "reopen a hidden client into a new float with a missing hub: OSC matches what it shows",
     function()
-      local c = spawn()
+      local c = c_spawn()
       c.open("owned-reuse")
       c.ready("ownedreuse")
       local first = c.state()
@@ -148,31 +191,14 @@ local scenarios = {
     end,
   },
   {
-    "a client back in its untinted tiled main pane answers that pane's colours",
+    "shared with the main pane, hidden with q: the main pane answers its own colours at once",
     function()
-      local c = spawn()
-      local function to_main()
-        return c.lua([[for _, w in ipairs(vim.api.nvim_list_wins()) do
-            if vim.api.nvim_win_get_config(w).relative == "" then
-              require("hcmux.t3").attach_in(w, "owned-main")
-              return { buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight }
-            end
-          end]])
-      end
-      local main = to_main() -- started in the main pane: editor colours
-      c.ready("ownedmain")
-      check(not themed(main.winhl), "main pane is untinted")
-      check_osc(c, main.buf, GLOBAL, "main pane start")
-      c.open("owned-main") -- the same buffer in the popover: popover colours
-      local pop = c.state()
-      check(pop.buf == main.buf and themed(pop.winhl), "same buffer in the themed popover")
-      check_osc(c, pop.buf, NORD, "popover")
-      c.hide()
-      local back = to_main()
-      check(back.buf == main.buf, "same buffer back in the main pane")
-      check(c.lua("return #STRIKE.runs") == 1, "one client")
-      check(c.lua("return STRIKE.attaches[STRIKE.runs[1].address]") == 1, "one viewer")
-      -- Whatever the pane shows now is what the client must be told.
+      local c, main = shared(c_spawn())
+      c.hide() -- COMMAND q
+      check_main(c, main, "after q, before any reattach")
+      -- Attaching it to the main pane again changes nothing.
+      local back = to_main(c)
+      check(back.buf == main.buf and back.win == main.win, "same buffer back in the main pane")
       check_osc(
         c,
         back.buf,
@@ -182,9 +208,33 @@ local scenarios = {
     end,
   },
   {
+    "shared with the main pane, popover closed with nvim_win_close: main pane answers its own colours",
+    function()
+      local c, main = shared(c_spawn())
+      c.lua("vim.api.nvim_win_close((STRIKE.popover()), true)")
+      check(c.state().win == nil, "popover closed")
+      check_main(c, main, "after closing the float, before any reattach")
+    end,
+  },
+  {
+    "shared with the main pane, popover switched to another thread: main pane answers its own colours",
+    function()
+      local c, main = shared(c_spawn())
+      c.open("owned-other") -- the popover window now shows another client
+      c.ready("ownedother")
+      local other = c.state()
+      check(other.buf ~= main.buf and themed(other.winhl), "popover shows the other client")
+      check_osc(c, other.buf, NORD, "other client in the popover")
+      check_main(c, main, "after switching the popover away, before any reattach", 2)
+      -- The popover itself keeps answering for what it shows.
+      check(c.state().win == other.win, "popover still open")
+      check_osc(c, other.buf, NORD, "other client still in the popover")
+    end,
+  },
+  {
     "same-buffer theme refresh follows the selected theme",
     function()
-      local c = spawn()
+      local c = c_spawn()
       c.open("owned-refresh")
       c.ready("ownedrefresh")
       local first = c.state()
@@ -201,7 +251,7 @@ local scenarios = {
   {
     "fresh viewer for a live client without a buffer, in place, broken hub",
     function()
-      local c = spawn()
+      local c = c_spawn()
       c.open("owned-x")
       c.ready("ownedx")
       c.open("owned-y")
@@ -230,7 +280,7 @@ local scenarios = {
   {
     "existing hidden buffer shown in place takes the window's colours",
     function()
-      local c = spawn()
+      local c = c_spawn()
       c.open("owned-p")
       c.ready("ownedp")
       local p = c.state()
@@ -247,7 +297,7 @@ local scenarios = {
   {
     "term.open{display}: a generic terminal's first byte and OSC answers use it",
     function()
-      local c = spawn()
+      local c = c_spawn()
       local want = { fg = "#123456", bg = "#654321", cursor = O.cursor }
       local buf = c.lua(
         "require('hcmux.term').open(nil, { where = 'split', display = { fg = '#123456', bg = '#654321' } }) return vim.api.nvim_get_current_buf()"
@@ -264,7 +314,7 @@ local scenarios = {
   {
     ":T3Restart starts the new client with the popover colours",
     function()
-      local c = spawn()
+      local c = c_spawn()
       c.open("owned-restart")
       c.ready("ownedrestart")
       c.lua("require('hcmux.t3').restart()")
