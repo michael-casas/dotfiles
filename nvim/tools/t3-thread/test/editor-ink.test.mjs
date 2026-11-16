@@ -73,6 +73,21 @@ for (const [name, bytes, value, cursor, expectedValue, expectedCursor] of [
   ...["\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~"].map(bytes => ["Home", bytes, "one\ntwo", 5, "one\ntwo", 4]),
   ...["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"].map(bytes => ["End", bytes, "one\ntwo", 5, "one\ntwo", 7]),
   ["Ctrl-T", "\x14", "a🙂b", 3, "ab🙂", 4],
+  // V1 measured Herdr -> envi terminal bytes. These paths were already GREEN;
+  // keep them explicit so physical Cmd/Option aliases cannot regress silently.
+  ["Herdr Cmd-Left (Ctrl-A)", "\x01", "one\ntwo\nlast", 6, "one\ntwo\nlast", 4],
+  ["Herdr Cmd-Right (Ctrl-E)", "\x05", "one\ntwo\nlast", 6, "one\ntwo\nlast", 7],
+  ["Herdr Cmd-Backspace (Ctrl-U)", "\x15", "one\ntwo suffix\nlast", 7, "one\n suffix\nlast", 4],
+  ["Herdr Cmd-Backspace at line start", "\x15", "one\ntwo", 4, "onetwo", 3],
+  ["Herdr Cmd-Backspace at draft start", "\x15", "one\ntwo", 0, "one\ntwo", 0],
+  ["Herdr Option-Backspace (Ctrl-W)", "\x17", "one\ntwo/three  tail", 15, "one\ntail", 4],
+  ["Herdr Option-Backspace at line start", "\x17", "one\ntwo", 4, "one\ntwo", 4],
+  ["Herdr Option-Left (ESC b)", "\x1bb", "one\ntwo/three tail", 14, "one\ntwo/three tail", 8],
+  ["Herdr Option-Right (ESC f)", "\x1bf", "one\ntwo/three tail", 7, "one\ntwo/three tail", 13],
+  ["Herdr Option-Left at line start", "\x1bb", "one\ntwo", 4, "one\ntwo", 4],
+  ["Herdr Option-Right at line end", "\x1bf", "one\ntwo", 3, "one\ntwo", 3],
+  ["Herdr Shift-Left uses plain code-point motion", "\x1b[1;2D", "a🙂b", 3, "a🙂b", 1],
+  ["Herdr Shift-Right uses plain code-point motion", "\x1b[1;2C", "a🙂b", 1, "a🙂b", 3],
 ]) test(`real Ink ${name} ${JSON.stringify(bytes)} edits without literal escape text`, async () => {
   const stdin = new PassThrough();
   stdin.isTTY = true; stdin.setRawMode = () => {}; stdin.ref = () => {}; stdin.unref = () => {};

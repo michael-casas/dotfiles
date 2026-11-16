@@ -3,7 +3,7 @@
 const PREFIX = "\x1b[>777;";
 // Ink 5 drops Home/End from its public key object. Normalize only these known
 // unmodified terminal keys to the equivalent line-editing controls. Keep this
-// byte map narrow: Cmd mappings need measured V1 evidence, not a meta guess.
+// byte map narrow: Herdr already sends Cmd-Left/Right/Backspace as Ctrl-A/E/U.
 const EDIT_KEYS = new Map([
   ...["\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~"].map(bytes => [bytes, "\x01"]),
   ...["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"].map(bytes => [bytes, "\x05"]),

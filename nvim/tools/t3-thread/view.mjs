@@ -408,7 +408,7 @@ export function editInput(value, cursor, ch, key) {
         };
       }
       // Ctrl-C/O/Q remain main's. In particular Ctrl-O is expanded work,
-      // not open-line. Cmd mapping is PENDING-V1; do not equate Cmd with meta.
+      // not open-line. Herdr sends Cmd-Left/Right/Backspace as Ctrl-A/E/U.
       default: return unchanged;
     }
   }

@@ -233,8 +233,12 @@ This does not switch the editor colorscheme or configure other applications.
   **Ctrl-Y** inserts the last nonempty kill (one process-local slot, no kill-ring
   accumulation). Ordinary backspace/delete, transpose and empty kills preserve
   that slot. **Ctrl-O** remains expanded-work output, not open-line insertion.
-  **Cmd-← / Cmd-→ / Cmd-Backspace: PENDING-V1**, awaiting measured terminal bytes;
-  these are not treated as Option/meta keys. Shift-selection is not implemented.
+  **Herdr Cmd-← / Cmd-→** send Ctrl-A/E (`01` / `05` hex), so they move to
+  current-line start/end. **Herdr Cmd-Backspace** sends Ctrl-U (`15` hex), including
+  its preceding-newline deletion at line start. **Herdr Option-Backspace** sends
+  Ctrl-W (`17` hex); **Herdr Option-← / Option-→** send `ESC b` / `ESC f`.
+  **Shift-← / Shift-→** (`ESC[1;2D/C`) move like plain arrows, by code point,
+  without changing draft text. Shift-selection is not implemented.
 - **Esc:** dismiss an open completion/model/compact view; **never interrupt** a run.
   In the Neovim T3 popover it also enters **COMMAND** (normal mode). A second
   Esc stays in COMMAND and does not hide the float. Esc also cancels an
