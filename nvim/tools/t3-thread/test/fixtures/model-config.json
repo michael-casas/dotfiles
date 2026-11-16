@@ -1,0 +1,541 @@
+{
+  "providers": [
+    {
+      "instanceId": "codex",
+      "driver": "codex",
+      "displayName": "Codex",
+      "enabled": true,
+      "installed": true,
+      "status": "ready",
+      "continuation": {
+        "groupKey": "codex:fixture"
+      },
+      "models": [
+        {
+          "slug": "gpt-6.1-sol",
+          "name": "GPT 6.1 Sol",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "reasoningEffort",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  },
+                  {
+                    "id": "ultra",
+                    "label": "Ultra"
+                  }
+                ],
+                "currentValue": "low"
+              },
+              {
+                "id": "serviceTier",
+                "label": "Service Tier",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "default",
+                    "label": "Standard",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "priority",
+                    "label": "Fast",
+                    "description": "2x speed, increased usage"
+                  }
+                ],
+                "currentValue": "default"
+              },
+              {
+                "id": "cyberAccessProgram",
+                "label": "Cyber Access",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "standard",
+                    "label": "Standard",
+                    "isDefault": true
+                  }
+                ],
+                "currentValue": "standard"
+              }
+            ]
+          }
+        },
+        {
+          "slug": "gpt-6-astra",
+          "name": "GPT 6.0 Astra",
+          "isCustom": false,
+          "isDefault": true,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "reasoningEffort",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  },
+                  {
+                    "id": "ultra",
+                    "label": "Ultra"
+                  }
+                ],
+                "currentValue": "medium"
+              },
+              {
+                "id": "serviceTier",
+                "label": "Service Tier",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "default",
+                    "label": "Standard",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "priority",
+                    "label": "Fast",
+                    "description": "2x speed, increased usage"
+                  }
+                ],
+                "currentValue": "default"
+              },
+              {
+                "id": "cyberAccessProgram",
+                "label": "Cyber Access",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "standard",
+                    "label": "Standard",
+                    "isDefault": true
+                  }
+                ],
+                "currentValue": "standard"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "claudeAgent",
+      "driver": "claudeAgent",
+      "displayName": "Claude",
+      "enabled": true,
+      "installed": true,
+      "status": "ready",
+      "continuation": {
+        "groupKey": "claudeAgent:fixture"
+      },
+      "models": [
+        {
+          "slug": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "aliases": [
+            "opus",
+            "opus-5.5",
+            "claude-opus-5.5"
+          ],
+          "isCustom": false,
+          "isDefault": true,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  },
+                  {
+                    "id": "ultrathink",
+                    "label": "Ultrathink"
+                  }
+                ],
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
+              },
+              {
+                "id": "ultracode",
+                "label": "Ultracode",
+                "type": "boolean"
+              },
+              {
+                "id": "fastMode",
+                "label": "Fast Mode",
+                "type": "boolean"
+              }
+            ]
+          }
+        },
+        {
+          "slug": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "aliases": [
+            "sonnet",
+            "sonnet-5.5",
+            "claude-sonnet-5.5"
+          ],
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  },
+                  {
+                    "id": "ultrathink",
+                    "label": "Ultrathink"
+                  }
+                ],
+                "promptInjectedValues": [
+                  "ultrathink"
+                ]
+              },
+              {
+                "id": "ultracode",
+                "label": "Ultracode",
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "cursor",
+      "driver": "cursor",
+      "displayName": "Cursor",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "cursor:fixture"
+      },
+      "models": []
+    },
+    {
+      "instanceId": "grok",
+      "driver": "grok",
+      "displayName": "Grok",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "grok:fixture"
+      },
+      "models": [
+        {
+          "slug": "grok-build",
+          "name": "Grok Build",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": []
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "opencode",
+      "driver": "opencode",
+      "displayName": "OpenCode",
+      "enabled": true,
+      "installed": true,
+      "status": "ready",
+      "continuation": {
+        "groupKey": "opencode:fixture"
+      },
+      "models": [
+        {
+          "slug": "opencode/beam-free",
+          "name": "Beam Free",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "variant",
+                "label": "Reasoning",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Xhigh"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  }
+                ],
+                "currentValue": "medium"
+              }
+            ]
+          }
+        },
+        {
+          "slug": "opencode/big-pickle",
+          "name": "Big Pickle",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": []
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "antigravity",
+      "driver": "antigravity",
+      "displayName": "Antigravity",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "antigravity:fixture"
+      },
+      "models": []
+    },
+    {
+      "instanceId": "fx",
+      "driver": "fx",
+      "displayName": "fx",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "fx:fixture"
+      },
+      "models": [
+        {
+          "slug": "default",
+          "name": "Default",
+          "isCustom": false,
+          "isDefault": true,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "effort",
+                "label": "Effort",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "auto",
+                    "label": "Auto"
+                  },
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium",
+                    "isDefault": true
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  },
+                  {
+                    "id": "xhigh",
+                    "label": "Extra High"
+                  },
+                  {
+                    "id": "max",
+                    "label": "Max"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "kiro",
+      "driver": "kiro",
+      "displayName": "Kiro",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "kiro:fixture"
+      },
+      "models": [
+        {
+          "slug": "default",
+          "name": "Kiro default",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": []
+          }
+        }
+      ]
+    },
+    {
+      "instanceId": "muse",
+      "driver": "muse",
+      "displayName": "Muse Code",
+      "enabled": false,
+      "installed": false,
+      "status": "disabled",
+      "continuation": {
+        "groupKey": "muse:fixture"
+      },
+      "models": []
+    },
+    {
+      "instanceId": "pi",
+      "driver": "pi",
+      "displayName": "Pi",
+      "enabled": true,
+      "installed": true,
+      "status": "ready",
+      "continuation": {
+        "groupKey": "pi:fixture"
+      },
+      "models": [
+        {
+          "slug": "default",
+          "name": "Pi default",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": []
+          }
+        },
+        {
+          "slug": "minimax/MiniMax-M2.7",
+          "name": "MiniMax-M2.7",
+          "subProvider": "minimax",
+          "isCustom": false,
+          "capabilities": {
+            "optionDescriptors": [
+              {
+                "id": "thinking",
+                "label": "Thinking",
+                "type": "select",
+                "options": [
+                  {
+                    "id": "off",
+                    "label": "Off"
+                  },
+                  {
+                    "id": "minimal",
+                    "label": "Minimal"
+                  },
+                  {
+                    "id": "low",
+                    "label": "Low"
+                  },
+                  {
+                    "id": "medium",
+                    "label": "Medium"
+                  },
+                  {
+                    "id": "high",
+                    "label": "High"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
