@@ -41,8 +41,8 @@ test("question custom absence, multi check state, scrolling around selection, he
     const f = L.frame({state: state(card), cols: 80, rows, tokens: T, ui: {questionSelection: {requestId: card.requestId, questionId: "checks", selected: 20, checked: [20]}}});
     const strings = f.lines.map(text).join("\n");
     assert.ok(f.lines.length < rows);
-    if (rows >= 12) { assert.match(strings, /☑ 21 Check 21/); assert.doesNotMatch(strings, /Type your answer/); }
-    if (rows >= 18) { assert.match(strings, /☐/); assert.doesNotMatch(strings, /1 Check 1\b/); }
+    if (rows >= 12) { assert.match(strings, /■ 21 Check 21/); assert.doesNotMatch(strings, /Type your answer/); }
+    if (rows >= 18) { assert.match(strings, /□/); assert.doesNotMatch(strings, /1 Check 1\b/); }
   }
   const custom = L.frame({state: state(), tokens: T, ui: {questionSelection: {requestId: fixture.requestId, questionId: "color", selected: 2, checked: []}}});
   assert.ok(custom.lines.flat().some(s => s.bg === T.accent && s.text.includes("Type your answer")));
@@ -96,14 +96,24 @@ for (const optionCount of [3, 4, 6, 9]) test(`160x47: ${optionCount} options plu
     assert.equal(f.cap, 20);
     assert.ok(f.lines.length <= 20);
     for (let i = 0; i < optionCount; i++) {
-      const label = `${i === 0 ? "☑" : "☐"} ${i + 1} Check ${i + 1}`;
+      const label = `${i === 0 ? "■" : "□"} ${i + 1} Check ${i + 1}`;
       assert.ok(strings.some(s => s.includes(label)), `${label} visible with selection ${selected}`);
     }
     assert.ok(strings.some(s => s.includes(`${optionCount + 1} Type your answer…`)));
     const selectedLabel = selected === optionCount ? "Type your answer…" : `${selected + 1} Check ${selected + 1}`;
     assert.ok(f.lines.flat().some(s => s.bg === T.accent && s.text.includes(selectedLabel)), "accent focus remains visible");
-    assert.ok(strings.some(s => s.includes("╭")), "uses compact one-row bubbles instead of hiding options");
+    assert.ok(strings.some(s => s.includes("\ue0b6") && s.includes("\ue0b4")), "compact one-row bubbles are pills");
+    // Pill caps take the bubble colour over the window surface.
+    const rowsWithAnswers = f.lines.filter(l => /Check \d|Type your answer/.test(text(l)));
+    const caps = rowsWithAnswers.flat().filter(s => s.text === "\ue0b6" || s.text === "\ue0b4");
+    assert.ok(caps.length >= 2 * (optionCount + 1));
+    assert.ok(caps.every(s => s.bg === T.surface && (s.color === T.accent || s.color === T.user_bubble)));
   }
+});
+
+test("checkbox glyphs share one cell width so labels line up", () => {
+  assert.equal(L.displayWidth("■"), 1);
+  assert.equal(L.displayWidth("□"), 1);
 });
 
 test("160x47: scrolling starts only after compact capacity is exceeded", () => {
@@ -114,7 +124,7 @@ test("160x47: scrolling starts only after compact capacity is exceeded", () => {
     ui: {questionSelection: {requestId: card.requestId, questionId: "checks", selected: 15, checked: [15]}}});
   const strings = f.lines.map(text);
   assert.equal(strings.filter(s => s.includes("Check ")).length, 11, "all eleven available option rows are used");
-  assert.ok(strings.some(s => s.includes("☑ 16 Check 16")));
+  assert.ok(strings.some(s => s.includes("■ 16 Check 16")));
   assert.ok(!strings.some(s => /1 Check 1\b/.test(s)));
   assert.ok(f.lines.length <= 20);
 });

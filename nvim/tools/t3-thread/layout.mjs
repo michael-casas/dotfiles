@@ -836,7 +836,8 @@ export function questionLines(request, card, width, T, ui, maxRows) {
     const bg = on ? T.accent : T.user_bubble ?? T.surface;
     const fg = on ? T.accent_fg : T.fg;
     const multi = q.multiSelect && n < (q.options?.length || 0);
-    const label = `${multi ? (current.checked.includes(n) ? "☑ " : "☐ ") : ""}${n + 1} ${safe(item.label)}`;
+    // ■/□ are both one cell wide (☑ measures two), so checked rows stay aligned.
+    const label = `${multi ? (current.checked.includes(n) ? "■ " : "□ ") : ""}${n + 1} ${safe(item.label)}`;
     const details = safe(item.description);
     const line = [seg(label, {color: fg, bold: on})];
     if (details && displayWidth(label) + displayWidth(details) + 3 <= contentWidth - 2)
@@ -849,7 +850,11 @@ export function questionLines(request, card, width, T, ui, maxRows) {
       lines.push(fill([space(1), ...cell]));
       lines.push(fill([space(1), ...rounded(false, width - 2, bg ?? T.border)]));
     } else {
-      const cell = [seg("╭", {color: on ? T.accent : T.border}), ...pad(clip(line, contentWidth - 2, true), contentWidth - 2), seg("╮", {color: on ? T.accent : T.border})].map(s => ({...s, bg, inverse: T.surface == null && on}));
+      // Truecolor: Powerline half circles in the bubble colour make each row a
+      // pill, like the send button. ANSI fallback keeps plain rounded edges.
+      const cell = T.surface != null
+        ? [seg("\ue0b6", {color: bg, bg: T.surface}), ...pad(clip(line, contentWidth - 2, true), contentWidth - 2).map(s => ({...s, bg})), seg("\ue0b4", {color: bg, bg: T.surface})]
+        : [seg("╭", {color: T.border}), ...pad(clip(line, contentWidth - 2, true), contentWidth - 2), seg("╮", {color: T.border})].map(s => ({...s, inverse: on}));
       lines.push(fill([space(2), ...cell]));
     }
   }
