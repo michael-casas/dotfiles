@@ -417,3 +417,39 @@ executables and mocked terminal launches. Tests set dry-run and isolate caches.
 `gh pr view --web` calls, notifying the URL instead. All PR test suites set this
 guard and dry-run; browser functions are also stubbed as defense in depth.
 REP owns interactive Herdr E2E; headless UI tests are not that proof.
+
+## File-first whiteboard (`hcmux.board`)
+
+`require("hcmux.board").open("/absolute/design.wb.md", { bindings = {
+repo = "/absolute/trusted/git/root" } })` opens a native, read-only 90% × 85%
+popover. Bindings are optional explicit host trust, never authored paths or cwd
+inference. `.toggle()` closes/reopens the last board, `.close()` is idempotent,
+`.refresh()` retries and `.active` remains true in owned source/help overlays.
+Same-path open focuses/reuses; a different path replaces the owned view. The
+module owns one direct non-PTY Node worker over private bounded/chunked NDJSON,
+not an hc terminal or T3 client. No global mappings/commands are installed;
+keybinder owns leader/command/statusline integration. `User EnviBoard` provides
+`data.buf` once per board buffer.
+
+Native motion/search/yank work. `[s`/`]s` jump headings; Tab outlines; `s` finds
+exact Mermaid source; Enter on a source record opens immutable commit bytes in
+a read-only child; `e` opens the board file as an ordinary editable buffer at
+its original source line, preserving modified and terminal/non-file invokers in their own panes. `R` refreshes, `?`
+helps, `q` closes. Navigation Esc stays; q/Esc in a child dismiss only the child.
+Leaving focus keeps the view open. Resize recenters; live theme-hub changes and
+ColorScheme touch only `EnviBoard*`. Invalid saves retain last good **STALE**
+content; deleted/recreated and atomic-save files recover. Close/WinClosed/wipe/
+VimLeavePre clean only the exact owned worker/watchers, returning a valid invoker.
+
+The source file remains truth: JSON envelope, stable markers, inert Markdown,
+original Mermaid plus explicitly approximate pinned `merminal 0.1.0` subset,
+and in-file thread attachment states. Missing/unsupported renderer and unbound
+pins remain visible with reasons. No links/scripts/resources execute; no fetch,
+checkout, network, browser, mutation/import/rich output, or Whiteboard.app changes.
+Current checkout freshness is unknown, never old commit labels over current bytes.
+The macOS renderer uses Seatbelt plus CPU/deadline/output bounds and sampled RSS,
+not a hard instantaneous memory cap. Other OSes retain source until isolation is
+proven. See `nvim/tools/envi-board/README.md` for install/CLI, subset matrix,
+agent authoring, exact pins, trust and protocol. Mocked `test/board.lua` and real
+private-worker `test/board-live.lua` are headless adapter checks, not REP's manual
+Herdr E2E. They never contact hc/T3/network or launch a browser.
