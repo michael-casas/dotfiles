@@ -1,0 +1,42 @@
+import React,{useState,useEffect} from 'react';
+import {render,Text,Box,useInput,useApp,useStdout} from 'ink';
+import {BoardSession} from './session.mjs';
+import {viewport,project} from './view.mjs';
+import {safeText} from './document.mjs';
+
+export async function openTui(opts) {
+  const session=new BoardSession(opts);session.start();
+  function App() {
+    const {exit}=useApp(),{stdout}=useStdout();
+    const [snapshot,setSnapshot]=useState(session.snapshot),[size,setSize]=useState([stdout.columns??80,stdout.rows??24]);
+    const [top,setTop]=useState(0),[left,setLeft]=useState(0),[help,setHelp]=useState(false),[query,setQuery]=useState(null);
+    useEffect(()=>session.subscribe(setSnapshot),[]);
+    useEffect(()=>{const resize=()=>setSize([stdout.columns??80,stdout.rows??24]);stdout.on('resize',resize);return()=>stdout.off('resize',resize);},[]);
+    const rows=snapshot?project(snapshot).rows:['Loading local board…'];
+    useInput((input,key)=>{
+      if(query!==null) {
+        if(key.escape){setQuery(null);return;}
+        if(key.return){const at=rows.findIndex((line,i)=>i>top&&line.toLowerCase().includes(query.toLowerCase()));if(at>=0)setTop(at);setQuery(null);return;}
+        if(key.backspace||key.delete)setQuery(q=>q.slice(0,-1));else if(!key.ctrl&&!key.meta)setQuery(q=>safeText(q+input));return;
+      }
+      if(input==='q'||key.ctrl&&input==='c'){if(help)setHelp(false);else exit();return;}
+      if(input==='?'){setHelp(x=>!x);return;}if(key.escape){setHelp(false);return;}
+      if(input==='/'){setQuery('');return;}
+      if(input==='R')void session.retry();
+      if(input==='j'||key.downArrow)setTop(t=>Math.min(Math.max(0,rows.length-size[1]+2),t+1));
+      if(input==='k'||key.upArrow)setTop(t=>Math.max(0,t-1));
+      if(key.ctrl&&input==='d')setTop(t=>Math.min(rows.length-1,t+Math.max(1,size[1]-3)));
+      if(key.ctrl&&input==='u')setTop(t=>Math.max(0,t-size[1]+3));
+      if(input==='g')setTop(0);if(input==='G')setTop(Math.max(0,rows.length-size[1]+2));
+      if(input==='h'||key.leftArrow)setLeft(n=>Math.max(0,n-4));if(input==='l'||key.rightArrow)setLeft(n=>n+4);
+    });
+    const shown=help?['Read-only local review document','j/k arrows: scroll; Ctrl-d/u: page; g/G: first/last','h/l: horizontal pan (no diagram edge wrapping)','/: search forward, Enter accepts; Esc cancels','R: reload; ?: help; q/Ctrl-C: exit','Original Mermaid source is always visible. No links execute.']:rows;
+    const [width,height]=size, tokens=snapshot?.theme.tokens??{};
+    return React.createElement(Box,{flexDirection:'column',width,height:Math.max(1,height-1)},
+      React.createElement(Text,{color:tokens.fg,wrap:'truncate'},viewport(shown,{width,height,top:help?0:top,left:help?0:left}).join('\n')),
+      React.createElement(Text,{color:tokens.muted,wrap:'truncate'},safeText(query!==null?`/${query}`:`BOARD ${snapshot?.stale?'STALE · ':''}${top+1}/${rows.length} · ${snapshot?.theme.id??'ansi'} · ? help · q close`)));
+  }
+  const ui=render(React.createElement(App),{exitOnCtrlC:false,patchConsole:false});
+  const stop=()=>ui.unmount();process.once('SIGTERM',stop);process.once('SIGHUP',stop);
+  try {await ui.waitUntilExit();}finally{session.close();ui.unmount();process.off('SIGTERM',stop);process.off('SIGHUP',stop);}
+}

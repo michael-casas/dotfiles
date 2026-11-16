@@ -18,3 +18,12 @@ Test layers: pure parser/profile tests are L1. Filesystem/CLI/process/Git/privat
 stdio tests are L2. Headless Neovim verifies native adapter behavior, not visual
 acceptance. REP owns L3 Herdr/manual E2E and independent review. Tests never
 connect to a browser, hc, T3 or the network. Dependency acquisition is separate.
+
+## P1 reader/session
+
+RED: CLI `render` forwarded an actual OSC/ESC payload; `open` accepted non-TTY,
+`validate --strict` did not fail unresolved pins. GREEN: 17 new tests pass,
+including real atomic-save/delete/recreate directory watch and no-op suppression.
+T3 theme suite remains 21/21 after its reader becomes a compatibility export of
+`envi-board/hub-theme.mjs` (same directory depth, identical default hub path).
+This narrow extraction has one implementation, no T3 runtime/network coupling.
