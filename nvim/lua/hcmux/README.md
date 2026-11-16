@@ -76,10 +76,11 @@ cursors, folds), plus the terminals labelled `herdr.nvs=<name>`.
 | `nvim` or `nvim <dir>` | attaches to that folder's session (its git root), or creates it |
 | `nvim-session attach api` (or `nvim-session api`) | attaches to session `api`, starting in its folder |
 | `nvim <file>` | plain editor, no session: safe as `$EDITOR` and for git commits |
-| edit, split, open tabs, start terminals | saved automatically, 1.5 s after things settle and on idle |
+| edit, split, open tabs, start terminals, delete buffers (including Snacks/LazyVim “delete other buffers”) | saved automatically, 1.5 s after things settle; idle/focus loss also schedules a save |
 | `:detach` or `:qd` (also `:Detach`, `<leader>qd`, `:qa`, `:q` on the last window) | **detach**: the layout is saved, the terminals keep running |
 | `:reload` (also `:Reload`), in an nvim started by `envi` | **reload**: detach, then the `envi` launcher starts nvim again on the same session, so config changes take effect |
-| nvim crashes or its tab closes | nothing is lost beyond the last 1.5 s |
+| graceful quit, SIGHUP or SIGTERM | final synchronous save, waiting up to 10 s for an in-flight save callback first |
+| crash, SIGKILL or power loss | only the last completed save survives; changes inside the debounce/write window can be lost |
 
 All of vim's own quit commands keep their meaning: `:q` closes a window (the
 last one detaches), and `:wq`, `:qa!` work as usual. `:detach` and `:qd` are the
@@ -89,7 +90,28 @@ explicit way to leave a session from anywhere.
   `(read-only)` in the statusline and doesn't save. `:Session take`
   (`<leader>qt`) moves the session to it. The core refuses any save based on
   an old version, so the first nvim then shows `(not saving)`, never
-  overwriting. `:Session reload` loads the newer layout.
+  overwriting. Both states re-warn on buffer/layout activity, at most once a
+  minute, with `:Session take` as the recovery command. Even `:Session save`
+  does not bypass ownership. `:Session reload` loads the newer layout.
+- **Recover a stale session:** in the editor whose current buffers/layout you
+  want to keep, run `:Session take`. This deliberately replaces the stored
+  layout, not file contents. Do not reload first if your cleaned-up layout is
+  the one you want. Failed takes warn rather than reporting success.
+- **Holder identity:** new saves include a hashed stable machine identity
+  (macOS platform UUID, Linux machine-id, otherwise a private cached state ID).
+  A network hostname change no longer makes a local holder foreign. Live or
+  unprobeable local pids stay protected; an identified different machine stays
+  read-only until explicitly taken. Legacy host-only holders are reclaimed only
+  when the pid is provably absent locally; machine-qualified remote terminal
+  addresses stay protected. A host-only remote writer cannot be distinguished
+  from an old local hostname: upgrade all writers before sharing a core across
+  machines, or use explicit take/reload coordination.
+- **What is saved:** the Vim session layout, not unsaved file contents. Deleting
+  the final named buffer intentionally saves an empty editor; an empty startup
+  does not replace a prior layout, and an all-excluded (e.g. T3-only) layout
+  still never replaces the saved editor tabs. Unchanged serialized layouts do
+  not generate repeated document writes. A failed layout load clears its
+  temporary loading flags so later saves are not permanently disabled.
 - **Session commands:** `:Session list|attach <name>|rename <new>|save|take|reload|kill [name]`.
   `<leader>qs` opens the session picker (`⏎` switches, `<c-x>` ends one).
   `<leader>qr` renames.
