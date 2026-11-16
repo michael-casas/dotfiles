@@ -245,6 +245,23 @@ local scenarios = {
     end,
   },
   {
+    "term.open{display}: a generic terminal's first byte and OSC answers use it",
+    function()
+      local c = spawn()
+      local want = { fg = "#123456", bg = "#654321", cursor = O.cursor }
+      local buf = c.lua(
+        "require('hcmux.term').open(nil, { where = 'split', display = { fg = '#123456', bg = '#654321' } }) return vim.api.nvim_get_current_buf()"
+      )
+      c.ready("ORD1")
+      local d = c.lua("return STRIKE.runs[1].params.display")
+      check(d.fg == want.fg and d.bg == want.bg and d.cursor == O.cursor, "terminal.run display " .. vim.inspect(d))
+      check_osc(c, buf, want, "generic terminal")
+      local plain = c.lua("require('hcmux.term').open(nil, { where = 'split' }) return vim.api.nvim_get_current_buf()")
+      c.ready("ORD2")
+      check_osc(c, plain, GLOBAL, "terminal without display")
+    end,
+  },
+  {
     ":T3Restart starts the new client with the popover colours",
     function()
       local c = spawn()
