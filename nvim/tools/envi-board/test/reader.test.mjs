@@ -43,3 +43,9 @@ test('Ink viewport is bounded at short/80x24/wide sizes, safe and horizontally p
  for(const [width,height] of [[80,24],[150,40],[20,5]]) {const rows=viewport(['x'.repeat(1000),'🙂'.repeat(100),'last'],{width,height,top:0,left:0});assert.ok(rows.length<height);assert.ok(rows.every(s=>Array.from(s).length<=width));}
  assert.equal(viewport(['abcdef'],{width:3,height:5,left:2})[0],'cde');
 });
+
+test('public render produces approximate graph AND original source; render-check diagnoses unsupported separately',()=>{
+ const path=new URL('./fixtures/example.wb.md',import.meta.url).pathname;
+ const r=cli('render','--',path);assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/approximate text/);assert.match(r.stdout,/┌|─/);assert.match(r.stdout,/flowchart LR/);
+ const check=cli('validate','--json','--render-check','--',path);assert.equal(check.status,0,check.stdout);assert.ok(JSON.parse(check.stdout).renderChecks.every(x=>x.kind==='text-approximate'));
+});

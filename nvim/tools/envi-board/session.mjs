@@ -1,4 +1,4 @@
-import { open, watch } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { watch as watchDir } from 'node:fs';
 import { basename,dirname,resolve } from 'node:path';
 import { parseBoard,LIMITS } from './document.mjs';

@@ -27,3 +27,28 @@ including real atomic-save/delete/recreate directory watch and no-op suppression
 T3 theme suite remains 21/21 after its reader becomes a compatibility export of
 `envi-board/hub-theme.mjs` (same directory depth, identical default hub path).
 This narrow extraction has one implementation, no T3 runtime/network coupling.
+
+## P2 rendering/source
+
+RED: public `render` still showed only source after P1; the new public test
+required approximate graph plus exact source and explicit render-check results.
+GREEN: 26 tests pass. Six small family fixtures render with pinned merminal;
+advanced/unprofiled configurations stay source. Missing/old Ruby, job timeout
+and output overflow discard all partial output. Local SHA-1/SHA-256 repositories
+prove immutable literal-path blob reads, symlink/submodule/binary rejection,
+no replace-object substitution and no textconv execution.
+
+Exact gem checksum is recorded in `vendor/manifest.json` with every vendored
+file hash and the MIT notice retained. There are no runtime gems/global installs.
+The macOS Seatbelt default-deny policy allows only runtime/vendor content reads
+(and filesystem metadata), denies network, writes and unrelated executable paths.
+Actual sentinel read/write and child-exec denial are tested **without making a
+network attempt**. Ruby's CPU limit is 4s; parent deadline 5s; response 16 MiB;
+queue/cache 64; cache total 8 MiB. macOS rejects RLIMIT_AS/DATA/RSS, so the host
+samples only the owned pid's RSS every 100ms and kills above 256 MiB. This is a
+sampled resident-memory policy, **not** an instantaneous hard allocation cap.
+Other OSes deliberately source-fallback until an isolation adapter is proven.
+Current checkout freshness is honestly `unknown/not compared`; no worktree
+file-open alternative is offered (avoids introducing a TOCTOU unsafe-open path).
+Tiny six-family fresh processes completed in under 5s each (normally <100ms);
+this is not benchmark, official Mermaid conformance, or visual acceptance.
