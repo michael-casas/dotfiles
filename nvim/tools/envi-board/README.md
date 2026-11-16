@@ -97,7 +97,8 @@ malformed/oversized/late frames and EOF are covered in tests. Stale source reque
 are refused; renderer results are revision-guarded and late work is ignored.
 Uncolored, no-fit renderer bytes are cached by engine/profile/source, not ignored
 width/theme settings; completed graphs stay visible across resize/theme updates
-and new jobs are labeled `rendering…`. Same-revision resize/theme updates retain
+and jobs for a new revision are labeled `rendering…` (a retried transient failure keeps
+its previous error until the retry finishes). Same-revision resize/theme updates retain
 successful output, deterministic rejections and in-flight work; unchanged
 snapshots emit no frames. Successes and deterministic engine rejections share
 the bounded input cache. Timeouts, kills, launch failures and Ruby unavailability
