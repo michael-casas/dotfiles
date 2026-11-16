@@ -48,7 +48,7 @@ class EditorTest(unittest.TestCase):
             nvim.write_text('#!/bin/sh\necho "NVIM v0.4.0"\n')
             nvim.chmod(0o755)
             result = subprocess.run(['/bin/bash', str(ROOT / 'remote/profile/bin/editor')],
-                                    env={'PATH': name}, capture_output=True)
+                                    env={'PATH': name, 'ENVI_REMOTE_RELEASE': name, 'ENVI_REMOTE_STATE': name}, capture_output=True)
             self.assertEqual(result.returncode, 25)
             self.assertIn(b'0.9', result.stderr)
 
