@@ -84,7 +84,12 @@ return function(root, o)
   local jobstart, jobstop = vim.fn.jobstart, vim.fn.jobstop
   local fake_jobs = 0
   vim.fn.jobstart = function(argv, opts)
-    if type(argv) == "table" and argv[1] == "hc" and argv[2] == "attach" then
+    -- term.lua runs the viewer behind a small `sh -c` prelude; find `hc attach`.
+    local at = type(argv) == "table"
+      and vim.iter(ipairs(argv)):find(function(i, a)
+        return a == "hc" and argv[i + 1] == "attach"
+      end)
+    if at then
       local fact = assert(H.facts[argv[#argv]], "attach to an unknown terminal")
       H.attaches[fact.address] = (H.attaches[fact.address] or 0) + 1
       opts = vim.tbl_extend("force", opts or {}, {
