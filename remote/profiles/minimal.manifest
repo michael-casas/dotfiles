@@ -1,0 +1,12 @@
+# envi-remote minimal schema 1
+remote/profile/bin/editor bin/editor 0755
+remote/profile/bin/enter bin/enter 0755
+remote/profile/bin/git bin/git 0755
+remote/profile/bin/shell bin/shell 0755
+remote/profile/nvim/init.lua config/envi-remote/init.lua 0644
+remote/profile/git/ui.gitconfig git/ui.gitconfig 0644
+remote/profile/shell/bashrc shell/bashrc 0644
+remote/profile/shell/inputrc shell/inputrc 0644
+remote/profile/starship/ascii.toml starship/ascii.toml 0644
+remote/profile/starship/nordic.toml starship/nordic.toml 0644
+remote/profile/tmux/tmux.conf tmux/tmux.conf 0644

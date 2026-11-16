@@ -1,0 +1,19 @@
+#!/bin/bash
+set -eu
+# No fallback silently loads an account vimrc. vi recovery is explicitly manual.
+if ! command -v nvim >/dev/null 2>&1; then
+    printf '%s\n' 'envi-remote: nvim unavailable; use vi -u NONE explicitly for recovery' >&2
+    exit 25
+fi
+version=$(/usr/bin/env XDG_CONFIG_HOME="$ENVI_REMOTE_RELEASE/config" \
+    XDG_DATA_HOME="$ENVI_REMOTE_STATE/data" XDG_STATE_HOME="$ENVI_REMOTE_STATE/state" \
+    XDG_CACHE_HOME="$ENVI_REMOTE_STATE/cache" nvim --version)
+case "$version" in
+    'NVIM v0.9.'*|'NVIM v0.1'[0-9].*|'NVIM v'[1-9].*) ;;
+    *) printf '%s\n' 'envi-remote: Neovim 0.9+ required; use vi -u NONE for recovery' >&2; exit 25 ;;
+esac
+exec /usr/bin/env NVIM_APPNAME=envi-remote \
+    XDG_CONFIG_HOME="$ENVI_REMOTE_RELEASE/config" \
+    XDG_DATA_HOME="$ENVI_REMOTE_STATE/data" XDG_STATE_HOME="$ENVI_REMOTE_STATE/state" \
+    XDG_CACHE_HOME="$ENVI_REMOTE_STATE/cache" \
+    nvim -i NONE "$@"

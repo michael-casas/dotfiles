@@ -1,0 +1,10 @@
+#!/bin/bash
+set -eu
+# Never find this shim recursively. System/global/repository policy remains visible.
+for real in /usr/bin/git /usr/local/bin/git; do
+    if [ -x "$real" ]; then
+        exec "$real" -c "include.path=$ENVI_REMOTE_RELEASE/git/ui.gitconfig" "$@"
+    fi
+done
+printf '%s\n' 'envi-remote: git unavailable' >&2
+exit 25

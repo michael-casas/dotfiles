@@ -1,0 +1,6 @@
+format = '$directory$character'
+[directory]
+style = 'cyan'
+[character]
+success_symbol = '[>](cyan)'
+error_symbol = '[>](red)'
