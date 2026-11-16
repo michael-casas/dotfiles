@@ -52,3 +52,34 @@ Current checkout freshness is honestly `unknown/not compared`; no worktree
 file-open alternative is offered (avoids introducing a TOCTOU unsafe-open path).
 Tiny six-family fresh processes completed in under 5s each (normally <100ms);
 this is not benchmark, official Mermaid conformance, or visual acceptance.
+
+## P3 native adapter and final checks
+
+RED: the public private-stdio test could not obtain an open snapshot from P2;
+reader alone did not satisfy native worker behavior. GREEN: `worker` supports
+only fixed read operations and sends bounded versioned complete generations.
+The real native-worker smoke additionally caught and fixed Lua's empty table
+encoding as `[]` instead of a bindings object; this was not visible in mocks.
+Missing-file recovery caught a null last-snapshot access and now has a frozen
+regression test. FIFO input is opened nonblocking and rejected as nonregular.
+
+New tool: **32/32 Node tests**. **Two Lua harnesses** pass: mocked real-window
+lifecycle/protocol safety and a real Node-worker/native-float integration proving
+actual diagram delivery, exact source, live theme repaint, invalid/stale save,
+atomic recovery and normal source-buffer opening without losing an unsaved draft.
+A real foreground PTY test checks 80x24 boot, resize, q exit and canonical/echo
+restoration, with no alternate screen/mouse. No browser/network/hc/T3 calls.
+
+Standing gates: **173/173 existing T3 Node tests**; **all 15 existing T3 Lua
+harnesses**, no Lua error output. All new `.mjs` pass `node --check`; stylua
+`--config-path nvim/stylua.toml --check` passes for `board.lua` and both harnesses;
+`git diff --check` passes. Tool-local Prettier formatting was applied once the
+whole seam stabilized; no unrelated repository cleanup.
+
+Remaining evidence limits: no GUI/manual Herdr E2E, no official mmdc reference
+render/visual comparison, no browser/rich export, no current checkout freshness
+comparison/current-file open, no mutation/import/CAS writer, no cross-platform
+renderer sandbox, no hard instantaneous memory-cap guarantee. No network-denial
+probe is attempted by tests (policy has no network allowance; runtime has no
+network code path). REP owns manual E2E/independent critics; keybinder owns
+leader/command/statusline wiring. No push/PR/merge/rebase/global installation.

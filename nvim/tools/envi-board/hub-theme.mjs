@@ -60,12 +60,17 @@ const ANSI = {
   syn_number: "blueBright",
 };
 const fallback = () => ({ id: "ansi", source: "ansi", tokens: { ...ANSI } });
-const isHex = (value) => typeof value === "string" && /^#[\da-f]{6}$/i.test(value);
+const isHex = (value) =>
+  typeof value === "string" && /^#[\da-f]{6}$/i.test(value);
 
 function themeFile(opts) {
   return resolve(
-    opts?.file ?? process.env.ENVI_THEME_FILE ??
-      resolve(dirname(realpathSync(fileURLToPath(import.meta.url))), "../../../theme/theme.json"),
+    opts?.file ??
+      process.env.ENVI_THEME_FILE ??
+      resolve(
+        dirname(realpathSync(fileURLToPath(import.meta.url))),
+        "../../../theme/theme.json",
+      ),
   );
 }
 
@@ -74,7 +79,8 @@ export function loadTheme(opts) {
   try {
     const hub = JSON.parse(readFileSync(themeFile(opts), "utf8"));
     const id = opts?.id ?? process.env.ENVI_THEME ?? hub.active;
-    if (typeof id !== "string" || !Object.hasOwn(hub.themes, id)) return fallback();
+    if (typeof id !== "string" || !Object.hasOwn(hub.themes, id))
+      return fallback();
     const theme = hub.themes[id];
     const colour = (value) => {
       if (typeof value !== "string") return undefined;
@@ -90,7 +96,8 @@ export function loadTheme(opts) {
     // Extra hub roles (e.g. editor background) must also resolve, even if Ink
     // doesn't use them. Never silently accept a partially broken theme.
     for (const group of Object.values(theme.tokens)) {
-      for (const value of Object.values(group)) if (!colour(value)) return fallback();
+      for (const value of Object.values(group))
+        if (!colour(value)) return fallback();
     }
     return { id, source: "hub", tokens };
   } catch {
