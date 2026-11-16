@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "header": {
+      "type": "object",
+      "required": [
+        "format",
+        "version",
+        "id",
+        "roots"
+      ],
+      "properties": {
+        "format": {
+          "const": "envi-whiteboard"
+        },
+        "version": {
+          "const": 0
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "roots": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/id"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "git"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "requires": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "root",
+        "path",
+        "commit",
+        "lines"
+      ],
+      "properties": {
+        "root": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "quote": {
+      "type": "object",
+      "required": [
+        "exact"
+      ],
+      "properties": {
+        "exact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "suffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "message": {
+      "type": "object",
+      "required": [
+        "id",
+        "author",
+        "body"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "thread": {
+      "type": "object",
+      "required": [
+        "anchor",
+        "status",
+        "messages"
+      ],
+      "properties": {
+        "anchor": {
+          "type": "object",
+          "required": [
+            "target",
+            "baseSha256"
+          ],
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/id"
+            },
+            "baseSha256": {
+              "$ref": "#/$defs/hash"
+            },
+            "quote": {
+              "$ref": "#/$defs/quote"
+            }
+          },
+          "additionalProperties": true
+        },
+        "status": {
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$id": "urn:envi:whiteboard:records:v0",
+  "title": "Envi whiteboard v0 record schemas (select a $defs entry explicitly)"
+}
