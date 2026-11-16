@@ -195,6 +195,12 @@ INSERT `<Esc>` and `<C-]>` both go to COMMAND and never forward a raw Esc to the
 private `dismiss` control (`ESC[>777;6u`, `tools/t3-thread/control.mjs`), which closes a dialog, the model picker
 or a menu and never interrupts. COMMAND `<C-]>` returns to INSERT (a toggle); COMMAND `<Esc>` is a no-op.
 
+Colours: a popover client is told the popover's own colours (the hub's `ui.fg`/`ui.popover`), both from its first
+byte (`terminal.run` display, `term.open{display}`) and as its buffer's OSC 10/11 answers, so cells painted with the
+"default" background match the float rather than the editor. With a missing/invalid hub a new popover keeps the
+editor's `Normal`; switching in place keeps the shown window's colours. Other terminals answer with the global
+`Normal`/`Cursor`, whichever window has focus. Already printed history keeps the colours it was painted with.
+
 T3 sets `vim.t.hcmux_session_skip = true`. The generic session serializer omits
 opted-out tab blocks and their exclusive buffers from the saved Vim script,
 without closing/recreating any live tab/window. Ordinary tabs and shared buffers
@@ -207,7 +213,9 @@ terminal restoration are otherwise unchanged.
 
 Headless checks: `nvim/tools/t3-thread/test/run-lua.sh` runs every Lua suite (or the named ones, e.g.
 `run-lua.sh layout sidebar`) and exits nonzero if one fails. A bare `nvim --headless '+luafile …' +qa` exits 0 even
-when the suite throws, so don't gate on it.
+when the suite throws, so don't gate on it. `scrollback-strikes.lua` opens real popovers (AGENT slot and direct
+route) in an embedded Neovim with an RGB UI and checks history cell colours, resize/hide/switch identities and keys;
+its viewer is a synthetic stand-in for `hc attach`, never a real core or thread.
 
 ## AGENT mode (`hcmux.agent`)
 

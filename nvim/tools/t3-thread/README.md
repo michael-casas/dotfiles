@@ -27,6 +27,8 @@ change; only new output and the live region use the new settings.
   answer, pending request cards, completion/model menus, composer and status.
   It is capped at 20 rows and at two fewer than the terminal's height: Ink 5
   clears and reprints static output if its dynamic region reaches screen height.
+  On resize the client takes the new size before Ink's own resize repaint, so
+  shrinking the popover mid-stream never measures the old, taller frame.
   Long streams/details show a bounded preview; menus take priority over preview.
   Idle threads use only the composer/status rows, with no pinned heading.
 - The composer retains its theme surfaces, inverse insertion cursor, model/effort
@@ -333,6 +335,10 @@ requests (`test/data.test.mjs`). HTTP tests use `T3_URL` and a call-time
 `T3_SESSION_TOKEN` override so they never read or replace the real token file.
 They include success/cache behavior, rejection, resumable snapshots, invalid JSON
 and the five-second request timeout. Do not print or commit real credentials.
+`test/scrollback-resize.test.mjs` runs the real `main.mjs` on a real PTY
+(`test/support/pty-run.py`, resized with TIOCSWINSZ) against a local synthetic
+T3 server (`test/support/fake-t3.mjs`) and checks raw bytes for clears, history
+replays and redraw counts. Scenarios live in `test/t3-scrollback-strikes.feature`.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,

@@ -77,7 +77,28 @@ local function theme_highlights()
   vim.api.nvim_set_hl(0, "EnviT3Border", { fg = colors.border, bg = colors.bg })
   vim.api.nvim_set_hl(0, "EnviT3Title", { fg = colors.title, bg = colors.bg, bold = true })
   vim.api.nvim_set_hl(0, "EnviT3Mode", { fg = colors.bg, bg = colors.title, bold = true })
-  return true
+  return colors
+end
+
+local WINHL = "NormalFloat:EnviT3Normal,Normal:EnviT3Normal,FloatBorder:EnviT3Border,FloatTitle:EnviT3Title"
+
+-- The colors a T3 client is told (terminal.run display from its first byte,
+-- the buffer's OSC 10/11 answers): the popover's own, so cells painted with the
+-- "default" background match the float, not the editor's Normal. `win`: the
+-- popover the client will be shown in, if it exists already (a broken hub
+-- leaves that window's look alone, so the client keeps matching it). nil: the
+-- terminal defaults (nvim's Normal), as before.
+local function popover_display(win)
+  local colors = theme_highlights()
+  if colors then
+    return { fg = colors.fg, bg = colors.bg }
+  end
+  if win and vim.api.nvim_win_is_valid(win) and vim.wo[win].winhl == WINHL then
+    local hl = vim.api.nvim_get_hl(0, { name = "EnviT3Normal" })
+    if hl.fg and hl.bg then
+      return { fg = ("#%06x"):format(hl.fg), bg = ("#%06x"):format(hl.bg) }
+    end
+  end
 end
 
 -- Only the T3 float: COMMAND is terminal-normal mode, INSERT sends keys to Ink.
@@ -95,8 +116,12 @@ end
 
 local function theme_float()
   local win = pop_win()
-  if win and theme_highlights() then
-    vim.wo[win].winhl = "NormalFloat:EnviT3Normal,Normal:EnviT3Normal,FloatBorder:EnviT3Border,FloatTitle:EnviT3Title"
+  local colors = win and theme_highlights()
+  if colors then
+    vim.wo[win].winhl = WINHL
+    -- Later OSC queries (a re-attaching viewer) follow the selected theme;
+    -- committed history keeps the colors it was painted with.
+    vim.b[vim.api.nvim_win_get_buf(win)].hcmux_display = { fg = colors.fg, bg = colors.bg }
   end
   if win then
     -- A new float copies the window options of the window it opened from, e.g.
@@ -227,7 +252,8 @@ local function command_mode(buf, opts)
 end
 
 local function show(addr, where, opts)
-  local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 " })
+  local display = popover_display(where == "current" and pop_win() or nil)
+  local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 ", display = display })
   mark(buf)
   theme_float()
   last = addr
@@ -281,6 +307,7 @@ function M.open(id, opts)
     name = name,
     labels = { ["t3.thread"] = id or "" },
     cwd = opts.cwd,
+    display = popover_display(win),
   })
   mark(buf)
   theme_float()
@@ -405,6 +432,7 @@ function M.restart()
     title = " T3 ",
     name = fact.name,
     labels = { ["t3.thread"] = id },
+    display = popover_display(),
   })
   M.restarting = nil -- never leave :T3Restart locked after a failed open
   if not ok then

@@ -78,14 +78,30 @@ function M.exec_async(args, cb)
   end)
 end
 
+-- A highlight group's global definition, following links. Not
+-- nvim_get_hl(link = false): once drawn, that resolves through the current
+-- window's 'winhighlight', so the answer would depend on which window has focus.
+local function global_hl(name)
+  local hl = vim.api.nvim_get_hl(0, { name = name })
+  for _ = 1, 20 do
+    if not hl.link then
+      break
+    end
+    hl = vim.api.nvim_get_hl(0, { name = hl.link })
+  end
+  return hl
+end
+
 --- The colors of nvim's own `Normal`/`Cursor`, as herdr-core's Display.
-function M.display()
+--- `override` ({fg?, bg?, cursor?} as "#rrggbb") replaces single colors, e.g.
+--- a popover's own background for the terminal it shows.
+function M.display(override)
   local function hex(n)
     return n and ("#%06x"):format(n) or nil
   end
-  local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
-  local cursor = vim.api.nvim_get_hl(0, { name = "Cursor", link = false })
-  return { fg = hex(normal.fg), bg = hex(normal.bg), cursor = hex(cursor.bg or normal.fg) }
+  local normal, cursor = global_hl("Normal"), global_hl("Cursor")
+  local display = { fg = hex(normal.fg), bg = hex(normal.bg), cursor = hex(cursor.bg or normal.fg) }
+  return vim.tbl_extend("force", display, override or {})
 end
 
 -- Parse `hc connect` output for request id 1.
@@ -170,7 +186,7 @@ end
 
 --- Start a program in a new core terminal. Returns its address.
 ---@param argv string[]|nil program and args; nil/empty = the machine's shell
----@param o? {cwd?:string, name?:string, labels?:table<string,string>, size?:{cols:integer, rows:integer}}
+---@param o? {cwd?:string, name?:string, labels?:table<string,string>, size?:{cols:integer, rows:integer}, display?:{fg?:string, bg?:string, cursor?:string}}
 function M.run(argv, o)
   o = o or {}
   local labels = vim.tbl_extend("force", { [M.LABEL] = "1" }, o.labels or {})
@@ -196,7 +212,7 @@ function M.run(argv, o)
     outlive_parent = parent ~= nil,
     no_parent = parent == nil,
     no_notify = true,
-    display = M.display(),
+    display = M.display(o.display),
     size = o.size,
   })
 
