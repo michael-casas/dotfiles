@@ -585,6 +585,13 @@ function M.buffer()
     then
       return
     end
+    -- getmousepos() clamps a click below the text to the last line; only act
+    -- when the clicked window row is within that line's screen rows.
+    local top = vim.fn.getwininfo(mouse.winid)[1].topline
+    local bottom = vim.api.nvim_win_text_height(mouse.winid, { start_row = top - 1, end_row = mouse.line - 1 }).all
+    if not mouse.winrow or mouse.winrow > bottom then
+      return
+    end
     vim.api.nvim_set_current_win(mouse.winid)
     vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, 0 })
     open()

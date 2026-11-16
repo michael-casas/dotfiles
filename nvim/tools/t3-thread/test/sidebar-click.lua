@@ -32,7 +32,16 @@ local function click(line, opts)
     assert(map.lhs ~= "<ScrollWheelDown>" and map.lhs ~= "<ScrollWheelUp>" and map.lhs ~= "<LeftDrag>", "native scroll/drag preserved")
   end
   assert(release, "bar has a buffer-local LeftRelease handler")
-  vim.fn.getmousepos = function() return {winid = opts.win or bar, line = line, column = 2} end
+  -- Like the real getmousepos(): a click below the text reports the last line,
+  -- with a window row past that line's screen rows.
+  local win = opts.win or bar
+  local last = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
+  local top = vim.fn.getwininfo(win)[1].topline
+  local winrow = opts.below and vim.api.nvim_win_get_height(win)
+    or vim.api.nvim_win_text_height(win, {start_row = top - 1, end_row = math.min(line, last) - 1}).all
+  vim.fn.getmousepos = function()
+    return {winid = win, line = math.min(line, last), column = 2, winrow = winrow}
+  end
   release()
 end
 local cases = {
@@ -65,7 +74,10 @@ local cases = {
     local blank
     for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do if line == "" then blank = i; break end end
     click(assert(blank))
-    click(vim.api.nvim_buf_line_count(buf) + 5)
+    local before = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    assert(before[#before]:find("Settled", 1, true), "fixture: Settled is the final row")
+    click(#before + 5, {below = true}) -- real getmousepos clamps to the last line
+    assert(vim.deep_equal(vim.api.nvim_buf_get_lines(buf, 0, -1, false), before), "below-text click toggles nothing")
     click(assert(find("Alpha")), {win = main})
     assert(#opened == count)
   end},
