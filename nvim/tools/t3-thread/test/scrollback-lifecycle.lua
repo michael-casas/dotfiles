@@ -232,6 +232,23 @@ local scenarios = {
     end,
   },
   {
+    "shown in the popover and the main pane, main pane switched away: popover colours again",
+    function()
+      local c, main = shared(c_spawn())
+      local pop = c.state()
+      local again = to_main(c) -- attached last in the untinted main pane: its colours
+      check(again.buf == main.buf and not themed(again.winhl), "same buffer, untinted main pane")
+      check_osc(c, main.buf, GLOBAL, "attached last in the main pane")
+      c.lua("require('hcmux.t3').attach_in(..., 'owned-y')", main.win) -- main pane shows another client
+      c.ready("ownedy")
+      local still =
+        c.lua("local w = ... return { buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight }", pop.win)
+      check(still.buf == main.buf and themed(still.winhl), "popover still shows it, tinted")
+      check(c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 1, "one viewer")
+      check_osc(c, main.buf, NORD, "after the main pane switched away, before any reattach")
+    end,
+  },
+  {
     "same-buffer theme refresh follows the selected theme",
     function()
       local c = c_spawn()
