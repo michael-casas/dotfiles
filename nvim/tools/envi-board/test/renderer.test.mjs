@@ -181,3 +181,36 @@ test("renderer reuses uncolored no-fit output across width/theme changes without
     renderer.close();
   }
 });
+
+test("failed renders including deadline failures share the bounded input cache", async () => {
+  const rejected = "flowchart LR\n A[First] --> B\n A[Second] --> C\n";
+  for (const options of [{}, { timeout: 1 }]) {
+    const renderer = new DiagramRenderer(options);
+    try {
+      const first = await renderer.render(
+        options.timeout ? fixtures.flowchart : rejected,
+        { revision: "a" },
+      );
+      assert.equal(first.kind, "error");
+      assert.equal(
+        renderer.cache.size,
+        1,
+        "failed jobs occupy the same bounded cache as success",
+      );
+      const bytes = renderer.cacheBytes;
+      renderer.ruby = "/no/such/ruby";
+      const second = await renderer.render(
+        options.timeout ? fixtures.flowchart : rejected,
+        { revision: "b" },
+      );
+      assert.deepEqual(
+        { ...second, revision: "a", _size: undefined },
+        { ...first, _size: undefined },
+      );
+      assert.equal(second.revision, "b");
+      assert.equal(renderer.cacheBytes, bytes);
+    } finally {
+      renderer.close();
+    }
+  }
+});

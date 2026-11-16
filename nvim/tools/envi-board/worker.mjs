@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { isAbsolute, resolve } from "node:path";
 import { BoardSession } from "./session.mjs";
@@ -11,12 +12,12 @@ export async function worker() {
   let session = null,
     renderer = null,
     bindings = {},
-    width = 80,
     serial = 0,
     closed = false,
     requestId = null,
     requestedPath = null,
     diagramsHash = null,
+    publishedHash = null,
     renderToken = 0,
     diagrams = new Map();
   let buffer = "",
@@ -72,6 +73,9 @@ export async function worker() {
       error(requestId);
       return;
     }
+    const hash = createHash("sha256").update(payload).digest("hex");
+    if (hash === publishedHash) return;
+    publishedHash = hash;
     const seq = ++serial;
     // Split JSON string at code-point boundaries; a chunk is never interpreted
     // independently. Publish only after end and count/byte/generation checks.
@@ -112,20 +116,20 @@ export async function worker() {
     process.stdin.destroy();
   };
   const refreshRendering = (snap) => {
-    const token = ++renderToken,
-      doc = snap.document;
+    const doc = snap.document;
+    if (diagramsHash === (doc?.hash ?? null)) {
+      // Presentation changes cannot alter color:false, fit:nil renderer output.
+      // Keep both settled results and the one in-flight pass for this revision.
+      publish();
+      return;
+    }
+    const token = ++renderToken;
     const blocks =
       doc?.valid && !doc.opaque
         ? doc.blocks.filter((b) => b.kind === "mermaid")
         : [];
-    // Keep completed drawings for this revision during palette/viewport refresh.
     diagrams = new Map(
-      blocks.map((b) => [
-        b.id,
-        diagramsHash === doc.hash && diagrams.has(b.id)
-          ? diagrams.get(b.id)
-          : { kind: "rendering", source: b.content },
-      ]),
+      blocks.map((b) => [b.id, { kind: "rendering", source: b.content }]),
     );
     diagramsHash = doc?.hash ?? null;
     publish();
@@ -133,8 +137,6 @@ export async function worker() {
     (async () => {
       for (const b of blocks) {
         const result = await renderer.render(b.content, {
-          width,
-          theme: JSON.stringify(snap.theme),
           revision: doc.hash,
         });
         if (
@@ -190,10 +192,11 @@ export async function worker() {
       session?.close();
       renderer?.close();
       bindings = b;
-      width = Math.max(20, Math.min(400, Number(req.width) || 80));
       requestId = req.id;
       requestedPath = req.path;
       diagramsHash = null;
+      publishedHash = null;
+      ++renderToken; // Invalidates pending work even for a missing replacement file.
       diagrams = new Map();
       renderer = new DiagramRenderer();
       session = new BoardSession({ path: resolve(req.path) });
@@ -212,7 +215,6 @@ export async function worker() {
       return;
     }
     if (req.op === "render") {
-      width = Math.max(20, Math.min(400, Number(req.width) || 80));
       refreshRendering(session.snapshot);
       return;
     }

@@ -59,7 +59,8 @@ export class DiagramRenderer {
       clearTimeout(job.timer);
       clearInterval(job.memory);
       this.child = null;
-      if (result.kind === "text-approximate" && !this.closed) {
+      // Cache settled failures too; resize/reopen must not repeatedly run bad input.
+      if (!this.closed) {
         const size = Buffer.byteLength(JSON.stringify(result));
         while (
           this.cache.size >= 64 ||

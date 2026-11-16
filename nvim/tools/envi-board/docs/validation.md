@@ -86,7 +86,7 @@ leader/command/statusline wiring. No push/PR/merge/rebase/global installation.
 
 ## Critic round 1 corrective pass
 
-Baseline: REP-rebased `036f881` on `66aa494`; no additional rebase/amend.
+Baseline: REP-rebased P0–P3 implementation; no implementer rebase/amend.
 The critic's 3/5 is an independent review result, not superseded by a self-score.
 
 - **M1:** projection splits LF/CR/CRLF in every pushed field while retaining a
@@ -126,3 +126,41 @@ exit 0. Stylua on touched Lua, `node --check` on all tool modules, shell syntax
 and `git diff --check` pass. Node/Lua tests remain synthetic, offline and without
 hc/T3/browser calls. Manual Herdr E2E and the independent next critic verdict
 remain REP's responsibility; no claim of 5/5 acceptance is made here.
+
+## Critic round 2 corrective pass
+
+The independent critic scored round 1's repairs 4/5 with no blocking/major
+finding. This pass addresses the remaining efficiency finding and documentation
+nit without relocating the shared theme reader.
+
+- **N1:** worker starts one diagram pass per document hash, retaining settled
+  success/failure and in-flight work on resize/theme refresh. A bounded digest
+  of the last complete payload suppresses identical snapshot frames; a changed
+  palette still publishes once. Ink's render effect now depends only on the
+  document hash, so viewport/palette changes do not restart rendering or dismiss
+  its source pane. Renderer errors (including timeouts) use the same 64-entry /
+  8 MiB input cache as successful output; a genuinely changed document still
+  gets a revision-guarded pass.
+- **N1 RED/GREEN:** updated worker regression originally observed three snapshots
+  for a settled resize. A new mixed success/strict-engine-failure fixture
+  originally observed ten snapshots for five resizes. It now observes zero new
+  snapshots, zero renderer calls and zero Ruby jobs; live theme update sends
+  exactly one snapshot without rendering. A test-only preload counts renderer
+  calls and actual sandboxed Ruby launches, without changing production APIs.
+  A real Ink PTY regression failed against the prior implementation with extra
+  render calls on resize/theme and now passes. It also changes the document and
+  proves a fresh pass reuses both cached outcomes without new Ruby. Separate
+  diagnostics/deadline regressions verify failed-result cache hits and revision
+  rebinding; the pre-fix failure was an empty failure cache.
+- **N2:** replaced the obsolete baseline commit IDs with descriptive provenance.
+  Tracked validation evidence deliberately uses no commit SHAs so REP rebases
+  cannot leave dangling references. A scan for hexadecimal commit-ID tokens
+  returns no matches in this document.
+
+Manual Herdr visual E2E and the independent next critic verdict remain REP's
+responsibility; these corrective tests do not claim a 5/5 acceptance verdict.
+
+Round 2 gates: **41/41 board Node tests** (three added; one existing worker
+assertion strengthened), **173/173 T3 Node tests**, **16/16 T3 Lua suites**,
+**2/2 board Lua harnesses**, all exit 0. Stylua, module syntax checks and
+`git diff --check` pass. Tests remain synthetic/offline; theme reader unchanged.

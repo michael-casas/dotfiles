@@ -186,15 +186,16 @@ test("worker labels pending renders and retains completed diagrams across resize
     );
     const previous = workerClient.frames.length;
     workerClient.send({ v: 1, id: 31, op: "render", width: 140 });
-    const resized = await workerClient.until((fs) =>
-      fs.slice(previous).find((f) => f.type === "end" && f.id === 31),
+    // Invalid source provides an ordered barrier without requesting a snapshot.
+    workerClient.send({ v: 1, id: 32, op: "source", expectedHash: "old" });
+    await workerClient.until((fs) =>
+      fs.find((f) => f.type === "error" && f.id === 32),
     );
     assert.equal(
-      decode(workerClient.frames, resized).rows.filter((s) =>
-        s.includes("approximate text"),
-      ).length,
-      2,
-      "resize must not blank completed graphs",
+      workerClient.frames.slice(previous).filter((f) => f.type === "begin")
+        .length,
+      0,
+      "settled resize emits no snapshot",
     );
     hub.active = "gruvbox-dark";
     writeFileSync(hubFile, JSON.stringify(hub));
@@ -225,6 +226,95 @@ test("worker labels pending renders and retains completed diagrams across resize
   } finally {
     workerClient.child.stdin.destroy();
     if (workerClient.child.exitCode === null) workerClient.child.kill();
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("settled success and failure skip renderer/Ruby and frames on resize; theme publishes only once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "board-worker-noop-"));
+  const log = join(dir, "jobs.log"),
+    path = join(dir, "demo.wb.md"),
+    hubFile = join(dir, "theme.json");
+  const hub = JSON.parse(
+    readFileSync(new URL("../../../../theme/theme.json", import.meta.url)),
+  );
+  hub.active = "nord";
+  writeFileSync(hubFile, JSON.stringify(hub));
+  writeFileSync(log, "");
+  const example = readFileSync(
+    new URL("./fixtures/example.wb.md", import.meta.url),
+    "utf8",
+  );
+  // One success and one allowlisted diagram rejected by strict merminal.
+  writeFileSync(
+    path,
+    example.replace(
+      /sequenceDiagram[\s\S]*?```/,
+      "flowchart LR\n A[First] --> B\n A[Second] --> C\n```",
+    ),
+  );
+  const c = client({
+    ENVI_THEME_FILE: hubFile,
+    ENVI_BOARD_TEST_RENDER_LOG: log,
+    NODE_OPTIONS: `--import=${new URL("./fixtures/render-probe.mjs", import.meta.url).href}`,
+  });
+  const jobs = () => readFileSync(log, "utf8").trim().split("\n");
+  try {
+    c.send({ v: 1, id: 40, op: "open", path });
+    await c.until((fs) =>
+      fs
+        .filter((f) => f.type === "end")
+        .map((e) => decode(fs, e))
+        .find(
+          (d) =>
+            d.rows.some((s) => s.includes("approximate text")) &&
+            d.rows.some((s) => s.includes("partial output discarded")),
+        ),
+    );
+    assert.equal(jobs().filter((s) => s === "ruby").length, 2);
+    const beforeJobs = jobs(),
+      beforeFrames = c.frames.length;
+    for (let id = 41; id <= 45; id++)
+      c.send({ v: 1, id, op: "render", width: id * 3 });
+    c.send({ v: 1, id: 46, op: "source", expectedHash: "old" });
+    await c.until((fs) => fs.find((f) => f.type === "error" && f.id === 46));
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(
+      c.frames.slice(beforeFrames).filter((f) => f.type === "begin").length,
+      0,
+      "resize must not repaint an unchanged board",
+    );
+    assert.deepEqual(
+      jobs(),
+      beforeJobs,
+      "resize must call neither renderer nor Ruby",
+    );
+    hub.active = "gruvbox-dark";
+    writeFileSync(hubFile, JSON.stringify(hub));
+    await c.until((fs) =>
+      fs
+        .slice(beforeFrames)
+        .filter((f) => f.type === "end")
+        .map((e) => decode(fs, e))
+        .find((d) => d.theme.id === "gruvbox-dark"),
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(
+      c.frames.slice(beforeFrames).filter((f) => f.type === "begin").length,
+      1,
+      "theme sends only the changed palette",
+    );
+    assert.deepEqual(
+      jobs(),
+      beforeJobs,
+      "theme must call neither renderer nor Ruby",
+    );
+    c.child.stdin.end();
+    await new Promise((resolve) => c.child.once("exit", resolve));
+    assert.equal(c.child.exitCode, 0);
+  } finally {
+    c.child.stdin.destroy();
+    if (c.child.exitCode === null) c.child.kill();
     rmSync(dir, { recursive: true });
   }
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { render, Text, Box, useInput, useApp, useStdout } from "ink";
 import { BoardSession } from "./session.mjs";
 import { viewport, project } from "./view.mjs";
@@ -15,7 +15,6 @@ export async function openTui(opts) {
       { stdout } = useStdout();
     const [snapshot, setSnapshot] = useState(session.snapshot),
       [size, setSize] = useState([stdout.columns ?? 80, stdout.rows ?? 24]);
-    const diagramsHash = useRef(null);
     const [diagrams, setDiagrams] = useState(new Map()),
       [sourcePane, setSourcePane] = useState(null),
       [sourceOnly, setSourceOnly] = useState(false);
@@ -31,6 +30,8 @@ export async function openTui(opts) {
       stdout.on("resize", resize);
       return () => stdout.off("resize", resize);
     }, []);
+    // Only a board revision starts work. Resize/theme render from retained
+    // state, including failures, without cancelling or duplicating pending jobs.
     useEffect(() => {
       let current = true;
       setSourcePane(null);
@@ -39,25 +40,15 @@ export async function openTui(opts) {
         doc?.valid && !doc.opaque
           ? doc.blocks.filter((b) => b.kind === "mermaid")
           : [];
-      const sameRevision = diagramsHash.current === doc?.hash;
-      diagramsHash.current = doc?.hash ?? null;
       setDiagrams(
-        (previous) =>
-          new Map(
-            blocks.map((b) => [
-              b.id,
-              sameRevision && previous.has(b.id)
-                ? previous.get(b.id)
-                : { kind: "rendering", source: b.content },
-            ]),
-          ),
+        new Map(
+          blocks.map((b) => [b.id, { kind: "rendering", source: b.content }]),
+        ),
       );
       if (doc?.valid && !doc.opaque)
         (async () => {
           for (const b of blocks) {
             const value = await renderer.render(b.content, {
-              width: size[0],
-              theme: JSON.stringify(snapshot.theme),
               revision: doc.hash,
             });
             if (!current) break;
@@ -67,7 +58,7 @@ export async function openTui(opts) {
       return () => {
         current = false;
       };
-    }, [snapshot?.document?.hash, snapshot?.theme, size[0]]);
+    }, [snapshot?.document?.hash]);
     const projection = snapshot
       ? project(snapshot, { diagrams, sourceOnly })
       : { rows: ["Loading local board…"], mapping: [] };

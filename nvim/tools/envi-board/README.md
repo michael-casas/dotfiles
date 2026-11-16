@@ -95,8 +95,10 @@ malformed/oversized/late frames and EOF are covered in tests. Stale source reque
 are refused; renderer results are revision-guarded and late work is ignored.
 Uncolored, no-fit renderer bytes are cached by engine/profile/source, not ignored
 width/theme settings; completed graphs stay visible across resize/theme updates
-and new jobs are labeled `rendering…`. Slow-reader output is coalesced behind a
-bounded snapshot backlog.
+and new jobs are labeled `rendering…`. Same-revision resize/theme updates do not
+restart settled or in-flight work; unchanged snapshots emit no frames. Failed
+backend results share the bounded input cache with successes. Slow-reader output
+is coalesced behind a bounded snapshot backlog.
 
 ## Supported Mermaid profile (`envi-text-v0.1`)
 

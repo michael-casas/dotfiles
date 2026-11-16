@@ -37,3 +37,71 @@ print('foreground PTY/raw-mode smoke passed')
   });
   assert.equal(r.status, 0, r.stderr);
 });
+
+test("Ink resize/theme reuse settled success and failure without renderer calls or Ruby jobs", () => {
+  const script = String.raw`
+import os,pty,subprocess,select,time,fcntl,struct,sys,tempfile,json,signal,termios
+with tempfile.TemporaryDirectory(prefix='board-ink-noop-') as folder:
+ log=folder+'/jobs.log';board=folder+'/demo.wb.md';theme=folder+'/theme.json'
+ open(log,'w').close()
+ with open(sys.argv[3]) as f: text=f.read()
+ start=text.index('sequenceDiagram');end=text.index('\x60\x60\x60',start)
+ text=text[:start]+'flowchart LR\n A[First] --> B\n A[Second] --> C\n'+text[end:]
+ with open(board,'w') as f: f.write(text)
+ with open(sys.argv[4]) as f: hub=json.load(f)
+ hub['active']='nord'
+ with open(theme,'w') as f: json.dump(hub,f)
+ master,slave=pty.openpty()
+ fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
+ p=subprocess.Popen([sys.argv[1],sys.argv[2],'open','--',board],stdin=slave,stdout=slave,stderr=slave,
+  env={**os.environ,'TERM':'xterm-256color','ENVI_THEME_FILE':theme,'ENVI_BOARD_TEST_RENDER_LOG':log,'NODE_OPTIONS':'--import='+sys.argv[5]})
+ out=b''
+ def pump(seconds):
+  global out
+  end=time.monotonic()+seconds
+  while time.monotonic()<end:
+   ready,_,_=select.select([master],[],[],0.02)
+   if ready: out+=os.read(master,65536)
+   assert p.poll() is None, out[-2000:]
+ def jobs():
+  with open(log) as f: return f.read().splitlines()
+ try:
+  deadline=time.monotonic()+6
+  while len([x for x in jobs() if x.startswith('settled:')])<2 and time.monotonic()<deadline: pump(.05)
+  before=jobs()
+  assert before.count('ruby')==2 and before.count('render')==2,before
+  assert 'settled:error' in before and 'settled:text-approximate' in before,before
+  for width in [100,120,80]:
+   fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,width,0,0));os.kill(p.pid,signal.SIGWINCH);pump(.15)
+  hub['active']='gruvbox-dark'
+  with open(theme,'w') as f: json.dump(hub,f)
+  pump(.5)
+  assert b'gruvbox-dark' in out,out[-2000:]
+  assert jobs()==before, jobs()
+  # A genuinely changed board still gets a pass; renderer cache reuses both outcomes.
+  with open(board,'w') as f: f.write(text.replace('# File-first board viewer','# Changed board title'))
+  deadline=time.monotonic()+4
+  while jobs().count('render')<4 and time.monotonic()<deadline: pump(.05)
+  pump(.15)
+  assert jobs().count('render')==4,jobs()
+  assert jobs().count('ruby')==2,jobs()
+  os.write(master,b'q');p.wait(timeout=4);assert p.returncode==0
+ finally:
+  if p.poll() is None: p.kill();p.wait()
+  os.close(master);os.close(slave)
+`;
+  const result = spawnSync(
+    "python3",
+    [
+      "-c",
+      script,
+      process.execPath,
+      main,
+      path,
+      new URL("../../../../theme/theme.json", import.meta.url).pathname,
+      new URL("./fixtures/render-probe.mjs", import.meta.url).href,
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
