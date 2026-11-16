@@ -1,0 +1,208 @@
+{
+  "active": "nord",
+  "themes": {
+    "nord": {
+      "label": "Nord (nordic)",
+      "appearance": "dark",
+      "palette": {
+        "black0": "#191d24",
+        "black1": "#1e222a",
+        "black2": "#222630",
+        "gray0": "#242933",
+        "gray1": "#2e3440",
+        "gray2": "#3b4252",
+        "gray3": "#434c5e",
+        "gray4": "#4c566a",
+        "gray5": "#60728a",
+        "white0_normal": "#bbc3d4",
+        "white0_reduce_blue": "#c0c8d8",
+        "white1": "#d8dee9",
+        "white2": "#e5e9f0",
+        "white3": "#eceff4",
+        "blue0": "#5e81ac",
+        "blue1": "#81a1c1",
+        "blue2": "#88c0d0",
+        "cyan": "#8fbcbb",
+        "cyan_bright": "#9fc6c5",
+        "cyan_dim": "#80b3b2",
+        "red": "#bf616a",
+        "red_bright": "#c5727a",
+        "red_dim": "#b74e58",
+        "orange": "#d08770",
+        "orange_bright": "#d79784",
+        "orange_dim": "#cb775d",
+        "yellow": "#ebcb8b",
+        "yellow_bright": "#efd49f",
+        "yellow_dim": "#e7c173",
+        "green": "#a3be8c",
+        "green_bright": "#b1c89d",
+        "green_dim": "#97b67c",
+        "magenta": "#b48ead",
+        "magenta_bright": "#be9db8",
+        "magenta_dim": "#a97ea1",
+        "muted": "#9aa3b5",
+        "faint": "#6e7f96",
+        "fg_dim": "#aab2c1"
+      },
+      "ansi": [
+        "#191d24",
+        "#bf616a",
+        "#a3be8c",
+        "#ebcb8b",
+        "#5e81ac",
+        "#b48ead",
+        "#8fbcbb",
+        "#c0c8d8",
+        "#3b4252",
+        "#c5727a",
+        "#b1c89d",
+        "#efd49f",
+        "#88c0d0",
+        "#be9db8",
+        "#9fc6c5",
+        "#d8dee9"
+      ],
+      "tokens": {
+        "ui": {
+          "bg": "gray0",
+          "popover": "gray1",
+          "surface": "gray2",
+          "border": "gray3",
+          "fg": "white0_reduce_blue",
+          "fg_dim": "fg_dim",
+          "muted": "muted",
+          "faint": "faint",
+          "accent": "orange",
+          "accent_fg": "black0",
+          "link": "blue2",
+          "title": "muted"
+        },
+        "status": {
+          "info": "blue1",
+          "success": "green",
+          "warning": "yellow",
+          "error": "red",
+          "attention": "magenta"
+        },
+        "chat": {
+          "user_bubble": "gray3",
+          "code_bg": "gray2",
+          "provider": "orange"
+        },
+        "diff": {
+          "add_fg": "green",
+          "del_fg": "red"
+        },
+        "syntax": {
+          "keyword": "magenta",
+          "flag": "orange",
+          "string": "green",
+          "number": "blue1"
+        }
+      },
+      "consumers": {
+        "nvim": {
+          "scheme": "nordic",
+          "background": "dark",
+          "opts": {
+            "reduced_blue": true,
+            "transparent": {
+              "bg": false,
+              "float": false
+            },
+            "swap_backgrounds": false
+          }
+        }
+      }
+    },
+    "gruvbox-dark": {
+      "label": "Gruvbox dark (hard)",
+      "appearance": "dark",
+      "palette": {
+        "bg0": "#1d2021",
+        "popover": "#282828",
+        "bg1": "#3c3836",
+        "bg2": "#504945",
+        "bg3": "#665c54",
+        "bg4": "#7c6f64",
+        "fg0": "#fbf1c7",
+        "fg1": "#ebdbb2",
+        "fg3": "#bdae93",
+        "fg4": "#a89984",
+        "gray": "#928374",
+        "red": "#fb4934",
+        "green": "#b8bb26",
+        "yellow": "#fabd2f",
+        "blue": "#83a598",
+        "purple": "#d3869b",
+        "aqua": "#8ec07c",
+        "orange": "#fe8019"
+      },
+      "ansi": [
+        "#1d2021",
+        "#cc241d",
+        "#98971a",
+        "#d79921",
+        "#458588",
+        "#b16286",
+        "#689d6a",
+        "#a89984",
+        "#928374",
+        "#fb4934",
+        "#b8bb26",
+        "#fabd2f",
+        "#83a598",
+        "#d3869b",
+        "#8ec07c",
+        "#ebdbb2"
+      ],
+      "tokens": {
+        "ui": {
+          "bg": "bg0",
+          "popover": "popover",
+          "surface": "bg1",
+          "border": "bg2",
+          "fg": "fg1",
+          "fg_dim": "fg3",
+          "muted": "fg4",
+          "faint": "gray",
+          "accent": "orange",
+          "accent_fg": "bg0",
+          "link": "blue",
+          "title": "fg4"
+        },
+        "status": {
+          "info": "blue",
+          "success": "green",
+          "warning": "yellow",
+          "error": "red",
+          "attention": "purple"
+        },
+        "chat": {
+          "user_bubble": "bg2",
+          "code_bg": "bg1",
+          "provider": "orange"
+        },
+        "diff": {
+          "add_fg": "green",
+          "del_fg": "red"
+        },
+        "syntax": {
+          "keyword": "purple",
+          "flag": "orange",
+          "string": "green",
+          "number": "blue"
+        }
+      },
+      "consumers": {
+        "nvim": {
+          "scheme": "gruvbox",
+          "background": "dark",
+          "opts": {
+            "contrast": "hard"
+          }
+        }
+      }
+    }
+  }
+}
