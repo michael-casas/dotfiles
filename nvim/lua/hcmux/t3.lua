@@ -2,8 +2,9 @@
 --
 -- The pane runs tools/t3-thread (an Ink client of the T3 websocket stream) in a
 -- herdr-core terminal, so it survives hiding the popover, closing nvim, etc.
---   INSERT <Esc>/<C-]> -> COMMAND (sends "dismiss", never a raw Esc); COMMAND
---   i/a/I/A/<C-]> -> INSERT.
+--   Popover INSERT <Esc>/<C-]> -> COMMAND (dismiss, never raw Esc). In the
+--   T3 layout Esc dismisses overlays first, otherwise focuses the thread bar.
+--   COMMAND i/a/I/A/<C-]> -> INSERT.
 --   q in COMMAND hides; <leader>hi / <leader>h? open, focus, or switch the shown
 --   popover to their thread in place (never hide).
 --   :T3Thread            open or focus the popover (first time: thread picker)
@@ -27,6 +28,7 @@ local function ready()
 end
 local hub_file = vim.fn.fnamemodify(nvim_root, ":h") .. "/theme/theme.json"
 local last -- address shown last
+local escape_id = math.floor(vim.uv.hrtime() / 1000) % 900000000
 
 local function name_for(id)
   if not id then
@@ -200,15 +202,86 @@ local function mark(buf)
     end
     return pcall(vim.fn.chansend, job, "\27[>777;" .. action .. "u")
   end
-  -- INSERT -> COMMAND. A raw Esc never reaches the client (older TUIs interrupted
-  -- on it); the private "dismiss" action (6) closes a dialog, the model picker or
-  -- a menu and never interrupts. <C-]> toggles INSERT/COMMAND.
-  for _, lhs in ipairs({ "<Esc>", "<C-]>" }) do
-    vim.keymap.set("t", lhs, function()
+  -- Layout Esc asks the client at keypress time, not an asynchronously cached
+  -- status flag. Reply correlation and invoker checks prevent delayed output
+  -- (including replay from another viewer) from stealing focus.
+  local pending_escape
+  local function still_here(request)
+    return vim.api.nvim_win_is_valid(request.win)
+      and vim.api.nvim_get_current_win() == request.win
+      and vim.api.nvim_win_get_buf(request.win) == buf
+      and vim.w[request.win].envi_t3_main
+      and vim.api.nvim_win_get_config(request.win).relative == ""
+  end
+  vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+    buffer = buf,
+    callback = function()
+      pending_escape = nil
+    end,
+  })
+  vim.api.nvim_create_autocmd("TermRequest", {
+    buffer = buf,
+    callback = function(ev)
+      local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
+      local id, overlay
+      if type(seq) == "string" then
+        -- Neovim strips the OSC terminator from TermRequest.sequence.
+        seq = seq:gsub("\27\\$", ""):gsub("\7$", "")
+        id, overlay = seq:match("^\27%]7502;envi%-t3%-escape=(%d+);overlay=([01])$")
+      end
+      local request = pending_escape
+      if not request or tonumber(id) ~= request.id then
+        return
+      end
+      pending_escape = nil
+      vim.schedule(function()
+        if not vim.api.nvim_buf_is_valid(buf) or not still_here(request) then
+          return
+        end
+        if overlay == "0" then
+          vim.cmd.stopinsert()
+          require("hcmux.layout").focus_thread_bar()
+        end
+      end)
+    end,
+  })
+  vim.keymap.set("t", "<Esc>", function()
+    if not vim.w.envi_t3_main or vim.api.nvim_win_get_config(0).relative ~= "" then
       send(6)
       return "<C-\\><C-N>"
-    end, { buffer = buf, silent = true, expr = true, desc = "T3: COMMAND mode" })
-  end
+    end
+    escape_id = escape_id % 999999999 + 1
+    local request = { id = escape_id, win = vim.api.nvim_get_current_win() }
+    pending_escape = request
+    send("7;" .. request.id)
+    vim.defer_fn(function()
+      if pending_escape ~= request then
+        return
+      end
+      pending_escape = nil
+      if vim.api.nvim_buf_is_valid(buf) and still_here(request) then
+        -- Old client or lost reply: dismiss via the legacy wire as well, but
+        -- never guess that no overlay was open or move focus.
+        send(6)
+        vim.cmd.stopinsert()
+      end
+    end, 1000)
+    return ""
+  end, { buffer = buf, silent = true, expr = true, desc = "T3: dismiss or focus thread bar" })
+  -- Ctrl-] retains the in-place INSERT/COMMAND escape hatch in every view.
+  vim.keymap.set("t", "<C-]>", function()
+    pending_escape = nil
+    send(6)
+    return "<C-\\><C-N>"
+  end, { buffer = buf, silent = true, expr = true, desc = "T3: COMMAND mode" })
+  vim.api.nvim_create_autocmd("TermEnter", {
+    buffer = buf,
+    callback = function()
+      if vim.w.envi_t3_main and vim.api.nvim_win_get_config(0).relative == "" then
+        send(8)
+      end
+    end, -- layout INSERT re-entry reveals a dismissed, still-pending question
+  })
   vim.keymap.set("n", "<Esc>", "<Nop>", { buffer = buf, silent = true, desc = "T3: stay in COMMAND" })
   for _, lhs in ipairs({ "i", "a", "I", "A", "<C-]>" }) do
     vim.keymap.set("n", lhs, function()
@@ -424,6 +497,7 @@ function M.attach_in(win, id)
     term.detach(old)
   end
   last = addr
+  vim.cmd.startinsert()
   return buf, addr
 end
 

@@ -1,7 +1,7 @@
 -- Two persistent layouts. Global/leader bindings belong to keybinder.
 local M = {}
 local side = require("hcmux.t3side")
-local tab, main, sidebar, empty, editor
+local tab, main, sidebar, empty, editor, current_thread
 
 local function valid(win)
   return win and vim.api.nvim_win_is_valid(win)
@@ -135,6 +135,18 @@ function M.sidebar_toggle()
   end
 end
 
+--- Layout-local escape destination. Never switch a different tab or viewer.
+function M.focus_thread_bar()
+  if vim.api.nvim_get_current_tabpage() ~= tab or vim.api.nvim_get_current_win() ~= main then
+    return
+  end
+  show_sidebar()
+  side.select(current_thread)
+  vim.cmd.stopinsert()
+  vim.api.nvim_set_current_win(sidebar)
+  side.focus_card(sidebar, current_thread)
+end
+
 function M.open_thread(id)
   if type(id) ~= "string" or id == "" then
     return
@@ -143,6 +155,7 @@ function M.open_thread(id)
   local buf = require("hcmux.t3").attach_in(main, id)
   if buf then
     main_options()
+    current_thread = id
     side.select(id)
     local title = side.title(id) or id
     vim.api.nvim_set_option_value("winbar", " T3 · " .. title:gsub("%%", "%%%%"):gsub("[%c]", " "), {

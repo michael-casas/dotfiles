@@ -380,6 +380,19 @@ function M.select(id)
   M.render()
 end
 
+--- Move this bar window to an exact rendered title (never a metadata line).
+function M.focus_card(win, id)
+  if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_win_get_buf(win) ~= buf then
+    return
+  end
+  for line, row in pairs(rows) do
+    if row.id == id and row.part == "title" then
+      vim.api.nvim_win_set_cursor(win, { line, 0 })
+      return
+    end
+  end
+end
+
 function M.title(id)
   for _, thread in ipairs(snapshot.threads or {}) do
     if thread.id == id then
@@ -549,9 +562,33 @@ function M.buffer()
       settled_open = not settled_open
       M.render()
     elseif row.id then
+      local win = vim.api.nvim_get_current_win()
       require("hcmux.layout").open_thread(row.id)
+      M.focus_card(win, row.id)
     end
   end
+  -- Native press selects the target window, including from terminal INSERT.
+  -- Act only on release: leave drag selection and wheel scrolling to Neovim.
+  -- A drag enters Visual mode, where this normal-only mapping does not apply.
+  vim.keymap.set("n", "<LeftRelease>", function()
+    if vim.o.mouse == "" then
+      return
+    end
+    local mouse = vim.fn.getmousepos()
+    if
+      not mouse.winid
+      or not vim.api.nvim_win_is_valid(mouse.winid)
+      or vim.api.nvim_win_get_buf(mouse.winid) ~= buf
+      or not mouse.line
+      or mouse.line < 1
+      or not rows[mouse.line]
+    then
+      return
+    end
+    vim.api.nvim_set_current_win(mouse.winid)
+    vim.api.nvim_win_set_cursor(mouse.winid, { mouse.line, 0 })
+    open()
+  end, { buffer = buf, silent = true, desc = "T3: click thread card or disclosure" })
   for _, key in ipairs({ "<CR>", "o" }) do
     vim.keymap.set("n", key, open, { buffer = buf, silent = true, desc = "T3: open thread" })
   end

@@ -836,7 +836,7 @@ export function questionLines(request, card, width, T, ui, maxRows) {
 }
 function requestLines(state, width, T, ui) {
   const request = t3.pendingRequests(state)[0];
-  if (!request) return [];
+  if (!request || ui.dismissedQuestion === request.id) return [];
   const card = t3.timeline(state).find((i) => i.requestId === request.id);
   const question = card?.questions?.find(
     (q) => !Object.hasOwn(ui.answerDraft || {}, q.id),
@@ -882,7 +882,7 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
   const model = t3.modelLabel?.(state?.thread) || { name: "T3", effort: "" };
   const working = ["working", "blocked"].includes(t3.status(state));
   const pending = t3.pendingRequests(state)[0];
-  const questionCard = pending?.kind === "user_input" && pending.responseCapability?.type !== "not_resumable"
+  const questionCard = pending?.kind === "user_input" && ui.dismissedQuestion !== pending.id && pending.responseCapability?.type !== "not_resumable"
     ? t3.timeline(state).find(i => i.requestId === pending.id) : null;
   const questionWidth = Math.min(width, Math.max(30, Math.round(width * 0.6)));
   // Leave a compact question viewport even for a six-line/pasted draft. Keep
@@ -904,7 +904,7 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
   const projected = ui.timelineRows || partition(state, ui.expanded, ui.now ?? 0).live;
   // The pending input is already represented by the window. Do not repeat its
   // old timeline text when live details are expanded with Tab.
-  const all = timelineLines(projected.filter(r => !(questionCard && r.item?.requestId === pending.id)), width, ui.details || {}, T, meta);
+  const all = timelineLines(projected.filter(r => !((questionCard || (pending && ui.dismissedQuestion === pending.id)) && r.item?.requestId === pending.id)), width, ui.details || {}, T, meta);
   const bodyRows = Math.max(0, cap - card.length - requests.length - questionWindow.length - menu.length - menuGap.length - (questionCard ? 1 : 2));
   let timeline = all;
   if (all.length > bodyRows) {

@@ -239,13 +239,25 @@ This does not switch the editor colorscheme or configure other applications.
   Ctrl-W (`17` hex); **Herdr Option-← / Option-→** send `ESC b` / `ESC f`.
   **Shift-← / Shift-→** (`ESC[1;2D/C`) move like plain arrows, by code point,
   without changing draft text. Shift-selection is not implemented.
-- **Esc:** dismiss an open completion/model/compact view; **never interrupt** a run.
+- **Esc in the T3 layout main pane (INSERT):** dismiss an open `/`/`$` menu,
+  model picker, confirmation dialog or question window first, staying in INSERT.
+  With no overlay, show/focus the thread bar in NORMAL on the open thread's card
+  title; `j`/`k` immediately move by card. The main terminal is left in COMMAND.
+  No raw Esc or interrupt is sent. A dismissed question remains pending with its
+  draft preserved; returning to INSERT reveals it again.
+- **Thread bar left-click:** releasing on any card line (including pin/project or
+  branch metadata) selects its title and opens/focuses that thread in the main
+  pane in INSERT, exactly like `Enter`/`o`. Project and Settled headers toggle;
+  blank lines/below the list do nothing. Native bar drag selection and wheel
+  scrolling remain available; main-terminal mouse handling is untouched.
+- **Esc in the popover:** dismiss an open completion/model/compact view; **never interrupt** a run.
   In the Neovim T3 popover it also enters **COMMAND** (normal mode). A second
   Esc stays in COMMAND and does not hide the float. Esc also cancels an
   interrupt confirmation; it never sends a stop. The popover never forwards a
   raw Esc: it sends the private `dismiss` control (`ESC[>777;6u`, see
   `control.mjs`) instead, so no TUI version can read it as an interrupt.
-- **Ctrl-]** (Neovim popover only): toggle INSERT ⇄ COMMAND; from INSERT it
+- **Ctrl-]** (Neovim popover or layout main pane): toggle INSERT ⇄ COMMAND in
+  place (the layout's scroll/select escape hatch); from INSERT it
   dismisses like Esc.
 - **Tab:** toggle live work details (when not accepting a completion).
 - **Ctrl-O:** append expanded work of the latest finished turn to scrollback.
@@ -365,7 +377,16 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   ordinary keys and split UTF-8. `control.mjs` also normalizes unmodified Home/End
   bytes (`ESC[H/F`, `ESCOH/F`, `ESC[1~/4~`, `ESC[7~/8~`) to Ctrl-A/E before Ink 5
   drops their key names; split sequences are buffered. The private wire is `ESC [ > 777 ; N u`, with
-  N=1 model, 2 compact dialog, 3 yes, 4 cancel, 5 interrupt dialog. `t3.lua` sends it with chansend
+  N=1 model, 2 compact dialog, 3 yes, 4 cancel, 5 interrupt dialog, 6 dismiss,
+  8 reveal a dismissed pending question on INSERT re-entry. Layout Esc uses
+  `ESC[>777;7;<request-id>u`: the same dismiss policy plus a correlated reply
+  `OSC 7502;envi-t3-escape=<request-id>;overlay=0|1 ST`. This is a local client
+  response, not an RPC or cached OSC 7501 status. `overlay=1` consumes Esc in the
+  client; `0` permits the bar handoff. Lua ignores unmatched, replayed, wrong-buffer,
+  unfocused and >1-second-late replies. Missing replies (e.g. an old persistent
+  client) fall back to COMMAND in place, never guess overlay state. Update/restart
+  old clients explicitly to enable this protocol; restart discards unsent drafts.
+  `t3.lua` sends it with chansend
   through `hc attach`; it is not a printable INSERT shortcut. Unknown/malformed
   private reports are swallowed, including split/bounded partial reports.
 - `scrollback.mjs` owns commit/live partitioning, the immutable ID ledger and
@@ -385,6 +406,14 @@ node --test test/*.test.mjs
 test/run-lua.sh               # all of them
 test/run-lua.sh restart prs   # named ones
 ```
+
+`test/esc-to-bar.lua` and `test/sidebar-click.lua` cover layout/card handoff and
+mouse row resolution with mocked hc/term. `test/esc-input.lua` drives a real
+embedded Neovim terminal, OSC replies and actual keyboard/mouse input against a
+synthetic peer (including INSERT/COMMAND transitions and native drag selection).
+`test/escape-control.test.mjs` runs the real Ink client on a PTY against synthetic
+local T3 for every overlay, dismiss/reply, question resume and no-command guarantees.
+These headless checks do not replace VERIFIER's live Herdr transport checks.
 
 The tests cover pure Unicode/line editor behavior and real Ink key bytes
 (`test/editor*.test.mjs`), protocol/projection behavior (`test/thread.test.mjs`), `/`/`$` completion (`test/commands.test.mjs`), frame and
