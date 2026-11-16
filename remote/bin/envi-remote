@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Host-free v1: approved minimal profile over explicit SSH; no Mosh/tmux yet."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import stat
+import subprocess
+import sys
+import uuid
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'remote'))
+import pack
+
+ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z')
+ABS = re.compile(r'/[A-Za-z0-9_./ -]+\Z')
+POLICY_PATH = Path.home() / '.config/envi-remote/hosts.json'
+
+
+def identifier(value):
+    if not isinstance(value, str) or not ID.fullmatch(value):
+        raise ValueError('invalid identifier')
+    return value
+
+
+def load_policy(path):
+    # Follow no symlinks, including parent components. Private, outside this repo.
+    path = Path(path).absolute()
+    if path == ROOT or ROOT in path.parents:
+        raise ValueError('host policy must be outside the repository')
+    for p in [path, *path.parents]:
+        if p.is_symlink():
+            raise ValueError('symlink policy path refused')
+    st = path.stat()
+    if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o600 or st.st_uid != os.getuid():
+        raise ValueError('host policy must be owned, regular, mode 0600')
+    if st.st_size > 65536:
+        raise ValueError('host policy too large')
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate policy key')
+            result[key] = value
+        return result
+    data = json.loads(path.read_text(), object_pairs_hook=unique)
+    if set(data) != {'schema', 'hosts'} or type(data['schema']) is not int or data['schema'] != 1:
+        raise ValueError('unsupported policy schema')
+    if not isinstance(data['hosts'], dict):
+        raise ValueError('invalid hosts')
+    for alias, entry in data['hosts'].items():
+        identifier(alias)
+        if not isinstance(entry, dict) or set(entry) != {'target', 'class', 'transport', 'root', 'locale',
+                                                       'storage', 'persist', 'approved', 'user', 'port'}:
+            raise ValueError('unexpected/missing host policy fields')
+        identifier(entry['target'])
+        identifier(entry['locale'])
+        if entry['user'] is not None:
+            identifier(entry['user'])
+        if type(entry['port']) is not int or not 1 <= entry['port'] <= 65535:
+            raise ValueError('invalid port')
+        if entry['class'] not in ('personal', 'company', 'shared-uid'):
+            raise ValueError('host class required')
+        if entry['approved'] is not True or entry['transport'] != 'ssh' or entry['persist'] is not False:
+            raise ValueError('this lane requires approved explicit SSH and persist=false')
+        if entry['storage'] not in ('persistent', 'temporary'):
+            raise ValueError('invalid storage')
+        if entry['class'] != 'personal' and entry['storage'] != 'temporary':
+            raise ValueError('company/shared-uid requires temporary storage in v1')
+        root = entry['root']
+        if not isinstance(root, str) or not ABS.fullmatch(root) or root.endswith('/') or any(
+                p in ('', '.', '..') for p in root.split('/')[1:]) or root.count('/') < 2:
+            raise ValueError('noncanonical or unsafe absolute root')
+    return data['hosts']
+
+
+def ssh_args(policy, host, tty=False):
+    # Ignore ambient SSH config entirely (SendEnv/SetEnv/Match exec/proxy/multiplex).
+    # Policy target is a direct DNS endpoint, NOT an alias needing ~/.ssh/config.
+    args = ['ssh', '-F', '/dev/null', '-a', '-x', '-o', 'ClearAllForwardings=yes',
+            '-o', 'PermitLocalCommand=no', '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
+            '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15', '-o', 'ConnectionAttempts=1',
+            '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-tt' if tty else '-T',
+            '-p', str(policy['port'])]
+    if policy['user'] is not None:
+        args += ['-l', policy['user']]
+    return args + ['--', policy['target']]
+
+
+def command(script, arguments):
+    # SSH always crosses an account shell. Fixed expansion only; every supplied word quoted.
+    return ('/usr/bin/env -i HOME="$HOME" USER="${USER-}" LOGNAME="${LOGNAME-}" '
+            'TERM="${TERM:-xterm-256color}" PATH=/usr/local/bin:/usr/bin:/bin '
+            '/bin/bash --noprofile --norc -c ' + shlex.quote(script) + ' -- ' +
+            ' '.join(shlex.quote(str(a)) for a in arguments))
+
+
+def control(policy, script, args, data=b''):
+    completed = subprocess.run(ssh_args(policy, None) + [command(script, args)], input=data,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+    if completed.returncode:
+        # Never echo account startup output or arbitrary server diagnostics.
+        raise ValueError('SSH probe/stage failed (remote output withheld); inspect approved target privately')
+    if len(completed.stdout) > 4096:
+        raise ValueError('remote control output exceeds protocol bound')
+    return completed.stdout.decode('ascii')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', help='approved host ID, plan, or hosts')
+    parser.add_argument('host', nargs='?')
+    parser.add_argument('--policy', type=Path, default=POLICY_PATH)
+    parser.add_argument('--transport', choices=['ssh', 'mosh'])
+    parser.add_argument('--allow-dirty', action='store_true')
+    parser.add_argument('--revision', help='local Git commit/ref, not a cached remote digest')
+    parser.add_argument('--use-cached', action='store_true')
+    parser.add_argument('--temporary', action='store_true')
+    args = parser.parse_args()
+    try:
+        hosts = load_policy(args.policy)
+        if args.action == 'hosts':
+            if args.host:
+                raise ValueError('unexpected host argument')
+            print('\n'.join(sorted(hosts)))
+            return 0
+        alias = args.host if args.action == 'plan' else args.action
+        identifier(alias)
+        if args.action != 'plan' and args.host:
+            raise ValueError('arbitrary remote commands are not supported')
+        if alias not in hosts:
+            raise ValueError('unknown host; classify and approve locally before any upload')
+        policy = dict(hosts[alias])
+        if args.transport == 'mosh':
+            raise ValueError('Mosh/tmux deferred to step 3; select approved explicit SSH')
+        if args.temporary:
+            policy['storage'] = 'temporary'
+        if policy['storage'] == 'temporary':
+            if args.use_cached:
+                raise ValueError('temporary roots cannot reuse a previous session')
+            # Fresh unique child; supervisor removes only this child after normal exit.
+            policy['root'] += '/temporary-' + uuid.uuid4().hex
+        artifact = pack.build(ROOT, args.revision, args.allow_dirty)
+        pack.verify(artifact.archive, artifact.digest)
+        summary = {'schema': 1, 'host': alias, 'transport': 'ssh', 'profile': 'minimal',
+                   'storage': policy['storage'], 'root': policy['root'], 'persist': False,
+                   'digest': artifact.digest, 'archive_sha256': artifact.archive_hash,
+                   'bytes': len(artifact.archive), 'provenance': artifact.provenance}
+        if args.action == 'plan':
+            print(json.dumps(summary, sort_keys=True))
+            return 0
+        print('envi-remote: SSH minimal; no tmux; ' + policy['storage'] + '; release ' + artifact.digest,
+              file=sys.stderr)
+        script = (ROOT / 'remote/bootstrap.sh').read_text()
+        probe = control(policy, script, ['probe'])
+        lines = probe.splitlines()
+        if len(lines) != 13 or lines[:2] != ['protocol=1', 'tar=ustar'] or lines[2] not in (
+                'hash=sha256sum', 'hash=shasum') or lines[3] not in ('charmap=UTF-8', 'charmap=UTF8'):
+            raise ValueError('unsupported probe, locale or contaminated stdout')
+        for tool, line in zip(('nvim', 'git', 'starship', 'rg', 'fd', 'fdfind', 'fzf', 'tmux', 'mosh-server'), lines[4:]):
+            if line not in (tool + '=0', tool + '=1'):
+                raise ValueError('malformed probe')
+            if line.endswith('=0'):
+                print('envi-remote: optional ' + tool + ' unavailable', file=sys.stderr)
+        parameters = [policy['root'], artifact.digest, artifact.archive_hash, artifact.manifest.decode(),
+                      policy['locale'], policy['storage']]
+        response = control(policy, script, ['cached' if args.use_cached else 'stage', *parameters],
+                           b'' if args.use_cached else artifact.archive)
+        if response != 'ready=' + artifact.digest + '\n':
+            raise ValueError('stage protocol mismatch; no attachment')
+        return subprocess.call(ssh_args(policy, alias, tty=True) + [command(script, ['launch', *parameters])])
+    except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, UnicodeError) as error:
+        # Error text from local policy may contain a private path, never include its contents.
+        print('envi-remote: ' + str(error), file=sys.stderr)
+        return 20
+
+
+if __name__ == '__main__':
+    sys.exit(main())

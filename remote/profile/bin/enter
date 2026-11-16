@@ -1,0 +1,16 @@
+#!/bin/bash
+# Protocol 1: supervisor owns temporary cleanup; never a persistence server.
+set -eu
+release=$1
+state=$2
+locale_name=$3
+mode=$4
+root=$5
+[ "$mode" = persistent ] || [ "$mode" = temporary ] || exit 24
+if [ "$mode" = temporary ]; then
+    cleanup() { rm -rf -- "$root"; }
+    trap cleanup EXIT
+fi
+mkdir -p "$state"
+chmod 700 "$state"
+"$release/bin/shell" "$release" "$state" "$locale_name"

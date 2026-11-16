@@ -1,0 +1,5 @@
+[color]
+    ui = auto
+[alias]
+    st = status --short
+    br = branch

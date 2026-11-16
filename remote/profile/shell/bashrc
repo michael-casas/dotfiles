@@ -1,0 +1,24 @@
+# shellcheck shell=bash
+# Authored minimal profile; never source account startup, .env or service hooks.
+case $- in *i*) ;; *) return ;; esac
+HISTFILE=/dev/null
+HISTSIZE=1000
+HISTFILESIZE=0
+export HISTFILE HISTSIZE HISTFILESIZE
+set +o history
+PS1='\[\e[36m\]\w\[\e[0m\] $ '
+EDITOR=editor
+VISUAL=editor
+export EDITOR VISUAL
+alias v=editor
+# Explicit helpers, not incompatible flag aliases.
+ff() {
+    if command -v fd >/dev/null 2>&1; then command fd "$@"
+    elif command -v fdfind >/dev/null 2>&1; then command fdfind "$@"
+    else command find . -name "${1:-*}"; fi
+}
+search() {
+    if command -v rg >/dev/null 2>&1; then command rg "$@"
+    else command grep -R -n -- "$@" .; fi
+}
+# Starship is passive configuration only in this baseline: no eval on login.
