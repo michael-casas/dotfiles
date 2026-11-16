@@ -3,6 +3,7 @@ import os from "node:os";
 import * as t3 from "./t3.mjs";
 import * as view from "./view.mjs";
 import { partition } from "./scrollback.mjs";
+import * as questionUI from "./question.mjs";
 
 // Every display line is an array of styled segments. Keep styling before wrapping:
 // a bold/code/link span may cross any number of physical terminal rows.
@@ -806,6 +807,60 @@ export function modelPickerLines(columns, width, T, maxRows = 10) {
   );
   return lines;
 }
+/** Centered answer surface. Scroll whole bubbles, not clipped fragments. */
+export function questionLines(request, card, width, T, ui, maxRows) {
+  const questions = card?.questions || [];
+  const index = questions.findIndex(q => !Object.hasOwn(ui.answerDraft || {}, q.id));
+  const q = questions[index];
+  if (!q || maxRows < 3) return [];
+  const current = questionUI.selection(request.id, q, ui.questionSelection);
+  const contentWidth = Math.max(1, width - 4);
+  const fill = (line, bg = T.surface) => pad(clip(line, width), width).map(s => ({...s, bg: s.bg ?? bg}));
+  const edge = (left, middle, right, w, color) => [seg(left + middle.repeat(Math.max(0, w - 2)) + right, {color})];
+  const rounded = (top, w, color) => T.surface != null
+    ? edge(...(top ? ["▗", "▄", "▖"] : ["▝", "▀", "▘"]), w, color)
+    : edge(...(top ? ["╭", "─", "╮"] : ["╰", "─", "╯"]), w, color);
+  const progress = questions.length > 1 ? `${index + 1}/${questions.length} · ` : "";
+  const header = [space(2), ...clip([seg(progress + safe(q.question), {color: T.fg, bold: true})], contentWidth, true)];
+  const items = [...(q.options || []), ...(q.allowCustomAnswer !== false ? [{label: "Type your answer…"}] : [])];
+  if (!items.length) items.push({label: "No answers available"});
+  const room = maxRows - 3; // top, single-line header, bottom
+  // Preserve every answer before scrolling: use the composer's half-row caps
+  // only when all bubbles fit; otherwise spend one compact row per bubble.
+  const bubbleRows = room >= items.length * 3 ? 3 : 1;
+  const count = Math.min(items.length, Math.floor(room / bubbleRows));
+  const start = Math.max(0, Math.min(current.selected - Math.floor(count / 2), items.length - count));
+  const lines = [rounded(true, width, T.surface ?? T.border), fill(header)];
+  for (let n = start; n < start + count; n++) {
+    const item = items[n], on = n === current.selected;
+    const bg = on ? T.accent : T.user_bubble ?? T.surface;
+    const fg = on ? T.accent_fg : T.fg;
+    const multi = q.multiSelect && n < (q.options?.length || 0);
+    // ■/□ are both one cell wide (☑ measures two), so checked rows stay aligned.
+    const label = `${multi ? (current.checked.includes(n) ? "■ " : "□ ") : ""}${n + 1} ${safe(item.label)}`;
+    const details = safe(item.description);
+    const line = [seg(label, {color: fg, bold: on})];
+    if (details && displayWidth(label) + displayWidth(details) + 3 <= contentWidth - 2)
+      line.push(space(3), seg(details, {color: on ? T.accent_fg : T.muted}));
+    if (bubbleRows === 3) {
+      lines.push(fill([space(1), ...rounded(true, width - 2, bg ?? T.border)]));
+      const cell = T.surface != null
+        ? pad([space(1), ...clip(line, contentWidth - 2, true)], width - 2).map(s => ({...s, bg}))
+        : [seg("│", {color: T.border}), ...pad(clip(line, contentWidth - 2, true), width - 4).map(s => ({...s, inverse: on})), seg("│", {color: T.border})];
+      lines.push(fill([space(1), ...cell]));
+      lines.push(fill([space(1), ...rounded(false, width - 2, bg ?? T.border)]));
+    } else {
+      // Truecolor: Powerline half circles in the bubble colour make each row a
+      // pill, like the send button. ANSI fallback keeps plain rounded edges.
+      const cell = T.surface != null
+        ? [seg("\ue0b6", {color: bg, bg: T.surface}), ...pad(clip(line, contentWidth - 2, true), contentWidth - 2).map(s => ({...s, bg})), seg("\ue0b4", {color: bg, bg: T.surface})]
+        : [seg("╭", {color: T.border}), ...pad(clip(line, contentWidth - 2, true), contentWidth - 2), seg("╮", {color: T.border})].map(s => ({...s, inverse: on}));
+      lines.push(fill([space(2), ...cell]));
+    }
+  }
+  lines.push(rounded(false, width, T.surface ?? T.border));
+  return lines;
+}
 function requestLines(state, width, T, ui) {
   const request = t3.pendingRequests(state)[0];
   if (!request) return [];
@@ -853,20 +908,31 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
   };
   const model = t3.modelLabel?.(state?.thread) || { name: "T3", effort: "" };
   const working = ["working", "blocked"].includes(t3.status(state));
-  const card = composer(width, T, { ...ui, browse: false, inputRows: Math.max(1, Math.min(6, cap - 6)) }, model, working);
+  const pending = t3.pendingRequests(state)[0];
+  const questionCard = pending?.kind === "user_input" && pending.responseCapability?.type !== "not_resumable"
+    ? t3.timeline(state).find(i => i.requestId === pending.id) : null;
+  const questionWidth = Math.min(width, Math.max(30, Math.round(width * 0.6)));
+  // Leave a compact question viewport even for a six-line/pasted draft. Keep
+  // the accepted editor viewport rather than forcing custom answers to one row.
+  const card = composer(width, T, { ...ui, browse: false, inputRows: Math.max(1, Math.min(6, cap - (questionCard ? 9 : 6))) }, model, working);
   const requestRoom = Math.max(0, cap - card.length - 3);
   const dialog = ui.compactDialog
     ? wrapSegments([seg(ui.compactDialog.text, { color: ui.compactDialog.allowed ? T.attention : T.warning, bold: true })], width)
     : [];
-  const requests = [...dialog, ...requestLines(state, width, T, ui)].slice(0, requestRoom);
-  const room = Math.max(0, cap - card.length - requests.length - 3);
+  const questionWindow = questionCard ? questionLines(pending, questionCard, questionWidth, T, ui, Math.max(0, cap - card.length - dialog.length - 1))
+    .map(l => [space(Math.floor((width - questionWidth) / 2)), ...l]) : [];
+  const requests = questionCard ? dialog.slice(0, Math.max(0, cap - card.length - questionWindow.length - 1))
+    : [...dialog, ...requestLines(state, width, T, ui)].slice(0, requestRoom);
+  const room = Math.max(0, cap - card.length - requests.length - questionWindow.length - 3);
   const menu = ui.modelPicker
     ? modelPickerLines(ui.modelPicker, width, T, Math.min(11, room))
     : menuLines(ui.menu, width, T, Math.min(8, room));
   const menuGap = menu.length ? [[]] : [];
   const projected = ui.timelineRows || partition(state, ui.expanded, ui.now ?? 0).live;
-  const all = timelineLines(projected, width, ui.details || {}, T, meta);
-  const bodyRows = Math.max(0, cap - card.length - requests.length - menu.length - menuGap.length - 2);
+  // The pending input is already represented by the window. Do not repeat its
+  // old timeline text when live details are expanded with Tab.
+  const all = timelineLines(projected.filter(r => !(questionCard && r.item?.requestId === pending.id)), width, ui.details || {}, T, meta);
+  const bodyRows = Math.max(0, cap - card.length - requests.length - questionWindow.length - menu.length - menuGap.length - (questionCard ? 1 : 2));
   let timeline = all;
   if (all.length > bodyRows) {
     // Preserve the timer and latest answer/output. The final complete answer is
@@ -894,7 +960,7 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
         seg(usage == null ? "" : ` · Context ${usage}%`, { color: usage >= 90 ? T.error : usage >= 80 ? T.warning : T.faint }),
       ], width);
   const columnLine = l => pad([space(g.left - 3), ...pad(clip(l, width), width)], g.inner);
-  const innerLines = [...timeline, ...requests, [], ...menu, ...menuGap, ...card, status]
+  const innerLines = [...timeline, ...requests, ...(questionCard ? [] : [[]]), ...menu, ...menuGap, ...questionWindow, ...card, status]
     .slice(-cap).map(columnLine);
   const lines = innerLines.map(l => [space(3), ...l, space(3)]);
   return { geometry: g, lines, innerLines, all, bodyRows, composer: card, status, cap };

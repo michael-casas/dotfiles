@@ -57,6 +57,7 @@ function* parse(state) {
 export async function startFakeT3({ initial }) {
   const sockets = new Set();
   const requests = [];
+  const commands = [];
   let subscriber = null;
   let onSubscribe;
   const connected = new Promise((resolve) => (onSubscribe = resolve));
@@ -90,6 +91,7 @@ export async function startFakeT3({ initial }) {
         const m = JSON.parse(text);
         if (m._tag !== "Request") continue;
         requests.push(m.tag);
+        if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
         if (m.tag === "orchestration.subscribeThread") {
           subscriber = send;
           send({ _tag: "Chunk", requestId: m.id, values: initial });
@@ -106,6 +108,7 @@ export async function startFakeT3({ initial }) {
   return {
     url: `http://127.0.0.1:${server.address().port}`,
     requests,
+    commands,
     connected,
     push(values) {
       assertSubscribed(subscriber);

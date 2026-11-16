@@ -237,10 +237,23 @@ This does not switch the editor colorscheme or configure other applications.
   the draft as described above (normal-mode scrolling is unchanged).
 - With an approval pending and an empty composer: **y** approve, **a** approve for
   this session, **n** decline. Non-resumable requests explain why they cannot act.
-- With input requested: enter an option number (comma-separated numbers for
-  multi-select), or custom text if allowed, then **Enter**. Each question is
-  answered in order; the answers are sent together. Options use their wire value
-  when present, otherwise their label.
+- With input requested: a rounded question window sits directly above the
+  composer, centered at 60% of composer/column width (minimum 30 cells, or the
+  full column when narrower). **↑/↓ / Ctrl-P/Ctrl-N** move between answer bubbles;
+  **1–9** pick a bubble directly. **Enter** confirms the highlighted option.
+  For multi-select, **Space** or a number toggles a checkbox, then Enter submits
+  the checked options in option order. Typing switches to **Type your answer…**
+  when allowed; Enter sends the composer text literally, including numeric
+  custom answers. Once custom-focused, digits and spaces edit text; use arrows
+  to return to numbered choices. Composer emacs editing and Esc/dismiss policy
+  are unchanged. The header shows progress across questions; drafts collect
+  before one final response. Options use their wire value when present,
+  otherwise their label. When full-height bubbles do not all fit, the window
+  switches to compact one-row bubbles before scrolling around the selection.
+  Only lists exceeding compact capacity scroll, keeping focus and checkbox
+  states visible. Short terminals prioritize keeping the live frame
+  strictly below terminal height. Requests answered elsewhere remove the window.
+  Non-resumable requests retain their explanatory message.
 - **`/` at the start of a message, or `$` anywhere:** a completion list of the
   thread provider's commands or skills opens above the composer, ranked like the
   desktop. **↑/↓** or **Ctrl-P/Ctrl-N** move, **Tab** or **Enter** insert
@@ -324,6 +337,8 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
 - `commands.mjs` owns `/` and `$` completion: trigger detection, the provider's
   command/skill catalog (`server.getConfig`, then `server.refreshProviders` for
   the thread's folder), desktop ranking, and text insertion. Pure.
+- `question.mjs` owns pure answer-bubble focus, checkboxes and literal custom
+  editing/answer transformations; main retains the request draft and final RPC.
 - `model-picker.mjs` owns the pure three-column draft, catalog interpretation,
   handoff locking, keyboard motions, cascade and option selection.
 - `control.mjs` parses private CSI reports and owns compact confirmation/Esc

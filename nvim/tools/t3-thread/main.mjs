@@ -7,6 +7,7 @@ import * as view from "./view.mjs";
 import * as layout from "./layout.mjs";
 import * as commands from "./commands.mjs";
 import * as modelPicker from "./model-picker.mjs";
+import * as questionUI from "./question.mjs";
 import * as scrollback from "./scrollback.mjs";
 import * as control from "./control.mjs";
 import { createControlInput } from "./control-input.mjs";
@@ -100,6 +101,9 @@ function Thread({ initialId, T }) {
   const [details, setDetails] = useState({}),
     [now, setNow] = useState(Date.now()),
     [answerDraft, setAnswerDraft] = useState({});
+  const [questionSelection, setQuestionSelection] = useState(null);
+  const answerRequest = useRef(null);
+  const sentAnswers = useRef(null);
   // `/` and `$` completion: providers from server.getConfig, the highlighted
   // row per trigger, and the trigger the user closed with Esc.
   const [providers, setProviders] = useState(null),
@@ -171,6 +175,14 @@ function Thread({ initialId, T }) {
     (q) => !Object.hasOwn(answerDraft, q.id),
   );
   const userInput = request?.kind === "user_input";
+  useEffect(() => {
+    if (answerRequest.current !== request?.id) {
+      answerRequest.current = request?.id;
+      sentAnswers.current = null;
+      setAnswerDraft({});
+      setQuestionSelection(null);
+    }
+  }, [request?.id]);
   const instanceId =
     state?.thread?.modelSelection?.instanceId ||
     state?.thread?.providerInstanceId;
@@ -232,6 +244,7 @@ function Thread({ initialId, T }) {
           details,
           now,
           answerDraft,
+          questionSelection,
           projects: projectMap,
           timelineRows: rows,
           flash,
@@ -253,6 +266,7 @@ function Thread({ initialId, T }) {
       details,
       now,
       answerDraft,
+      questionSelection,
       projectMap,
       rows,
       flash,
@@ -379,36 +393,48 @@ function Thread({ initialId, T }) {
     if (!preserveDraft) setEditor({ value: "", cursor: 0 });
     setFlash("");
   }
-  async function submit(queue = false) {
-    const text = editor.value.trim();
-    if (!text || busy) return;
-    if (userInput) {
-      if (!question) return;
-      if (request.responseCapability?.type === "not_resumable") {
-        setFlash(
-          request.responseCapability.reason ||
-            "This request cannot be resumed.",
-        );
-        return;
-      }
-      const parsed = view.answerInput(question, text);
-      if (parsed.error) {
-        setFlash(parsed.error);
-        return;
-      }
-      const answers = { ...answerDraft, [question.id]: parsed.answer };
-      const next = card.questions.find((q) => !Object.hasOwn(answers, q.id));
-      setEditor({ value: "", cursor: 0 });
-      if (next) {
-        setAnswerDraft(answers);
-        return;
-      }
-      await act(async () => {
-        await client.current.respond(request.id, { answers });
-        setAnswerDraft({});
-      }, "Sending answers…");
+  async function answerQuestion(ch, key) {
+    if (busy || !question || sentAnswers.current === request.id) return;
+    if (request.responseCapability?.type === "not_resumable") {
+      setFlash(
+        request.responseCapability.reason ||
+          "This request cannot be resumed.",
+      );
       return;
     }
+    const result = questionUI.input(question, questionUI.selection(request.id, question, questionSelection), editor, ch, key);
+    setQuestionSelection(result.selection);
+    setEditor(result.editor);
+    if (result.error) {
+      setFlash(result.error);
+      return;
+    }
+    setFlash("");
+    if (!Object.hasOwn(result, "answer")) return;
+    const answers = { ...answerDraft, [question.id]: result.answer };
+    const next = card.questions.find((q) => !Object.hasOwn(answers, q.id));
+    setEditor({ value: "", cursor: 0 });
+    if (next) {
+      setAnswerDraft(answers);
+      return;
+    }
+    // Keep the completed draft visible until the server resolves/removes the
+    // request. Guard duplicate Enter presses before React/busy can repaint.
+    sentAnswers.current = request.id;
+    await act(async () => {
+      try {
+        await client.current.respond(request.id, { answers });
+        setAnswerDraft(answers);
+      } catch (e) {
+        sentAnswers.current = null;
+        throw e;
+      }
+    }, "Sending answers…");
+  }
+  async function submit(queue = false) {
+    if (userInput) return answerQuestion("", {return: true});
+    const text = editor.value.trim();
+    if (!text || busy) return;
     if (threadId && text === "/model") {
       openModelPicker();
       return;
@@ -537,6 +563,10 @@ function Thread({ initialId, T }) {
           }),
         "Responding…",
       );
+      return;
+    }
+    if (userInput) {
+      answerQuestion(ch, key);
       return;
     }
     if (key.ctrl && ch === "q") {

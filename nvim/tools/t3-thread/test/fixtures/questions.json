@@ -1,0 +1,50 @@
+{
+  "id": "synthetic-question-card",
+  "type": "user_input_request",
+  "requestId": "synthetic-question-request",
+  "questions": [
+    {
+      "id": "color",
+      "question": "Which palette should we use?",
+      "options": [
+        {
+          "label": "Ocean",
+          "value": "ocean",
+          "description": "Cool blue tones"
+        },
+        {
+          "label": "Forest",
+          "description": "Quiet green tones"
+        }
+      ],
+      "multiSelect": false,
+      "header": "Palette"
+    },
+    {
+      "id": "checks",
+      "question": "Which checks should run?",
+      "options": [
+        {
+          "label": "Unit",
+          "value": "unit",
+          "description": "Fast logic checks"
+        },
+        {
+          "label": "Integration",
+          "value": "integration",
+          "description": "Exercise boundaries"
+        }
+      ],
+      "multiSelect": true,
+      "allowCustomAnswer": false,
+      "header": "Checks"
+    },
+    {
+      "id": "note",
+      "question": "Anything else to add?",
+      "options": [],
+      "allowCustomAnswer": true,
+      "header": "Notes"
+    }
+  ]
+}
