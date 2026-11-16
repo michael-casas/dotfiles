@@ -318,3 +318,72 @@ test("settled success and failure skip renderer/Ruby and frames on resize; theme
     rmSync(dir, { recursive: true });
   }
 });
+
+test("worker resize and R retry only transient failures on an unchanged board", async () => {
+  for (const op of ["render", "refresh"]) {
+    const dir = mkdtempSync(join(tmpdir(), "board-worker-retry-"));
+    const log = join(dir, "jobs.log");
+    writeFileSync(log, "");
+    const c = client({
+      ENVI_BOARD_TEST_RENDER_LOG: log,
+      ENVI_BOARD_TEST_TIMEOUT_ONCE: "1",
+      NODE_OPTIONS: `--import=${new URL("./fixtures/render-probe.mjs", import.meta.url).href}`,
+    });
+    const jobs = () => readFileSync(log, "utf8").trim().split("\n");
+    try {
+      c.send({
+        v: 1,
+        id: 70,
+        op: "open",
+        path: new URL("./fixtures/example.wb.md", import.meta.url).pathname,
+      });
+      await c.until((fs) =>
+        fs
+          .filter((f) => f.type === "end")
+          .map((e) => decode(fs, e))
+          .find(
+            (d) =>
+              d.rows.some((s) => s.includes("renderer time/output limit")) &&
+              d.rows.some((s) => s.includes("approximate text")),
+          ),
+      );
+      assert.equal(jobs().filter((s) => s === "ruby").length, 2);
+      c.send({ v: 1, id: 71, op, width: 120 });
+      await c.until((fs) =>
+        fs
+          .filter((f) => f.type === "end" && f.id === 71)
+          .map((e) => decode(fs, e))
+          .find(
+            (d) =>
+              d.rows.filter((s) => s.includes("approximate text")).length === 2,
+          ),
+      );
+      assert.equal(
+        jobs().filter((s) => s === "render").length,
+        3,
+        "retry only failed diagram",
+      );
+      assert.equal(
+        jobs().filter((s) => s === "ruby").length,
+        3,
+        "retry starts a real Ruby job",
+      );
+      const before = c.frames.length;
+      c.send({ v: 1, id: 72, op, width: 90 });
+      c.send({ v: 1, id: 73, op: "source", expectedHash: "old" });
+      await c.until((fs) => fs.find((f) => f.type === "error" && f.id === 73));
+      assert.equal(
+        c.frames.slice(before).filter((f) => f.type === "begin").length,
+        0,
+      );
+      assert.equal(jobs().filter((s) => s === "render").length, 3);
+      c.child.stdin.end();
+      await new Promise((resolve) => c.child.once("exit", resolve));
+      assert.equal(c.child.exitCode, 0);
+    } finally {
+      c.child.stdin.destroy();
+      if (c.child.exitCode === null) c.child.kill();
+      rmSync(dir, { recursive: true });
+    }
+  }
+});

@@ -29,6 +29,12 @@ local function geometry()
   }
 end
 
+local function config(s)
+  local cfg = geometry()
+  cfg.title = s.snapshot and s.snapshot.stale and " BOARD · STALE " or " BOARD "
+  return cfg
+end
+
 local function safe(s)
   return tostring(s):gsub("[%z\1-\31\127]", function(c)
     return string.format("<U+%04X>", string.byte(c))
@@ -173,9 +179,7 @@ local function paint(s, data)
       end
     end
     pcall(api.nvim_win_set_cursor, s.win, { selected, 0 })
-    local cfg = geometry()
-    cfg.title = data.stale and " BOARD · STALE " or " BOARD "
-    api.nvim_win_set_config(s.win, cfg)
+    api.nvim_win_set_config(s.win, config(s))
     theme(s)
   end
 end
@@ -467,7 +471,7 @@ function M.open(path, opts)
     group = s.group,
     callback = function()
       if valid(s.win) then
-        api.nvim_win_set_config(s.win, geometry())
+        api.nvim_win_set_config(s.win, config(s))
         send(s, "render", { width = geometry().width })
       end
       dismiss(s)

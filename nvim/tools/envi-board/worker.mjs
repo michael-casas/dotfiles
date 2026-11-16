@@ -19,6 +19,7 @@ export async function worker() {
     diagramsHash = null,
     publishedHash = null,
     renderToken = 0,
+    rendering = false,
     diagrams = new Map();
   let buffer = "",
     discard = false,
@@ -115,30 +116,36 @@ export async function worker() {
     process.stdin.removeAllListeners("data");
     process.stdin.destroy();
   };
-  const refreshRendering = (snap) => {
+  const refreshRendering = (snap, retry = false) => {
     const doc = snap.document;
-    if (diagramsHash === (doc?.hash ?? null)) {
-      // Presentation changes cannot alter color:false, fit:nil renderer output.
-      // Keep both settled results and the one in-flight pass for this revision.
-      publish();
-      return;
-    }
-    const token = ++renderToken;
     const blocks =
       doc?.valid && !doc.opaque
         ? doc.blocks.filter((b) => b.kind === "mermaid")
         : [];
-    diagrams = new Map(
-      blocks.map((b) => [b.id, { kind: "rendering", source: b.content }]),
-    );
-    diagramsHash = doc?.hash ?? null;
+    const sameRevision = diagramsHash === (doc?.hash ?? null);
+    if (!sameRevision) {
+      ++renderToken;
+      rendering = false;
+      diagrams = new Map(
+        blocks.map((b) => [b.id, { kind: "rendering", source: b.content }]),
+      );
+      diagramsHash = doc?.hash ?? null;
+    }
+    // Presentation-only updates keep settled output and the active pass. Only
+    // explicit resize/render/R retries transient failures; theme never spins jobs.
+    const pending = rendering
+      ? []
+      : blocks.filter(
+          (b) =>
+            !sameRevision || (retry && diagrams.get(b.id)?.retryable === true),
+        );
     publish();
-    if (!blocks.length) return;
+    if (!pending.length) return;
+    const token = renderToken;
+    rendering = true;
     (async () => {
-      for (const b of blocks) {
-        const result = await renderer.render(b.content, {
-          revision: doc.hash,
-        });
+      for (const b of pending) {
+        const result = await renderer.render(b.content, { revision: doc.hash });
         if (
           closed ||
           token !== renderToken ||
@@ -148,6 +155,7 @@ export async function worker() {
         diagrams.set(b.id, result);
         publish();
       }
+      if (token === renderToken) rendering = false;
     })();
   };
   const handle = async (req) => {
@@ -195,12 +203,13 @@ export async function worker() {
       requestId = req.id;
       requestedPath = req.path;
       diagramsHash = null;
+      rendering = false;
       publishedHash = null;
       ++renderToken; // Invalidates pending work even for a missing replacement file.
       diagrams = new Map();
       renderer = new DiagramRenderer();
       session = new BoardSession({ path: resolve(req.path) });
-      session.subscribe(refreshRendering);
+      session.subscribe((snap) => refreshRendering(snap));
       session.start();
       return;
     }
@@ -211,11 +220,11 @@ export async function worker() {
     requestId = req.id;
     if (req.op === "refresh") {
       await session.retry();
-      publish();
+      refreshRendering(session.snapshot, true);
       return;
     }
     if (req.op === "render") {
-      refreshRendering(session.snapshot);
+      refreshRendering(session.snapshot, true);
       return;
     }
     if (req.op === "source") {

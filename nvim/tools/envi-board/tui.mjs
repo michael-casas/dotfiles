@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { render, Text, Box, useInput, useApp, useStdout } from "ink";
 import { BoardSession } from "./session.mjs";
 import { viewport, project } from "./view.mjs";
@@ -15,6 +15,13 @@ export async function openTui(opts) {
       { stdout } = useStdout();
     const [snapshot, setSnapshot] = useState(session.snapshot),
       [size, setSize] = useState([stdout.columns ?? 80, stdout.rows ?? 24]);
+    const pass = useRef({
+      hash: null,
+      token: 0,
+      active: false,
+      diagrams: new Map(),
+    });
+    const [retry, setRetry] = useState(0);
     const [diagrams, setDiagrams] = useState(new Map()),
       [sourcePane, setSourcePane] = useState(null),
       [sourceOnly, setSourceOnly] = useState(false);
@@ -26,39 +33,59 @@ export async function openTui(opts) {
       [query, setQuery] = useState(null);
     useEffect(() => session.subscribe(setSnapshot), []);
     useEffect(() => {
-      const resize = () => setSize([stdout.columns ?? 80, stdout.rows ?? 24]);
+      const resize = () => {
+        setSize([stdout.columns ?? 80, stdout.rows ?? 24]);
+        setRetry((n) => n + 1);
+      };
       stdout.on("resize", resize);
       return () => stdout.off("resize", resize);
     }, []);
-    // Only a board revision starts work. Resize/theme render from retained
-    // state, including failures, without cancelling or duplicating pending jobs.
+    useEffect(
+      () => () => {
+        ++pass.current.token;
+      },
+      [],
+    );
     useEffect(() => {
-      let current = true;
-      setSourcePane(null);
-      const doc = snapshot?.document;
+      const state = pass.current,
+        doc = snapshot?.document;
       const blocks =
         doc?.valid && !doc.opaque
           ? doc.blocks.filter((b) => b.kind === "mermaid")
           : [];
-      setDiagrams(
-        new Map(
+      const sameRevision = state.hash === (doc?.hash ?? null);
+      if (!sameRevision) {
+        ++state.token;
+        state.active = false;
+        state.hash = doc?.hash ?? null;
+        state.diagrams = new Map(
           blocks.map((b) => [b.id, { kind: "rendering", source: b.content }]),
-        ),
-      );
-      if (doc?.valid && !doc.opaque)
-        (async () => {
-          for (const b of blocks) {
-            const value = await renderer.render(b.content, {
-              revision: doc.hash,
-            });
-            if (!current) break;
-            if (current) setDiagrams((m) => new Map(m).set(b.id, value));
-          }
-        })();
-      return () => {
-        current = false;
-      };
-    }, [snapshot?.document?.hash]);
+        );
+        setDiagrams(state.diagrams);
+        setSourcePane(null);
+      }
+      const pending = state.active
+        ? []
+        : blocks.filter(
+            (b) =>
+              !sameRevision || state.diagrams.get(b.id)?.retryable === true,
+          );
+      if (!pending.length) return;
+      const token = state.token;
+      state.active = true;
+      (async () => {
+        for (const b of pending) {
+          const value = await renderer.render(b.content, {
+            revision: doc.hash,
+          });
+          if (token !== state.token) return;
+          state.diagrams = new Map(state.diagrams).set(b.id, value);
+          setDiagrams(state.diagrams);
+        }
+        if (token === state.token) state.active = false;
+      })();
+      // Palette changes never start work; resize/R only retry transient errors.
+    }, [snapshot?.document?.hash, retry]);
     const projection = snapshot
       ? project(snapshot, { diagrams, sourceOnly })
       : { rows: ["Loading local board…"], mapping: [] };
@@ -162,7 +189,8 @@ export async function openTui(opts) {
           });
         }
       }
-      if (input === "R") void session.retry();
+      if (input === "R")
+        void session.retry().then(() => setRetry((n) => n + 1));
       if (input === "j" || key.downArrow)
         setTop((t) => Math.min(Math.max(0, rows.length - size[1] + 2), t + 1));
       if (input === "k" || key.upArrow) setTop((t) => Math.max(0, t - 1));

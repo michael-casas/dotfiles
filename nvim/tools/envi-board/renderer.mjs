@@ -41,7 +41,7 @@ export class DiagramRenderer {
       .update(JSON.stringify(["merminal-0.1.0", PROFILE, source]))
       .digest("hex");
     if (this.cache.has(key))
-      return Promise.resolve({ ...this.cache.get(key), revision });
+      return Promise.resolve({ ...this.cache.get(key).result, revision });
     if (this.closed || this.queue.length >= 64)
       return Promise.resolve(fallback("renderer closed or queue full"));
     return new Promise((resolve) => {
@@ -53,14 +53,14 @@ export class DiagramRenderer {
     if (this.child || this.closed) return;
     const job = this.queue.shift();
     if (!job) return;
-    const finish = (result) => {
+    const finish = (result, cacheable = true) => {
       if (job.finished) return;
       job.finished = true;
       clearTimeout(job.timer);
       clearInterval(job.memory);
       this.child = null;
-      // Cache settled failures too; resize/reopen must not repeatedly run bad input.
-      if (!this.closed) {
+      // Retain only deterministic output/rejections, never environment failures.
+      if (cacheable && !this.closed) {
         const size = Buffer.byteLength(JSON.stringify(result));
         while (
           this.cache.size >= 64 ||
@@ -68,19 +68,24 @@ export class DiagramRenderer {
         ) {
           const key = this.cache.keys().next().value;
           if (!key) break;
-          this.cacheBytes -= this.cache.get(key)._size;
+          this.cacheBytes -= this.cache.get(key).size;
           this.cache.delete(key);
         }
         if (size <= 8 * 1024 * 1024) {
-          this.cache.set(job.key, { ...result, _size: size });
+          const previous = this.cache.get(job.key);
+          if (previous) this.cacheBytes -= previous.size;
+          this.cache.set(job.key, { result, size });
           this.cacheBytes += size;
         }
       }
       job.resolve({ ...result, revision: job.revision });
       this.next();
     };
-    const failed = (reason) =>
-      finish({ kind: "error", reason, source: job.source });
+    const failed = (reason, cacheable = false) =>
+      finish(
+        { kind: "error", reason, source: job.source, retryable: !cacheable },
+        cacheable,
+      );
     let argv;
     try {
       if (process.platform !== "darwin") throw Error("isolation unavailable");
@@ -151,12 +156,13 @@ export class DiagramRenderer {
     job.memory.unref();
     child.stdin.on("error", () => {});
     child.on("error", () => failed("renderer launch failed"));
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       if (this.closed || killed || code !== 0 || diagnostic)
         failed(
           killed
             ? "renderer time/output limit"
             : "renderer failed or emitted diagnostics; partial output discarded",
+          !this.closed && !killed && !signal && Number.isInteger(code),
         );
       else {
         const output = safeText(Buffer.concat(chunks).toString("utf8"));

@@ -164,3 +164,49 @@ Round 2 gates: **41/41 board Node tests** (three added; one existing worker
 assertion strengthened), **173/173 T3 Node tests**, **16/16 T3 Lua suites**,
 **2/2 board Lua harnesses**, all exit 0. Stylua, module syntax checks and
 `git diff --check` pass. Tests remain synthetic/offline; theme reader unchanged.
+
+## Critic round 3 corrective pass
+
+Round 3 independently scored the preceding pass 4/5. The following policy
+supersedes round 2's overly broad failed-result caching; transient environment
+failures are not deterministic facts about authored Mermaid.
+
+- **R3-1:** one snapshot-derived float config helper is used by paint and resize.
+  `board-live.lua` now invalidates a board, shrinks the editor, fires VimResized,
+  and checks `BOARD · STALE` both immediately and after the unchanged worker has
+  had time to respond. Meaningful RED: `resize preserves STALE title` failed
+  before the helper; GREEN: title survives without a redundant worker repaint,
+  and atomic recovery still clears it.
+- **R3-2:** only successful output and normal engine rejections (diagnostics or
+  nonsignal nonzero exit) enter the bounded cache. Deadlines, output/RSS kills,
+  external signals, launch errors, unavailable/incompatible Ruby and shutdown
+  are never cached. Error results explicitly identify whether retry is allowed.
+  Both worker and Ink retain successful/deterministically rejected blocks and
+  retry only transient errors on resize/render/R. Theme-only changes and active
+  jobs never start duplicate work. No hidden automatic retry loop is installed.
+- **R3-2 tests:** direct real renderer tests cover timeout → success, missing
+  runtime → success, output limit → success and signal kill → success using the
+  same instance and input. Worker and real Ink PTY tests force exactly the first
+  diagram to time out, then recover through resize and R independently, counting
+  one new Ruby job and no repeat calls for the already successful diagram.
+  Repeating the action after recovery starts no jobs or identical snapshots.
+  RED showed a populated transient-failure cache and, with the old reader
+  scheduling restored, deadline failures waiting for a retry that never ran.
+  The prior mixed success/deterministic-rejection no-op tests remain green.
+- **R3-3:** cache entries now separate `{result, size}`; cache hits expose only
+  result fields. Exact first-result/cache-hit equality covers both success and
+  engine rejection, without deleting `_size` in the test. RED detected the leak.
+- **R3-4:** README now says legacy `width` on open/render is accepted but ignored,
+  since the backend is uncolored/no-fit. Documentation describes the narrowed
+  retry/cache policy. The shared theme reader stays where REP directed.
+
+Manual Herdr E2E and the next independent critic verdict remain REP's remit;
+these results are implementation evidence, not a self-awarded acceptance score.
+
+Round 3 gates: **45/45 board Node tests** (four added and the old failure-cache
+expectation narrowed), **173/173 T3 Node tests**, **16/16 T3 Lua suites**, **2/2
+board Lua harnesses**, all exit 0. Stylua on touched Lua, Prettier on touched
+JavaScript, `node --check` and `git diff --check` pass. RED logs cover STALE resize,
+cache policy, result-field leakage and restored old reader retry scheduling.
+No browser/network/hc/T3 test calls, theme relocation or commit IDs in tracked
+validation notes were introduced.

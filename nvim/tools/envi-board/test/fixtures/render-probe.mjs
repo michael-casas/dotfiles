@@ -11,9 +11,15 @@ childProcess.spawn = function (command, ...args) {
 };
 syncBuiltinESMExports();
 const render = DiagramRenderer.prototype.render;
+let first = true;
 DiagramRenderer.prototype.render = function (...args) {
   record("render");
+  const timeout = this.timeout;
+  const forced = first && process.env.ENVI_BOARD_TEST_TIMEOUT_ONCE === "1";
+  first = false;
+  if (forced) this.timeout = 1;
   return render.apply(this, args).then((result) => {
+    if (forced) this.timeout = timeout;
     record("settled:" + result.kind);
     return result;
   });

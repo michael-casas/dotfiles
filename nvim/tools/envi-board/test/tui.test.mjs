@@ -105,3 +105,60 @@ with tempfile.TemporaryDirectory(prefix='board-ink-noop-') as folder:
   );
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("Ink resize and R recover a transient timeout without restarting successful diagrams", () => {
+  const script = String.raw`
+import os,pty,subprocess,select,time,fcntl,struct,sys,tempfile,signal,termios
+for action in ['resize','R']:
+ with tempfile.TemporaryDirectory(prefix='board-ink-retry-') as folder:
+  log=folder+'/jobs.log';open(log,'w').close()
+  master,slave=pty.openpty()
+  fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
+  p=subprocess.Popen([sys.argv[1],sys.argv[2],'open','--',sys.argv[3]],stdin=slave,stdout=slave,stderr=slave,
+   env={**os.environ,'TERM':'xterm-256color','ENVI_BOARD_TEST_RENDER_LOG':log,'ENVI_BOARD_TEST_TIMEOUT_ONCE':'1','NODE_OPTIONS':'--import='+sys.argv[4]})
+  out=b''
+  def jobs():
+   with open(log) as f: return f.read().splitlines()
+  def pump():
+   global out
+   ready,_,_=select.select([master],[],[],.03)
+   if ready: out+=os.read(master,65536)
+   assert p.poll() is None,out[-2000:]
+  def settled(count):
+   deadline=time.monotonic()+6
+   while sum(x.startswith('settled:') for x in jobs())<count and time.monotonic()<deadline: pump()
+   assert sum(x.startswith('settled:') for x in jobs())==count,jobs()
+   # Drain Ink's repaint after the test probe records the promise settlement.
+   for _ in range(4): pump()
+  try:
+   settled(2)
+   assert jobs().count('ruby')==2 and 'settled:error' in jobs(),jobs()
+   def trigger():
+    if action=='R': os.write(master,b'R')
+    else:
+     fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,110,0,0));os.kill(p.pid,signal.SIGWINCH)
+   trigger();settled(3)
+   assert jobs().count('ruby')==3 and jobs().count('render')==3,jobs()
+   assert jobs().count('settled:text-approximate')==2,jobs()
+   trigger()
+   for _ in range(10): pump()
+   assert jobs().count('render')==3,jobs()
+   os.write(master,b'q');p.wait(timeout=4);assert p.returncode==0
+  finally:
+   if p.poll() is None: p.kill();p.wait()
+   os.close(master);os.close(slave)
+`;
+  const result = spawnSync(
+    "python3",
+    [
+      "-c",
+      script,
+      process.execPath,
+      main,
+      path,
+      new URL("./fixtures/render-probe.mjs", import.meta.url).href,
+    ],
+    { encoding: "utf8", timeout: 20000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});

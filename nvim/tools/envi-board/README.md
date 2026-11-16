@@ -81,9 +81,11 @@ fallback stops only the exact owned job. No terminal enumeration or hc command.
 ### Private stdio v1
 
 Host requests `{v:1,id,op,...}`; fixed ops `open`, `refresh`, `render`, `source`,
-`close`. `open` requires absolute `path`, optional explicit `bindings` and
-bounded width; source requires block ID and expected document SHA-256. No exec,
-eval, write, arbitrary file read or unsolicited source-open operation exists.
+`close`. `open` requires absolute `path` and optional explicit `bindings`.
+The legacy `width` field on `open`/`render` is accepted and ignored: renderer
+output does not depend on viewport width. Source requires block ID and expected
+document SHA-256. No exec, eval, write, arbitrary file read or unsolicited
+source-open operation exists.
 
 Snapshots use `begin {seq,generation,count,bytes}`, ordered `chunk {seq,index,data}`
 and `end {seq,generation}`. Chunk data is assembled JSON, never independently
@@ -95,10 +97,13 @@ malformed/oversized/late frames and EOF are covered in tests. Stale source reque
 are refused; renderer results are revision-guarded and late work is ignored.
 Uncolored, no-fit renderer bytes are cached by engine/profile/source, not ignored
 width/theme settings; completed graphs stay visible across resize/theme updates
-and new jobs are labeled `rendering…`. Same-revision resize/theme updates do not
-restart settled or in-flight work; unchanged snapshots emit no frames. Failed
-backend results share the bounded input cache with successes. Slow-reader output
-is coalesced behind a bounded snapshot backlog.
+and new jobs are labeled `rendering…`. Same-revision resize/theme updates retain
+successful output, deterministic rejections and in-flight work; unchanged
+snapshots emit no frames. Successes and deterministic engine rejections share
+the bounded input cache. Timeouts, kills, launch failures and Ruby unavailability
+are not cached: resize, `render` or `R` retries only transiently failed diagrams.
+Theme-only changes never start renderer work. Slow-reader output is coalesced
+behind a bounded snapshot backlog.
 
 ## Supported Mermaid profile (`envi-text-v0.1`)
 

@@ -182,35 +182,80 @@ test("renderer reuses uncolored no-fit output across width/theme changes without
   }
 });
 
-test("failed renders including deadline failures share the bounded input cache", async () => {
+test("deterministic engine rejections share the bounded input cache without bookkeeping leaks", async () => {
   const rejected = "flowchart LR\n A[First] --> B\n A[Second] --> C\n";
-  for (const options of [{}, { timeout: 1 }]) {
+  const renderer = new DiagramRenderer();
+  try {
+    const first = await renderer.render(rejected, { revision: "a" });
+    assert.equal(first.kind, "error");
+    assert.equal(first.retryable, false);
+    assert.equal(
+      renderer.cache.size,
+      1,
+      "engine rejection occupies the bounded cache",
+    );
+    const bytes = renderer.cacheBytes;
+    renderer.ruby = "/no/such/ruby";
+    const second = await renderer.render(rejected, { revision: "b" });
+    assert.deepEqual({ ...second, revision: "a" }, first);
+    assert.equal(second.revision, "b");
+    assert.equal(renderer.cacheBytes, bytes);
+  } finally {
+    renderer.close();
+  }
+});
+
+test("transient deadline and unavailable runtime failures retry and recover on the same input", async () => {
+  for (const options of [
+    { timeout: 1 },
+    { ruby: "/no/such/ruby" },
+    { maxOutput: 1 },
+  ]) {
     const renderer = new DiagramRenderer(options);
+    const ruby =
+      process.env.ENVI_BOARD_RUBY ?? "/opt/homebrew/opt/ruby/bin/ruby";
     try {
-      const first = await renderer.render(
-        options.timeout ? fixtures.flowchart : rejected,
-        { revision: "a" },
-      );
+      const first = await renderer.render(fixtures.flowchart);
       assert.equal(first.kind, "error");
+      assert.equal(first.retryable, true);
       assert.equal(
         renderer.cache.size,
-        1,
-        "failed jobs occupy the same bounded cache as success",
+        0,
+        "transient failures must not poison input cache",
       );
-      const bytes = renderer.cacheBytes;
-      renderer.ruby = "/no/such/ruby";
-      const second = await renderer.render(
-        options.timeout ? fixtures.flowchart : rejected,
-        { revision: "b" },
-      );
+      renderer.timeout = 5000;
+      renderer.ruby = ruby;
+      renderer.maxOutput = 16 * 1024 * 1024;
+      const recovered = await renderer.render(fixtures.flowchart);
+      assert.equal(recovered.kind, "text-approximate");
+      const cached = await renderer.render(fixtures.flowchart);
       assert.deepEqual(
-        { ...second, revision: "a", _size: undefined },
-        { ...first, _size: undefined },
+        cached,
+        recovered,
+        "cache hits expose only public result fields",
       );
-      assert.equal(second.revision, "b");
-      assert.equal(renderer.cacheBytes, bytes);
+      assert.equal("_size" in cached, false);
     } finally {
       renderer.close();
     }
+  }
+});
+
+test("signal-killed renderer is not a deterministic rejection and retries", async () => {
+  const renderer = new DiagramRenderer();
+  try {
+    const pending = renderer.render(fixtures.flowchart);
+    assert.ok(renderer.child);
+    renderer.child.kill("SIGKILL");
+    const first = await pending;
+    assert.equal(first.kind, "error");
+    assert.equal(first.retryable, true);
+    assert.equal(renderer.cache.size, 0);
+    assert.equal(
+      (await renderer.render(fixtures.flowchart)).kind,
+      "text-approximate",
+    );
+  } finally {
+    renderer.close();
   }
 });

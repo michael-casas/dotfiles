@@ -54,6 +54,17 @@ wait(function()
   return api.nvim_win_get_config(win).title[1][1]:find("STALE", 1, true)
 end, "invalid save visibly stale")
 assert(text():find("File-first", 1, true), "last good retained")
+local columns = vim.o.columns
+vim.o.columns = math.max(40, columns - 10)
+api.nvim_exec_autocmds("VimResized", {})
+assert(api.nvim_win_get_config(win).title[1][1]:find("STALE", 1, true), "resize preserves STALE title")
+vim.wait(150, function()
+  return false
+end)
+assert(api.nvim_win_get_config(win).title[1][1]:find("STALE", 1, true), "STALE title does not depend on worker repaint")
+vim.o.columns = columns
+api.nvim_exec_autocmds("VimResized", {})
+
 vim.fn.writefile(fixture, path .. ".tmp", "b")
 assert(vim.uv.fs_rename(path .. ".tmp", path))
 wait(function()
