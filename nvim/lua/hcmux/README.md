@@ -102,17 +102,28 @@ explicit way to leave a session from anywhere.
   adjusts this bound in seconds. The launcher never kills the server or removes
   its swap files. The exit barrier applies to all editors started by `envi`;
   direct `nvim`/`nvim-session` launches have no launcher barrier.
-- **Real file conflicts stay protected:** session setup replaces Neovim 0.11's
-  default same-user “Edit anyway” swap handler with the normal prompt/recovery
-  path. A second editor's read-only *session* status does not itself make its
-  file buffers read-only. For a live writer, choose read-only or quit; no swap
-  handler here automatically chooses Edit or deletes a swap. Neovim itself
-  removes dead-owner clean local swaps; dirty crash swaps retain recovery of
-  unsaved text. `silent!` session loading does not bypass this protection, even
-  when an unloaded buffer first encounters its swap on later entry.
-  `test/run-lua.sh session-swap` under `nvim/tools/t3-thread` checks real private
-  swaps, recovery, delayed server exit, and foreign-writer protection using an
-  in-memory RPC UI; it does not contact herdr-core or the desktop.
+- **Stale swaps after hostname changes:** macOS DHCP can change the hostname
+  recorded in an old swap. Neovim's automatic clean-swap removal requires a
+  matching hostname, so even a clean dead swap can prompt after each reload.
+  Session setup removes it only when it is in a configured absolute swap
+  directory inside this profile's local state, has **no unsaved changes**, and
+  its owner is absent (`pid=0` or a local ESRCH probe). It chooses deletion via
+  `SwapExists` and prints one INFO notice: “removed stale swap for <file> (no
+  unsaved changes)”. Dirty swaps retain Neovim's normal recovery behavior;
+  project-relative swaps (`directory=.` / `./swap`), directories outside profile
+  state and unprobeable owners never qualify for this cleanup. Hostname alone
+  is not used to decide ownership. Pinning a stable macOS hostname with
+  `sudo scutil --set HostName <stable-name>` can prevent DHCP drift; that is an
+  optional user/admin decision, not something envi changes.
+- **Live owners keep upstream behavior:** other cases chain to Neovim's
+  installed default swap handler unchanged. On Neovim 0.11, a running same-user
+  writer selects Edit and emits **W325**; this is upstream policy, not a new
+  prompt or a session takeover. A second editor's read-only *session* status
+  protects the stored layout, not file contents. No live-owner swaps are deleted.
+  This also applies during `silent!` layout source or deferred buffer entry.
+  `test/run-lua.sh session-swap` under `nvim/tools/t3-thread` checks private real
+  swaps, hostname drift, recovery, delayed server exit and upstream live-owner
+  behavior using an in-memory RPC UI; it never contacts herdr-core or the desktop.
 - **Recover a stale session:** in the editor whose current buffers/layout you
   want to keep, run `:Session take`. This deliberately replaces the stored
   layout, not file contents. Do not reload first if your cleaned-up layout is

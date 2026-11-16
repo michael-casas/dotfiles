@@ -23,6 +23,7 @@ local function private(name)
   write(dir .. "/document", "saved")
   return dir,
     {
+      NVIM_APPNAME = "envi",
       SWAP_TEST_DIR = dir,
       SWAP_TEST_REPO = repo,
       SWAP_TEST_NVIM = vim.v.progpath,
@@ -46,14 +47,16 @@ package.loaded['hcmux.term'] = {config = {}}
 local s = require('hcmux.session')
 s.setup({debounce = 60000})
 ]]
-local function probe(dir, env, recovery, deferred)
+local function probe(dir, env, recovery, deferred, directory)
   local ch = vim.fn.jobstart({ vim.v.progpath, "--embed", "-u", "NONE", "-i", "NONE" }, { rpc = true, env = env })
   assert(ch > 0)
   channels[#channels + 1] = ch
   vim.rpcrequest(ch, "nvim_ui_attach", 80, 24, { rgb = true })
   local result = vim.rpcrequest(ch, "nvim_exec_lua", bootstrap .. [[
-local recovery, deferred = ...
-local events = {}
+local recovery, deferred, directory = ...
+if directory and directory ~= vim.NIL then vim.opt.directory = directory end
+local events, notices = {}, {}
+vim.notify = function(text, level) notices[#notices + 1] = {text = text, level = level} end
 vim.api.nvim_create_autocmd('SwapExists', {callback = function()
   events[#events + 1] = {choice = vim.v.swapchoice, info = vim.fn.swapinfo(vim.v.swapname)}
   -- Test-only observer: preserve the product's decision; otherwise choose
@@ -64,14 +67,15 @@ s.load_layout((deferred and 'badd ' or 'edit ') .. vim.fn.fnameescape(dir .. '/d
 local before_enter = #events
 if deferred then vim.cmd.edit(dir .. '/document') end
 return {events = events, before_enter = before_enter,
-  lines = vim.api.nvim_buf_get_lines(0, 0, -1, false), readonly = vim.bo.readonly}
-]], { recovery or "o", deferred or false })
+  lines = vim.api.nvim_buf_get_lines(0, 0, -1, false), readonly = vim.bo.readonly, notices = notices}
+]], { recovery or "o", deferred or false, directory or vim.NIL })
   vim.rpcnotify(ch, "nvim_command", "qa!")
   assert(vim.fn.jobwait({ ch }, 5000)[1] == 0)
   return result
 end
 local function old(dir, env, dirty)
   write(dir .. "/old.lua", bootstrap .. [[
+if vim.env.SWAP_TEST_LOCAL == '1' then vim.opt.directory = '.' end
 vim.cmd.edit(dir .. '/document')
 if vim.env.SWAP_TEST_DIRTY == '1' then vim.api.nvim_buf_set_lines(0,0,-1,false,{'unsaved recovery text'}) end
 vim.cmd('preserve')
@@ -256,20 +260,103 @@ test("dead-owner dirty swap retains recovery and unsaved text", function()
   assert(vim.deep_equal(result.lines, { "unsaved recovery text" }), "dirty swap must recover unsaved text")
   assert(vim.fn.filereadable(swap) == 1, "original recovery swap must not be deleted")
 end)
-test("live foreign writer stays protected during silent layout source", function()
+test("live owner keeps upstream Edit and W325 during silent layout source", function()
   local dir, env = private("foreign-live")
   local p, swap = old(dir, env, false)
   local result = probe(dir, env)
-  assert(#result.events == 1 and result.events[1].choice == "", "live foreign writer must still prompt")
-  assert(result.events[1].info.pid == p.pid and result.readonly, "test-only readonly choice must protect the writer")
+  assert(#result.events == 1 and result.events[1].choice == "e", "live owner must retain upstream Edit choice")
+  assert(result.events[1].info.pid == p.pid and not result.readonly, "upstream live-owner behavior must be unchanged")
+  assert(#result.notices == 1 and result.notices[1].text:find("W325", 1, true), "upstream W325 must remain visible")
   assert(vim.fn.filereadable(swap) == 1 and uv.kill(p.pid, 0) == 0, "foreign owner and swap must be untouched")
 end)
-test("deferred BufEnter after silent badd still protects a live writer", function()
+test("deferred BufEnter after silent badd keeps upstream live-owner behavior", function()
   local dir, env = private("foreign-deferred")
   local p = old(dir, env, false)
   local result = probe(dir, env, "o", true)
   assert(result.before_enter == 0 and #result.events == 1, "badd defers the conflict to actual buffer entry")
-  assert(result.events[1].choice == "" and result.readonly and uv.kill(p.pid, 0) == 0)
+  assert(result.events[1].choice == "e" and not result.readonly and uv.kill(p.pid, 0) == 0)
+  assert(#result.notices == 1 and result.notices[1].text:find("W325", 1, true))
+end)
+
+-- block 0 has fixed-width byte fields: PID at 24 (4 bytes, little endian),
+-- b0_hname at 68 (40 bytes). Patch only a closed test child's real swap, then
+-- verify through Neovim's parser before using it as reproduction evidence.
+local function drift_swap(swap, pid)
+  local before = vim.fn.swapinfo(swap)
+  assert(not before.error)
+  local f = assert(io.open(swap, "r+b"))
+  assert(f:seek("set", 68))
+  local host = "previous-host.example"
+  f:write(host .. string.rep("\0", 40 - #host))
+  if pid then
+    assert(f:seek("set", 24))
+    for _ = 1, 4 do
+      f:write(string.char(pid % 256))
+      pid = math.floor(pid / 256)
+    end
+  end
+  f:close()
+  local after = vim.fn.swapinfo(swap)
+  assert(
+    not after.error and after.host == host and after.dirty == before.dirty and after.fname == before.fname,
+    "header fixture must preserve the real swap's contents: " .. vim.inspect(after)
+  )
+  return after
+end
+local function crashed(dir, env, dirty, pid)
+  local p, swap = old(dir, env, dirty)
+  p:kill(9)
+  p:wait(5000)
+  local info = drift_swap(swap, pid)
+  return swap, info
+end
+local function removed_notice(result)
+  assert(
+    #result.notices == 1
+      and result.notices[1].text:find("removed stale swap for ", 1, true)
+      and result.notices[1].text:find("(no unsaved changes)", 1, true),
+    "exactly one quiet cleanup notice expected"
+  )
+  assert(result.notices[1].level <= vim.log.levels.INFO, "cleanup must not warn")
+end
+for _, pid in ipairs({ 0, 2147483647 }) do
+  test("hostname-drift clean swap with dead pid " .. pid .. " is deleted without a prompt", function()
+    local dir, env = private("drift-clean-" .. pid)
+    local swap, info = crashed(dir, env, false, pid)
+    assert(info.pid == pid or info.pid == 0, "swapinfo may normalize an absent owner to zero")
+    if pid ~= 0 then
+      local rc, _, code = uv.kill(pid, 0)
+      assert(rc == nil and code == "ESRCH", "fixture pid must be provably dead")
+    end
+    local result = probe(dir, env)
+    assert(
+      #result.events == 1 and result.events[1].choice == "d",
+      "clean local-state drift swap must choose deletion, not prompt/Edit"
+    )
+    assert(vim.fn.filereadable(swap) == 0, "clean drift swap must be deleted")
+    assert(vim.deep_equal(result.lines, { "saved" }), "saved file contents must be intact")
+    removed_notice(result)
+  end)
+end
+test("hostname-drift dirty swap retains the recovery prompt and unsaved text", function()
+  local dir, env = private("drift-dirty")
+  local swap = crashed(dir, env, true, 0)
+  local result = probe(dir, env, "r")
+  assert(#result.events == 1 and result.events[1].choice == "", "dirty drift swap must keep recovery decision")
+  assert(vim.deep_equal(result.lines, { "unsaved recovery text" }), "dirty drift swap must recover exact text")
+  assert(vim.fn.filereadable(swap) == 1 and #result.notices == 0, "dirty swap must remain without a cleanup notice")
+end)
+test("hostname-drift swap beside the document is left to upstream", function()
+  local dir, env = private("drift-outside")
+  env.SWAP_TEST_LOCAL = "1"
+  local swap = crashed(dir, env, false, 0)
+  assert(uv.fs_realpath(vim.fs.dirname(swap)) == uv.fs_realpath(dir), "fixture swap must be outside profile state")
+  local result = probe(dir, env, "o", false, ".")
+  assert(
+    #result.events == 1 and result.events[1].choice == "" and result.readonly,
+    "outside swap must keep upstream prompt"
+  )
+  assert(vim.fn.filereadable(swap) == 1 and #result.notices == 0, "outside swap must not be deleted or called stale")
 end)
 
 -- Cleanup even if an assertion fails; never enumerate or signal user processes.

@@ -856,22 +856,76 @@ function M.autostart()
   M.attach(name)
 end
 
-function M.setup(cfg)
-  M.config = vim.tbl_deep_extend("force", M.config, cfg or {})
+-- Trust only configured absolute swap directories inside this profile's local
+-- state. Project-relative entries (., ./swap) and symlinks outside it may belong
+-- to another machine; a foreign hostname there is not evidence of DHCP drift.
+local function profile_swap(path)
+  local state = uv.fs_realpath(vim.fn.stdpath("state"))
+  local swap = uv.fs_realpath(path)
+  if not state or not swap then
+    return false
+  end
+  local parent = vim.fs.dirname(swap)
+  if parent:sub(1, #state + 1) ~= state .. "/" then
+    return false
+  end
+  for _, entry in ipairs(vim.opt.directory:get()) do
+    entry = vim.fn.expand(entry):gsub("/+$", "")
+    if entry:sub(1, 1) == "/" and uv.fs_realpath(entry) == parent then
+      return true
+    end
+  end
+  return false
+end
 
-  -- Neovim 0.11's default handler picks "Edit anyway" for a live same-user
-  -- writer. Session readonly ownership protects layouts, not file contents:
-  -- keep actual swap conflicts protected, including deferred BufEnter loads.
-  pcall(vim.api.nvim_clear_autocmds, { group = "nvim.swapfile", event = "SwapExists" })
+local swap_handler_installed = false
+local function setup_swap_handler()
+  if swap_handler_installed then
+    return
+  end
+  swap_handler_installed = true
+  -- Chain the installed upstream callback, not a copy of its implementation.
+  -- It must run after our narrow cleanup decision, otherwise it resets 'd'.
+  local defaults = {}
+  local ok, handlers = pcall(vim.api.nvim_get_autocmds, { group = "nvim.swapfile", event = "SwapExists" })
+  for _, handler in ipairs(ok and handlers or {}) do
+    if type(handler.callback) == "function" then
+      defaults[#defaults + 1] = handler.callback
+      vim.api.nvim_del_autocmd(handler.id)
+    end
+  end
   vim.api.nvim_create_autocmd("SwapExists", {
     group = group,
-    callback = function()
-      -- Neovim itself removes dead, clean local swaps before this event.
-      -- Anything that reaches us still needs the normal prompt/recovery path:
-      -- live/unknown/foreign owners and dirty crash swaps. Never delete here.
-      vim.v.swapchoice = ""
+    callback = function(ev)
+      local info = vim.fn.swapinfo(vim.v.swapname)
+      if
+        not info.error
+        and info.dirty == 0
+        and type(info.pid) == "number"
+        and info.pid >= 0
+        and profile_swap(vim.v.swapname)
+      then
+        local dead = info.pid == 0
+        if not dead then
+          local probed, rc, _, code = pcall(uv.kill, info.pid, 0)
+          dead = probed and rc == nil and code == "ESRCH"
+        end
+        if dead then
+          vim.v.swapchoice = "d"
+          vim.notify(("removed stale swap for %s (no unsaved changes)"):format(ev.file), vim.log.levels.INFO)
+          return
+        end
+      end
+      for _, default in ipairs(defaults) do
+        default(ev) -- live/dirty/outside swaps retain upstream behavior, including W325
+      end
     end,
   })
+end
+
+function M.setup(cfg)
+  M.config = vim.tbl_deep_extend("force", M.config, cfg or {})
+  setup_swap_handler()
 
   -- New terminals belong to the attached session.
   local t = term()
