@@ -8,7 +8,7 @@
 --     git root; `nvim-session attach <name>` to a named one. `nvim <file>` is
 --     a plain editor and never touches a session ($EDITOR, git commit, …).
 --   * Saving is continuous (debounced after layout/buffer changes and on
---     idle), so a crash or a closed tab loses nothing.
+--     idle), with a synchronous flush on graceful exit (not SIGKILL/crash).
 --   * Quitting is detaching: the layout is saved and the terminals keep
 --     running. `:Detach` (or `:detach`) does it explicitly.
 --   * Two nvims on one session: the second is told and does not save until
@@ -105,23 +105,69 @@ function M.read(name)
   return core.doc_get(M.doc_name(name))
 end
 
+-- Hostnames can change with DHCP. Prefer an OS identity shared by all local
+-- profiles; use an exclusively-created state file on other systems.
+local machine
+local function machine_id()
+  if machine then
+    return machine
+  end
+  local id
+  if vim.fn.has("mac") == 1 then
+    local out = vim.fn.system({ "ioreg", "-rd1", "-c", "IOPlatformExpertDevice" })
+    id = out:match('"IOPlatformUUID"%s*=%s*"([^"]+)"')
+  else
+    local f = io.open("/etc/machine-id", "r")
+    if f then
+      id = vim.trim(f:read("*a"))
+      f:close()
+    end
+  end
+  if not id or id == "" then
+    local dir = vim.fn.stdpath("state") .. "/hcmux"
+    vim.fn.mkdir(dir, "p")
+    local path = dir .. "/machine-id"
+    local fd = uv.fs_open(path, "wx", 384)
+    if fd then
+      uv.fs_write(fd, vim.fn.sha256(tostring(uv.hrtime()) .. ":" .. vim.fn.getpid()), 0)
+      uv.fs_close(fd)
+    end
+    local f = io.open(path, "r")
+    if f then
+      id = vim.trim(f:read("*a"))
+      f:close()
+    end
+  end
+  if id and id ~= "" then
+    machine = vim.fn.sha256(id) -- don't store the raw platform UUID in the core
+  end
+  return machine
+end
+
 function M.holder()
-  return { pid = vim.fn.getpid(), host = uv.os_gethostname(), terminal = vim.env.HC_TERMINAL_ID }
+  return { pid = vim.fn.getpid(), host = uv.os_gethostname(), machine = machine_id(), terminal = vim.env.HC_TERMINAL_ID }
 end
 
 function M.holder_alive(h)
   if type(h) ~= "table" or not h.pid then
     return false
   end
-  if h.host ~= uv.os_gethostname() then
-    return true -- can't check another machine; assume it is
+  if h.machine and h.machine ~= machine_id() then
+    return true -- positively identified remote machine: never probe its pid locally
   end
-  local ok, rc = pcall(uv.kill, h.pid, 0)
-  return ok and rc == 0
+  if not h.machine and type(h.terminal) == "string" and h.terminal:find("/", 1, true) then
+    return true -- legacy, explicitly machine-qualified core address
+  end
+  -- Legacy host-only documents cannot distinguish DHCP drift from a remote
+  -- writer. Reclaim only a provably absent local pid; live/unknown stays locked.
+  local ok, rc, _, code = pcall(uv.kill, h.pid, 0)
+  return not ok or rc == 0 or code ~= "ESRCH"
 end
 
 local function is_me(h)
-  return type(h) == "table" and h.pid == vim.fn.getpid() and h.host == uv.os_gethostname()
+  return type(h) == "table"
+    and h.pid == vim.fn.getpid()
+    and ((h.machine and h.machine == machine_id()) or (not h.machine and h.host == uv.os_gethostname()))
 end
 
 --- Live terminals of a session.
@@ -289,8 +335,10 @@ function M.load_layout(text)
   f:write(text)
   f:close()
   M.loading = true
-  local ok, err = pcall(vim.cmd, "silent! source " .. vim.fn.fnameescape(tmp))
+  local session_load = vim.g.SessionLoad
+  local ok, err = pcall(vim.cmd, "silent source " .. vim.fn.fnameescape(tmp))
   M.loading = false
+  vim.g.SessionLoad = session_load -- even a script that aborts before its final unlet
   os.remove(tmp)
   vim.v.this_session = ""
   drop_skipped()
@@ -302,6 +350,25 @@ end
 -- ── saving ────────────────────────────────────────────────────────────────
 
 local warned = {}
+local blocked_warning
+local function warn_blocked()
+  if not M.name or (M.state ~= "readonly" and M.state ~= "conflict") then
+    return
+  end
+  local now = uv.hrtime() / 1e6
+  if not blocked_warning or now - blocked_warning >= 60000 then
+    blocked_warning = now
+    vim.notify(
+      ("Session %s is %s; buffer/layout changes are NOT being saved. :Session take keeps this layout; :Session reload loads the saved one."):format(
+        M.name,
+        M.state
+      ),
+      vim.log.levels.WARN,
+      { title = "hcmux session" }
+    )
+  end
+end
+
 local function warn_once(key, msg)
   if not warned[key] then
     warned[key] = true
@@ -312,6 +379,7 @@ end
 local function on_saved(version, err, kind, text)
   if version then
     M.version, M.last_text = version, text
+    M.had_content = M.had_content or not is_empty()
     warned.error = nil
     return true
   end
@@ -336,15 +404,34 @@ function M.save(o)
   if not M.name or M.loading or vim.g.SessionLoad then
     return
   end
-  if M.state ~= "attached" and not o.force then
+  if M.state ~= "attached" then
+    warn_blocked()
     return
+  end
+  -- An async write may already be committed while its callback (and our new
+  -- version) is still queued. Drain that callback before a final CAS write.
+  if M.saving then
+    if not o.sync then
+      M.pending = true
+      return
+    end
+    if not vim.wait(10000, function()
+      return not M.saving
+    end, 10) then
+      warn_once("error", "hcmux: session not saved: previous save did not finish")
+      return false
+    end
+    if M.state ~= "attached" then
+      warn_blocked()
+      return false
+    end
   end
   local text = M.serialize()
   if not text then
     return
   end
-  if is_empty() and M.last_text and not o.force then
-    return -- never replace a layout with an empty nvim
+  if is_empty() and M.last_text and not M.had_content and not o.force then
+    return -- protect an empty startup, not an intentional deletion of all files
   end
   if text == M.last_text and not (o.force or o.release) then
     return
@@ -363,10 +450,6 @@ function M.save(o)
     local nv, err, kind = core.doc_set(name, value, M.version)
     return on_saved(nv, err, kind, text)
   end
-  if M.saving then
-    M.pending = true
-    return
-  end
   M.saving = true
   core.rpc_async("doc.set", { name = name, value = value, version = M.version }, function(res, err, _, kind)
     M.saving = false
@@ -381,9 +464,14 @@ end
 local timer
 --- Save after things settle.
 function M.schedule()
-  if M.state ~= "attached" then
+  if M.loading or vim.g.SessionLoad then
     return
   end
+  if M.state ~= "attached" then
+    warn_blocked()
+    return
+  end
+  M.had_content = M.had_content or not is_empty()
   timer = timer or uv.new_timer()
   timer:stop()
   timer:start(
@@ -467,7 +555,8 @@ function M.attach(name, o)
   -- A new session belongs to the requested folder (`nvim <dir>`), not the caller's cwd.
   M.root = type(value) == "table" and value.root or o.root or M.root_of()
   vim.g.hcmux_session = name
-  warned = {}
+  warned, blocked_warning = {}, nil
+  M.had_content = false
 
   if type(value) == "table" and value.holder and M.holder_alive(value.holder) and not is_me(value.holder) then
     M.state = "readonly"
@@ -487,6 +576,7 @@ function M.attach(name, o)
   elseif M.root and vim.fn.isdirectory(M.root) == 1 then
     vim.cmd.cd(vim.fn.fnameescape(M.root))
   end
+  M.had_content = not is_empty()
   if not value then
     M.index_update(function(s)
       s[name] = { root = M.root, created_ms = now_ms() }
@@ -511,9 +601,10 @@ function M.take()
   end
   local _, version = M.read(M.name)
   M.version, M.state = version or 0, "attached"
-  warned = {}
-  M.save({ sync = true, force = true })
-  vim.notify("Session " .. M.name .. " is now attached here.", vim.log.levels.INFO)
+  warned, blocked_warning = {}, nil
+  if M.save({ sync = true, force = true }) then
+    vim.notify("Session " .. M.name .. " is now attached here.", vim.log.levels.INFO)
+  end
 end
 
 --- Load the session's saved layout again (after another nvim changed it).
@@ -821,6 +912,9 @@ function M.setup(cfg)
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = group,
     callback = function()
+      if timer then
+        timer:stop()
+      end
       if M.state == "attached" and not M.released then
         M.save({ sync = true, force = true, release = true })
       end
