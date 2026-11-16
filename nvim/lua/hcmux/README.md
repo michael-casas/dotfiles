@@ -207,6 +207,9 @@ it is shown on. These answers no longer depend on which window has focus (`nvim_
 the focused window's `winhighlight`). On every popover open, switch and theme change, and
 on `attach_in`, the buffer's answers are re-resolved from what that window shows (the T3 remap, or the editor's
 `Normal` when it has none, e.g. an untinted main pane), so a reused buffer never keeps another view's colours.
+When a view stops showing the client (COMMAND `q`, closing the window, or switching that window to another thread)
+the answers follow the view that remains, the focused one if it shows the client; with no view left they keep the
+last value until the next attach.
 With a missing/invalid hub a new popover keeps the editor's `Normal`; a shown window keeps its look. Other terminals
 answer with the global `Normal`/`Cursor`, whichever window has focus. Already printed history keeps its colours.
 
@@ -226,7 +229,8 @@ when the suite throws, so don't gate on it. `scrollback-strikes.lua` opens real 
 route) in an embedded Neovim with an RGB UI and checks colour negotiation, resize/hide/switch identities and keys;
 its viewer is a synthetic stand-in for `hc attach` (it paints with the negotiated colour itself, so it tests the
 negotiation protocol, not the black-bar cause), never a real core or thread. `scrollback-lifecycle.lua` checks the
-answers at reopen, main-pane, theme-refresh, fresh-viewer and restart boundaries. `viewer-pen.lua` runs the real
+answers at reopen, main-pane (hide, close, switch-away in both directions), theme-refresh, fresh-viewer and
+restart boundaries, before any further attach. `viewer-pen.lua` runs the real
 viewer command with `hc` swapped for `support/fake-hc-attach.sh` (hc's captured opening sequence) and checks that
 no history cell is black, in the T3 popover and in an ordinary terminal split.
 
