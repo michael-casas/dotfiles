@@ -859,6 +859,20 @@ end
 function M.setup(cfg)
   M.config = vim.tbl_deep_extend("force", M.config, cfg or {})
 
+  -- Neovim 0.11's default handler picks "Edit anyway" for a live same-user
+  -- writer. Session readonly ownership protects layouts, not file contents:
+  -- keep actual swap conflicts protected, including deferred BufEnter loads.
+  pcall(vim.api.nvim_clear_autocmds, { group = "nvim.swapfile", event = "SwapExists" })
+  vim.api.nvim_create_autocmd("SwapExists", {
+    group = group,
+    callback = function()
+      -- Neovim itself removes dead, clean local swaps before this event.
+      -- Anything that reaches us still needs the normal prompt/recovery path:
+      -- live/unknown/foreign owners and dirty crash swaps. Never delete here.
+      vim.v.swapchoice = ""
+    end,
+  })
+
   -- New terminals belong to the attached session.
   local t = term()
   t.config.labels = function()

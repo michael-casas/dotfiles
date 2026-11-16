@@ -93,6 +93,26 @@ explicit way to leave a session from anywhere.
   overwriting. Both states re-warn on buffer/layout activity, at most once a
   minute, with `:Session take` as the recovery command. Even `:Session save`
   does not bypass ownership. `:Session reload` loads the newer layout.
+- **Reload/exit and swap files:** `envi` records the actual Neovim server PID
+  before config loads (the TUI frontend can have a different PID). After the
+  frontend returns, the launcher waits for that server to exit before reloading
+  or returning to the shell after `:Detach`. A wait prints a notice; after 30 s
+  it refuses to launch another editor rather than racing the old swaps. Wait
+  for the old server to finish, then run `envi` again. `ENVI_EXIT_TIMEOUT=1..120`
+  adjusts this bound in seconds. The launcher never kills the server or removes
+  its swap files. The exit barrier applies to all editors started by `envi`;
+  direct `nvim`/`nvim-session` launches have no launcher barrier.
+- **Real file conflicts stay protected:** session setup replaces Neovim 0.11's
+  default same-user “Edit anyway” swap handler with the normal prompt/recovery
+  path. A second editor's read-only *session* status does not itself make its
+  file buffers read-only. For a live writer, choose read-only or quit; no swap
+  handler here automatically chooses Edit or deletes a swap. Neovim itself
+  removes dead-owner clean local swaps; dirty crash swaps retain recovery of
+  unsaved text. `silent!` session loading does not bypass this protection, even
+  when an unloaded buffer first encounters its swap on later entry.
+  `test/run-lua.sh session-swap` under `nvim/tools/t3-thread` checks real private
+  swaps, recovery, delayed server exit, and foreign-writer protection using an
+  in-memory RPC UI; it does not contact herdr-core or the desktop.
 - **Recover a stale session:** in the editor whose current buffers/layout you
   want to keep, run `:Session take`. This deliberately replaces the stored
   layout, not file contents. Do not reload first if your cleaned-up layout is

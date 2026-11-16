@@ -34,16 +34,58 @@ elif [ $# -eq 0 ]; then
 fi
 unset ENVI_RELOAD_SESSION
 
-# :reload writes the session name to this file, then quits. Not `exec nvim`:
-# this script stays to start envi again (itself re-read, so it updates too).
-export ENVI_RELOAD_FILE="${TMPDIR:-/tmp}/envi-reload.$$"
-rm -f "$ENVI_RELOAD_FILE"
+# The TUI may return before its embedded server has finished exiting. Capture
+# the server's own PID before config loads, not $! (the frontend PID). A private
+# per-launch directory also prevents nested editors from inheriting our marker.
+instance_dir="$(mktemp -d "${TMPDIR:-/tmp}/envi.XXXXXXXX")"
+cleanup() {
+  rm -f -- "$instance_dir/pid" "$instance_dir/reload"
+  rmdir -- "$instance_dir"
+}
+trap cleanup EXIT
+export ENVI_RELOAD_FILE="$instance_dir/reload"
+export ENVI_INSTANCE_FILE="$instance_dir/pid"
 rc=0
-nvim "$@" || rc=$?
+nvim --cmd 'lua local p = vim.env.ENVI_INSTANCE_FILE; vim.env.ENVI_INSTANCE_FILE = nil; if p then vim.fn.writefile({tostring(vim.fn.getpid())}, p) end' "$@" || rc=$?
+
+# This barrier also covers :Detach followed immediately by another envi. Never
+# kill the server or delete its swaps. On timeout refuse to start a new writer.
+if [ -s "$ENVI_INSTANCE_FILE" ]; then
+  server_pid="$(cat "$ENVI_INSTANCE_FILE")"
+  case "$server_pid" in
+    '' | *[!0-9]* | 0 | 1) echo 'envi: invalid server PID; not starting another editor.' >&2; exit 1 ;;
+  esac
+  seconds="${ENVI_EXIT_TIMEOUT:-30}"
+  case "$seconds" in
+    '' | *[!0-9]*) seconds=30 ;;
+  esac
+  if [ "${#seconds}" -gt 3 ] || [ "$seconds" -lt 1 ] || [ "$seconds" -gt 120 ]; then seconds=30; fi
+  seconds=$((10#$seconds))
+  ticks=0
+  while kill -0 "$server_pid" 2>/dev/null || [ -n "$(ps -p "$server_pid" -o pid= 2>/dev/null)" ]; do
+    if [ "$ticks" -eq 0 ]; then
+      echo "envi: waiting up to ${seconds}s for nvim server $server_pid to finish exiting…" >&2
+    fi
+    if [ "$ticks" -ge "$((seconds * 10))" ]; then
+      echo "envi: nvim server $server_pid has not exited; not starting another editor. Wait for it to exit, then run envi again." >&2
+      exit 1
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+elif [ -f "$ENVI_RELOAD_FILE" ]; then
+  echo 'envi: missing server PID; not starting another editor.' >&2
+  exit 1
+fi
+
+# :reload writes the session name, then quits. Re-read the launcher on restart
+# so launcher changes take effect too, but only after the server has gone.
 if [ -f "$ENVI_RELOAD_FILE" ]; then
   ENVI_RELOAD_SESSION="$(cat "$ENVI_RELOAD_FILE")"
-  rm -f "$ENVI_RELOAD_FILE"
   export ENVI_RELOAD_SESSION
+  cleanup
+  trap - EXIT
+  unset ENVI_INSTANCE_FILE ENVI_RELOAD_FILE
   exec "$self" "$@"
 fi
 exit "$rc"
