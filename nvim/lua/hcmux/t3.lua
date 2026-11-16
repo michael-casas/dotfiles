@@ -123,6 +123,25 @@ local function sync_display(win)
   end
 end
 
+-- `gone` stopped showing T3 buffer `buf` (closed, hidden, or switched to
+-- another client): answer what a remaining view shows, the focused one if it
+-- shows `buf`, e.g. the untinted main pane left behind by the popover. With
+-- no view left keep the last answer; the next attach re-resolves it.
+local function reconcile(buf, gone)
+  if not (buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].hcmux_float == MARK) then
+    return
+  end
+  local current, view = vim.api.nvim_get_current_win(), nil
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if win ~= gone and (win == current or not view) then
+      view = win
+    end
+  end
+  if view then
+    vim.b[buf].hcmux_display = shown_display(view)
+  end
+end
+
 -- Only the T3 float: COMMAND is terminal-normal mode, INSERT sends keys to Ink.
 local function mode_title(buf)
   local label = vim.api.nvim_get_current_buf() == buf and vim.fn.mode():sub(1, 1) == "t" and "INSERT" or "COMMAND"
@@ -237,6 +256,13 @@ local function mark(buf)
   vim.keymap.set("n", "<C-c>", function()
     confirm(5)
   end, { buffer = buf, silent = true, desc = "T3: confirm interrupt" })
+  -- Hiding (q) or closing a window that shows this buffer: follow what remains.
+  vim.api.nvim_create_autocmd("WinClosed", {
+    buffer = buf,
+    callback = function(ev)
+      reconcile(buf, tonumber(ev.match))
+    end,
+  })
   vim.api.nvim_create_autocmd({ "ModeChanged", "BufWinEnter", "BufLeave" }, {
     buffer = buf,
     callback = function()
@@ -302,10 +328,14 @@ function M.open(id, opts)
   end
   -- From here on, `where` == "current" means: reuse the focused popover window.
   local where = win and "current" or "float"
+  -- Switching in place: the client the popover showed may stay visible
+  -- elsewhere (the main pane); its answers then follow that view.
+  local leaving = win and vim.api.nvim_win_get_buf(win)
   if not id then
     local addr = live(last)
     if addr then
-      return show(addr, where, opts)
+      show(addr, where, opts)
+      return reconcile(leaving)
     end
   end
   local argv = { "node", main }
@@ -315,7 +345,8 @@ function M.open(id, opts)
   local name = id ~= "new" and name_for(id) or ("t3-new-" .. os.time())
   local addr = id ~= "new" and live(name)
   if addr then
-    return show(addr, where, opts)
+    show(addr, where, opts)
+    return reconcile(leaving)
   end
   if not ready() then
     return vim.notify("t3: run `npm install` in tools/t3-thread (and install node)", vim.log.levels.ERROR)
@@ -333,6 +364,7 @@ function M.open(id, opts)
   theme_float()
   last = new
   command_mode(buf, opts)
+  reconcile(leaving)
 end
 
 --- Attach a thread client in exactly this window, never focus another viewer.
@@ -384,6 +416,9 @@ function M.attach_in(win, id)
   end
   mark(buf)
   sync_display(win)
+  if old ~= buf then
+    reconcile(old) -- e.g. still shown in the popover
+  end
   if old_addr and old ~= buf and vim.api.nvim_buf_is_valid(old) and #vim.fn.win_findbuf(old) == 0 then
     -- Move off it before detach: term.detach otherwise closes the main split.
     term.detach(old)
