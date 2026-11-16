@@ -216,12 +216,25 @@ This does not switch the editor colorscheme or configure other applications.
   it removes the preceding newline (repeat to clear a multiline draft).
   **Ctrl-K** kills to line end, or removes the newline at line end.
   **Ctrl-W / Alt-Backspace** kill the preceding whitespace-delimited word;
-  **Alt-B / Alt-F** move over letter/number words. Word operations stay within
-  the current logical line. Option must be configured to send Alt/ESC sequences.
+  **Alt-B / Alt-F / Option-← / Option-→** move over letter/number words. Word
+  operations stay within the current logical line. Option must send Alt/ESC
+  sequences (`ESC b/f` or `ESC[1;3D/C`). **Home / End** move to the current
+  logical line's start/end, not the whole draft.
+  **↑ / ↓ / Ctrl-P / Ctrl-N** move to the same display-cell column on the
+  previous/next logical line (not a visual wrap). Short lines clamp to their end;
+  if the column falls inside a wide glyph, the cursor lands before it. Subsequent
+  presses use the new, clamped column (no sticky column). On the first line, ↑
+  goes to draft start; on the last, ↓ goes to draft end. Open completion/model
+  menus and question windows still own these keys before composer movement.
+  **Ctrl-T** swaps the code points around the cursor and advances past them;
+  at line end it swaps the last two, without crossing a newline. At line start,
+  or on a line with fewer than two characters, it does nothing.
   **Ctrl-D** deletes forward; **Ctrl-H / Backspace** delete backward.
   **Ctrl-Y** inserts the last nonempty kill (one process-local slot, no kill-ring
-  accumulation). Ordinary backspace/delete and empty kills preserve that slot.
-  **Ctrl-P / Ctrl-N** remain no-ops outside completion/model menus.
+  accumulation). Ordinary backspace/delete, transpose and empty kills preserve
+  that slot. **Ctrl-O** remains expanded-work output, not open-line insertion.
+  **Cmd-← / Cmd-→ / Cmd-Backspace: PENDING-V1**, awaiting measured terminal bytes;
+  these are not treated as Option/meta keys. Shift-selection is not implemented.
 - **Esc:** dismiss an open completion/model/compact view; **never interrupt** a run.
   In the Neovim T3 popover it also enters **COMMAND** (normal mode). A second
   Esc stays in COMMAND and does not hide the float. Esc also cancels an
@@ -334,6 +347,8 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   metadata, display labels, capability negotiation and RPCs. Commands are not
   automatically resent after socket loss, because their outcome may be unknown.
 - `view.mjs` owns pure folding, summaries and editor/answer transformations.
+- `cells.mjs` shares the existing grapheme/display-cell metrics between the
+  renderer and vertical editor motion; editor offsets remain UTF-16.
 - `commands.mjs` owns `/` and `$` completion: trigger detection, the provider's
   command/skill catalog (`server.getConfig`, then `server.refreshProviders` for
   the thread's folder), desktop ranking, and text insertion. Pure.
@@ -343,7 +358,9 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   handoff locking, keyboard motions, cascade and option selection.
 - `control.mjs` parses private CSI reports and owns compact confirmation/Esc
   policy; `control-input.mjs` removes reports before public Ink stdin, preserving
-  ordinary keys and split UTF-8. The private wire is `ESC [ > 777 ; N u`, with
+  ordinary keys and split UTF-8. `control.mjs` also normalizes unmodified Home/End
+  bytes (`ESC[H/F`, `ESCOH/F`, `ESC[1~/4~`, `ESC[7~/8~`) to Ctrl-A/E before Ink 5
+  drops their key names; split sequences are buffered. The private wire is `ESC [ > 777 ; N u`, with
   N=1 model, 2 compact dialog, 3 yes, 4 cancel, 5 interrupt dialog. `t3.lua` sends it with chansend
   through `hc attach`; it is not a printable INSERT shortcut. Unknown/malformed
   private reports are swallowed, including split/bounded partial reports.
@@ -365,7 +382,8 @@ test/run-lua.sh               # all of them
 test/run-lua.sh restart prs   # named ones
 ```
 
-The tests cover protocol/projection behavior (`test/thread.test.mjs`), `/`/`$` completion (`test/commands.test.mjs`), frame and
+The tests cover pure Unicode/line editor behavior and real Ink key bytes
+(`test/editor*.test.mjs`), protocol/projection behavior (`test/thread.test.mjs`), `/`/`$` completion (`test/commands.test.mjs`), frame and
 formatting (`test/layout.test.mjs`), model-picker catalog/motions/placement and
 exact RPC shape (`test/model-picker.test.mjs`), theme loading/watching
 (`test/theme.test.mjs`), commit/live/resync/startup/cap/expansion and real Ink

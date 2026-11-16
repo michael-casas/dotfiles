@@ -84,3 +84,19 @@ test("dismiss is a private control (Esc replacement) and decodes as an action",(
   assert.deepEqual(r.events.filter(e=>e.type==="action").map(e=>e.action),["dismiss"]);
   assert.equal(r.events.filter(e=>e.type==="text").map(e=>e.text).join(""),"ab");
 });
+
+
+test("Home/End normalize to line controls before Ink loses their names, at every byte split", () => {
+  for (const [bytes, expected] of [
+    ...["\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~"].map(bytes => [bytes, "\x01"]),
+    ...["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"].map(bytes => [bytes, "\x05"]),
+  ]) {
+    for (let split = 0; split <= bytes.length; split++) {
+      const a = C.decode(bytes.slice(0, split));
+      const b = C.decode(bytes.slice(split), a.state);
+      assert.equal([...a.events, ...b.events].map(e => e.text).join(""), expected);
+    }
+  }
+  assert.equal(C.decode("\x1b[1;3D").events[0].text, "\x1b[1;3D", "Option bytes pass through");
+  assert.equal(C.decode("\x1bOP").events[0].text, "\x1bOP", "unrelated function key passes through");
+});
