@@ -76,6 +76,9 @@ for _, entry in ipairs({
   { "gh: Bad credentials (HTTP 401)", "auth" },
   -- A 4xx that merely mentions 401 (e.g. PR #401) is not an auth failure.
   { "gh: Validation Failed on pull request #401 (HTTP 422)", "api" },
+  -- Repo names can contain auth words too.
+  { "gh: Validation Failed for acme/authentication-service (HTTP 422)", "api" },
+  { "gh: Requires authentication (HTTP 401)", "auth" },
 }) do
   vim.env.PRS_ERROR = entry[1]
   local cached, err = await(function(cb)
