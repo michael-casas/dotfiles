@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -34,7 +35,12 @@ class RevisionTest(TransportTest):
 
     def test_revision_ssh_errors(self):
         for text in ['Host key verification failed.', 'Permission denied (publickey).',
-                     'Could not resolve hostname fixture.invalid: unknown host', 'Connection timed out']:
+                     'Could not resolve hostname fixture.invalid: unknown host', 'Connection timed out',
+                     'ssh: Could not resolve hostname fixture.invalid: Name or service not known',
+                     'ssh: connect to host fixture.invalid port 22: Connection refused',
+                     'Connection closed by fixture.invalid port 22',
+                     'kex_exchange_identification: Connection closed by remote host',
+                     'No ED25519 host key is known for fixture.invalid and you have requested strict checking.']:
             with self.subTest(text=text):
                 r = self.cli('fixture', '--allow-dirty', FAKE_SSH_ERROR=text)
                 self.assertEqual(r.returncode, 21)
@@ -108,6 +114,20 @@ class RevisionTest(TransportTest):
         self.assertEqual(caught.exception.code, 22)
         self.assertNotIn('private server text', str(caught.exception))
 
+    def test_revision_remote_exit255_stderr_is_withheld(self):
+        from unittest.mock import patch
+        for text in ['private remote output', 'Host key verification failed. private remote suffix',
+                     'Permission denied (publickey). private remote suffix']:
+            with self.subTest(text=text):
+                result = subprocess.CompletedProcess([], 255, stdout=b'', stderr=text.encode())
+                with patch.object(cli.subprocess, 'run', return_value=result):
+                    with self.assertRaises(cli.RemoteError) as caught:
+                        cli.control(json.loads(self.policy.read_text())['hosts']['fixture'], '', ['inspect'])
+                self.assertEqual(caught.exception.code, 21)
+                self.assertNotIn(text, str(caught.exception))
+                self.assertIn('output withheld', str(caught.exception))
+                self.assertIn('ssh -F /dev/null', str(caught.exception))
+
     def test_revision_no_terminfo_fails_before_upload(self):
         (self.shims / 'infocmp').write_text('#!/bin/sh\nexit 1\n')
         r = self.cli('fixture', '--allow-dirty')
@@ -140,11 +160,13 @@ class RevisionTest(TransportTest):
         self.assertEqual(self.cli('fixture', '--allow-dirty').returncode, 7)
         self.assertEqual(len(self.log.read_text().splitlines()), 5)
 
+    @unittest.skipUnless(sys.platform == 'linux', 'requires Linux setgid-directory inheritance; BSD mkdir does not inherit it')
     def test_revision_setgid_parent(self):
         self.home.chmod(0o2755)
         r = self.stage()
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.store.stat().st_mode & 0o7777, 0o700)
+        self.assertEqual(self.store.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.store.stat().st_mode & 0o5000, 0)
 
     def test_revision_sticky_system_temp(self):
         # Uses actual BSD /private/tmp metadata locally; no global mode mutation.

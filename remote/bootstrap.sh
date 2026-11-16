@@ -178,7 +178,7 @@ archive_hash=$4
 manifest=$(printf '%s' "$5")
 locale_name=$6
 mode=$7
-case "$operation" in stage|inspect|lookup|launch) ;; *) fail 'unknown operation' ;; esac
+case "$operation" in stage|inspect|launch) ;; *) fail 'unknown operation' ;; esac
 case "$mode" in persistent|temporary) ;; *) fail 'bad storage mode' ;; esac
 [ "${#digest}" = 64 ] && [ "${#archive_hash}" = 64 ] || fail 'bad digest'
 case "$digest$archive_hash" in *[!a-f0-9]*) fail 'bad digest alphabet' ;; esac
@@ -192,7 +192,7 @@ fi
 private_path "$root"
 for dir in releases staging locks state; do private_path "$root/$dir"; done
 release="$root/releases/$digest"
-if [ "$operation" = lookup ] || [ "$operation" = inspect ]; then
+if [ "$operation" = inspect ]; then
     if [ -e "$release" ] || [ -L "$release" ]; then
         check_release "$release" || fail 'cached release invalid'
         printf 'ready=%s\n' "$digest"

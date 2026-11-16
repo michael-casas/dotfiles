@@ -126,6 +126,22 @@ BOOTSTRAP_ERRORS = {
 }
 
 
+# Exit 255 is ambiguous: SSH client failure OR a remote command's exit status.
+# Match complete known message forms, never an arbitrary prefix and trailing text.
+SSH_CLIENT_ERROR = re.compile(
+    r'(?:Host key verification failed\.'
+    r'|(?:[A-Za-z0-9_.@-]+: )?Permission denied \([A-Za-z0-9,-]+\)\.'
+    r'|(?:ssh: )?Could not resolve hostname [A-Za-z0-9_.-]+: '
+    r'(?:unknown host|Name or service not known|nodename nor servname provided, or not known|Temporary failure in name resolution)'
+    r'|ssh: connect to host [A-Za-z0-9_.:-]+ port [0-9]+: '
+    r'(?:Connection refused|Connection timed out|No route to host|Network is unreachable)'
+    r'|Connection (?:timed out|refused)'
+    r'|Connection closed by [A-Za-z0-9_.:-]+(?: port [0-9]+)?'
+    r'|kex_exchange_identification: (?:Connection closed by remote host|read: Connection reset by peer)'
+    r'|No [A-Za-z0-9-]+ host key is known for [A-Za-z0-9_.:\[\]-]+ and you have requested strict checking\.)'
+)
+
+
 def command(script, arguments):
     # The account shell sees ONE LINE, no variable expansions, no embedded quote
     # escapes. sh owns all expansion; base64 is transport encoding, not validation.
@@ -157,14 +173,16 @@ def control(policy, script, args, data=b''):
         if completed.returncode == 23 and message in BOOTSTRAP_ERRORS:
             raise RemoteError(message, BOOTSTRAP_ERRORS[message])
         if completed.returncode == 255:
-            # Bound/control-strip client diagnostics; keep actionable host-key/auth/DNS errors.
-            safe = ''.join(c for c in last[0][:512] if c.isprintable())
+            line = last[0]
+            if len(line) <= 512 and SSH_CLIENT_ERROR.fullmatch(line):
+                summary = 'SSH transport/authentication failed: ' + line
+            else:
+                summary = 'SSH failed or remote exited 255; output withheld'
             diagnostic = ['ssh', '-F', '/dev/null', '-p', str(policy['port'])]
             if policy['user'] is not None:
                 diagnostic += ['-l', policy['user']]
             diagnostic += ['--', policy['target'], 'true']
-            raise RemoteError('SSH transport/authentication failed: ' + safe +
-                              '; diagnose with ' + shlex.join(diagnostic), 21)
+            raise RemoteError(summary + '; diagnose with ' + shlex.join(diagnostic), 21)
         raise RemoteError('remote bootstrap failed; unrecognized remote output withheld', 22)
     if len(completed.stdout) > 4096:
         raise RemoteError('remote control output exceeds protocol bound', 22)
@@ -219,7 +237,7 @@ def main():
         script = (ROOT / 'remote/bootstrap.sh').read_text()
         parameters = [policy['root'], artifact.digest, artifact.archive_hash, artifact.manifest.decode(),
                       policy['locale'], policy['storage'], *policy.get('path_extra', [])]
-        # One inspection login combines the fixed probe and verified cache lookup.
+        # One inspection login combines the fixed probe and cache verification.
         probe = control(policy, script, ['inspect', *parameters])
         lines = probe.splitlines()
         keys = ['protocol', 'tar', 'hash', 'charmap', 'locale', 'os', 'arch', 'bash', 'nvim_version',

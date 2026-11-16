@@ -98,7 +98,10 @@ new shells; existing shells retain their pinned release. Local error codes:
 **20** policy/input/export; **21** SSH transport/authentication/control timeout;
 **22** probe/platform/root/protocol; **24** release lock contention;
 **25** cache/stage/verification. Bootstrap uses 23 internally and the wrapper maps
-only exact authored diagnostics; arbitrary server stderr is withheld. After tty
+only exact authored diagnostics. For ambiguous exit 255, only complete known
+OpenSSH client-message forms are displayed; all other lines are withheld with a
+fixed message and diagnostic hint. This pattern check is not authentication of
+the message source—a remote can imitate a client message. After tty
 attachment, stock SSH's exit status and interactive diagnostics are preserved.
 
 ## Transfer, activation, recovery
@@ -108,8 +111,9 @@ attachment, stock SSH's exit status and interactive diagnostics are preserved.
    version first lines, known tar family, hash utility, canonical locale/charmap,
    selected TERM and xterm/tmux terminfo availability, plus optional command
    presence. Neovim's version probe disables its HOME log writes. No environment
-   or identity dump. Standalone `probe` is read-only; CLI `inspect` combines this
-   with approved-root creation/verified cache lookup and can write directories.
+   or identity dump. Standalone `probe` is the REP-only read-only pilot entry
+   point (requires separate target approval); CLI `inspect` combines this with
+   approved-root creation/cache verification and can write directories.
 3. Verify any cached release completely. Warm connect sends **no archive**.
    Otherwise acquire a digest lock, create 0700 unique same-filesystem staging,
    bound upload, verify **archive SHA-256 before tar**, extract, verify exact
@@ -239,10 +243,23 @@ shellcheck remote/bootstrap.sh remote/profile/bin/* remote/profile/shell/bashrc
 git diff --check
 ```
 
-Current correction gate: **53/53 Python tests**, **17/17 Lua suites** through
-`run-lua.sh` (exit 0), and **173/173 Node tests** pass. ShellCheck, plain StyLua
+Current correction gate: **54 Python tests: 53 passed, 1 skipped**;
+**17/17 Lua suites** through `run-lua.sh` (exit 0); **173/173 Node tests** pass. ShellCheck, plain StyLua
 checks using the directory configs above, and `git diff --check` pass. The stale
 168/173 missing-dependency caveat is closed; REP supplied the existing Node
 dependency environment, and this correction installed nothing. Account-shell
 subtests exercised all six locally available shells: Bash 3.2, sh, zsh, fish,
-csh and tcsh. No real SSH host or container was contacted for this correction.
+csh and tcsh. The setgid-inheritance regression is explicitly skipped outside
+Linux: BSD mkdir does not inherit setgid, so a macOS pass would not test that
+behavior. Linux checks permit inherited setgid while enforcing 0700 permissions
+and rejecting setuid/sticky bits. **Reported independent evidence:** round-2
+critic verified inspect/stage/re-inspect/launch in an already-local Debian 12
+container, with network disabled, as a non-root account whose HOME was 2755;
+GNU inherited-setgid directories were accepted and HOME files remained intact.
+This correction did not rerun that container. No real SSH host or container was
+contacted for this correction.
+
+Round-2 corrections add an exit-255 withholding regression (including recognized
+message prefixes with unrecognized suffixes), retain client-error diagnostics,
+and remove the obsolete standalone cache-check operation. The REP-only `probe`
+entry point remains covered by probe tests.
