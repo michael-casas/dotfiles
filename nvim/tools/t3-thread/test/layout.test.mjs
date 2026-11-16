@@ -357,8 +357,10 @@ test("review: composer has cursor, filled spacer and complete controls tail", ()
     assert.equal(text(f.composer[2]).trim(), "");
     for (const row of f.composer) {
       assert.equal(L.displayWidth(text(row)), f.geometry.column);
-      assert.ok(row.every((s) => !s.text || s.bg != null));
     }
+    // Only content rows are fully painted; rounded edge cutouts stay transparent.
+    for (const row of f.composer.slice(1, -1))
+      assert.ok(row.every((s) => !s.text || s.bg != null));
     assert.equal(f.composer.at(-2).at(-1).bg, T.surface);
     assert.ok(f.composer.at(-2).at(-1).text.length >= 2);
   }
@@ -778,3 +780,47 @@ test("round 3: native Ink adds no physical lines to the exact styled Workspace t
     }
   }
 });
+
+for (const cols of [20, 40, 92]) {
+  for (const working of [false, true]) {
+    test(`rounded composer keeps its budget, pill and menus at ${cols} columns (${working ? "working" : "idle"})`, () => {
+      const s = state();
+      s.runs.get("r").status = working ? "running" : "completed";
+      s.thread.modelSelection.model = "a-very-long-model-label";
+      const width = L.geometry(cols).column;
+      const ui = {
+        editor: { value: "draft", cursor: 5 },
+        menu: { trigger: { kind: "command" }, items: [{ label: "/model", description: "Select model" }] },
+      };
+      // The actual unpainted backdrop is the terminal default, not T.bg.
+      const tokens = { ...T, bg: "token:bg" };
+      const f = L.frame({ state: s, cols, rows: 24, tokens, ui });
+      assert.equal(f.composer.length, 5);
+      assert.equal(text(f.composer[0]), "▗" + "▄".repeat(width - 2) + "▖");
+      assert.equal(text(f.composer.at(-1)), "▝" + "▀".repeat(width - 2) + "▘");
+      for (const edge of [f.composer[0], f.composer.at(-1)])
+        assert.ok(edge.every(seg => seg.color === T.surface && seg.bg == null));
+      const control = f.composer.at(-2);
+      const icon = working ? " ■ " : " ↑ ";
+      // Powerline half circles: Herdr draws them as a true pill (REP live check).
+      assert.ok(text(control).includes("\ue0b6" + icon + "\ue0b4"));
+      const button = control.find(seg => seg.text === icon);
+      assert.equal(button.bg, working ? T.error : T.accent);
+      assert.equal(button.color, T.accent_fg);
+      for (const glyph of ["\ue0b6", "\ue0b4"]) {
+        const end = control.find(seg => seg.text === glyph);
+        assert.equal(end.color, button.bg);
+        assert.equal(end.bg, T.surface);
+      }
+      assert.ok(f.composer.every(line => L.displayWidth(text(line)) === width));
+      assert.ok(f.lines.every(line => L.displayWidth(text(line)) <= cols));
+      const menu = L.menuLines(ui.menu, width, T);
+      assert.ok(menu.every(line => L.displayWidth(text(line)) === width));
+      const fallback = L.frame({ state: s, cols, rows: 24, tokens: { ...T, surface: null }, ui });
+      assert.equal(text(fallback.composer[0]), "╭" + "─".repeat(width - 2) + "╮");
+      assert.equal(text(fallback.composer.at(-1)), "╰" + "─".repeat(width - 2) + "╯");
+      assert.ok(text(fallback.composer.at(-2)).includes("▐" + icon + "▌"));
+      assert.ok(fallback.composer.every(line => L.displayWidth(text(line)) === width));
+    });
+  }
+}

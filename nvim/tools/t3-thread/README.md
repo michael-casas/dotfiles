@@ -40,7 +40,11 @@ change; only new output and the live region use the new settings.
   Long streams/details show a bounded preview; menus take priority over preview.
   Idle threads use only the composer/status rows, with no pinned heading.
 - The composer retains its theme surfaces, inverse insertion cursor, model/effort
-  label, send/stop control, six-row maximum input and round ANSI fallback.
+  label, rounded pill send/stop control, six-row maximum input and round
+  ANSI fallback. Filled cards have half-row padding with notched quadrant corners;
+  their cutouts inherit the terminal background, not an explicit theme fill.
+  The card uses standard Unicode block elements; the pill ends are Powerline half
+  circles (U+E0B6/U+E0B4), which Herdr draws itself (half blocks in the ANSI fallback).
 - Project/thread title, branch/worktree, run status and context usage now live in
   the status line. Action hints or errors replace it temporarily. OSC 7501 still
   reports hc state. There is no `↓ latest` hint or timeline focus.
@@ -206,6 +210,18 @@ This does not switch the editor colorscheme or configure other applications.
 
 - **Enter:** send; defaults to steering an active run.
 - **Ctrl-Q:** queue the composer after the active run instead.
+- **Composer line editing (INSERT):** **Ctrl-A / Ctrl-E** move to the start/end
+  of the current logical line; **Ctrl-B / Ctrl-F** move one character backward/
+  forward. **Ctrl-U** kills from the cursor to the line start; at a line start,
+  it removes the preceding newline (repeat to clear a multiline draft).
+  **Ctrl-K** kills to line end, or removes the newline at line end.
+  **Ctrl-W / Alt-Backspace** kill the preceding whitespace-delimited word;
+  **Alt-B / Alt-F** move over letter/number words. Word operations stay within
+  the current logical line. Option must be configured to send Alt/ESC sequences.
+  **Ctrl-D** deletes forward; **Ctrl-H / Backspace** delete backward.
+  **Ctrl-Y** inserts the last nonempty kill (one process-local slot, no kill-ring
+  accumulation). Ordinary backspace/delete and empty kills preserve that slot.
+  **Ctrl-P / Ctrl-N** remain no-ops outside completion/model menus.
 - **Esc:** dismiss an open completion/model/compact view; **never interrupt** a run.
   In the Neovim T3 popover it also enters **COMMAND** (normal mode). A second
   Esc stays in COMMAND and does not hide the float. Esc also cancels an
@@ -217,7 +233,8 @@ This does not switch the editor colorscheme or configure other applications.
 - **Tab:** toggle live work details (when not accepting a completion).
 - **Ctrl-O:** append expanded work of the latest finished turn to scrollback.
 - **Native scrolling:** wheel/trackpad or Neovim normal-mode motions/search/yank.
-  The old TUI PgUp/PgDn/Ctrl-U/Ctrl-D/Ctrl-E navigation is removed.
+  The old TUI history navigation is removed; in INSERT, Ctrl-U/D/E now edit
+  the draft as described above (normal-mode scrolling is unchanged).
 - With an approval pending and an empty composer: **y** approve, **a** approve for
   this session, **n** decline. Non-resumable requests explain why they cannot act.
 - With input requested: enter an option number (comma-separated numbers for
@@ -366,7 +383,7 @@ Markdown and shell highlighting are deliberately small renderers, not complete
 parsers. Wide tables wrap and split into column bands rather than reproducing
 the desktop's table layout. Unusual Unicode/grapheme widths may still differ
 between terminal fonts. Composer display is capped at six input
-rows. The desktop's proportional fonts, rounded filled surfaces, exact icons,
+rows. The desktop's proportional fonts, pixel-smooth rounded surfaces, exact icons,
 hover actions, fades/shimmer, microphone and attachment controls are not
 reproduced. Agent chips show a truncated prompt rather than a full expanded
 prompt view. The live preview can omit earlier streaming text; the committed final is complete.

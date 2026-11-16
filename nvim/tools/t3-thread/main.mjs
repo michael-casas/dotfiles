@@ -518,6 +518,8 @@ function Thread({ initialId, T }) {
     if (
       request &&
       !userInput &&
+      !key.ctrl &&
+      !key.meta &&
       ["y", "a", "n"].includes(ch) &&
       !editor.value
     ) {

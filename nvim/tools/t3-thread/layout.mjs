@@ -649,28 +649,46 @@ function composer(width, T, ui, model, working) {
   const inputRows = ui.inputRows ?? 6;
   const start = Math.max(0, cursorRow - inputRows + 1);
   input = input.slice(start, start + inputRows).map((l) => clip(l, inputWidth));
+  const buttonColor = working ? T.error : T.accent;
+  // Powerline half circles (U+E0B6/U+E0B4) make a true pill; Herdr draws them
+  // without a Nerd Font. The ANSI fallback keeps plain half blocks.
+  const [capLeft, capRight] = T.surface != null ? ["\ue0b6", "\ue0b4"] : ["▐", "▌"];
+  const button = [
+    seg(capLeft, { color: buttonColor }),
+    seg(working ? " ■ " : " ↑ ", {
+      color: T.accent_fg,
+      bg: buttonColor,
+      bold: true,
+    }),
+    seg(capRight, { color: buttonColor }),
+  ];
+  const label = [
+    seg("✳", { color: T.provider }),
+    seg(model.name || "T3", { color: T.fg }),
+    seg(model.effort ? ` ${model.effort}` : "", { color: T.muted }),
+  ];
+  // Reserve the whole control before clipping the label, including at 20 columns.
+  const labelWidth = Math.max(0, inputWidth - displayWidth(lineText(button)) - 2);
   const controls = ends(
     [],
-    [
-      seg("✳", { color: T.provider }),
-      seg(model.name || "T3", { color: T.fg }),
-      seg(model.effort ? ` ${model.effort}` : "", { color: T.muted }),
-      seg("  "),
-      seg(working ? " ■ " : " ↑ ", {
-        color: T.accent_fg,
-        bg: working ? T.error : T.accent,
-        bold: true,
-      }),
-    ],
+    [...clip(label, labelWidth, true), space(2), ...button],
     inputWidth,
   );
   const content = [...input, [], controls].map((l) =>
     pad([space(inset), ...l], width),
   );
-  if (T.surface != null)
-    return [[space(width)], ...content, [space(width)]].map((l) =>
-      l.map((s) => ({ ...s, bg: s.bg ?? T.surface })),
-    );
+  if (T.surface != null) {
+    // Outside the card is unpainted terminal-default background, not T.bg.
+    // Leave the empty quadrants transparent so standalone terminals match too.
+    const edge = (left, fill, right) => [
+      seg(left + fill.repeat(Math.max(0, width - 2)) + right, { color: T.surface }),
+    ];
+    return [
+      edge("▗", "▄", "▖"),
+      ...content.map((l) => l.map((s) => ({ ...s, bg: s.bg ?? T.surface }))),
+      edge("▝", "▀", "▘"),
+    ];
+  }
   // Round outline is the ANSI fallback. It occupies the same cell budget as fill padding.
   return [
     [seg("╭" + "─".repeat(Math.max(0, width - 2)) + "╮", { color: T.border })],
