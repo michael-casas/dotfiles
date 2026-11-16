@@ -56,7 +56,8 @@ SSH shell hooks can run **before** our clean child environment; this is not a
 sandbox against the host, administrator, or same-UID peers.
 
 `root` is a canonical absolute path with at least two components, restricted to
-ASCII letters/digits, underscore, dot, hyphen, slash and space. Quotes/control
+ASCII letters/digits, underscore, dot, hyphen, slash and space. `@` is not
+allowed (e.g. `/volumeN/@tmp/portable` fails locally with 20). Quotes/control
 characters, `..`, duplicate/trailing slashes fail. All existing ancestors must
 be root/self-owned and not group/world writable (root-owned sticky system temp
 ancestors excepted); root/subroots must be self-owned 0700, never symlinks.
@@ -65,7 +66,9 @@ are rejected by design, even if their ACLs restrict access. We do not interpret
 ACLs or loosen the guard. If such a share is an ancestor of HOME, no root under
 HOME is eligible. For temporary storage, the supported workaround is an approved
 private root beneath root-owned sticky system temp (e.g. `/tmp`), with the usual
-ownership, mode and symlink checks. System temp may be cleared by the OS.
+ownership, mode and symlink checks. The filesystem must also allow execution:
+`/tmp` is not portable as a guaranteed executable location. System temp may be
+cleared by the OS.
 `locale` must match an installed `locale -a` entry and yield UTF-8. Codeset
 matching ignores case/hyphens: `C.UTF-8`, `C.utf8` and `C.UTF8` are equivalent;
 `en_US.UTF-8` similarly matches an installed `en_US.utf8`;
@@ -132,7 +135,14 @@ attachment, stock SSH's exit status and interactive diagnostics are preserved.
    presence. Neovim's version probe disables its HOME log writes. No environment
    or identity dump. Standalone `probe` is the REP-only read-only pilot entry
    point (requires separate target approval); CLI `inspect` combines this with
-   approved-root creation/cache verification and can write directories.
+   approved-root creation/cache verification and can write directories/files.
+   Before reporting a cache miss or permitting upload, `inspect` creates a tiny
+   script with a unique name, marks it executable, runs it directly, and removes
+   it in both the approved root and `releases` directory. Launch repeats these
+   checks before activation; verified release trees are never modified. No
+   `mount` parsing or interpreter bypass of `noexec`. Execution denial maps to
+   22, not a late `bin/enter: Permission denied`. This detects execution denial,
+   including `noexec`; it cannot prove that mount policy will not change later.
 3. Verify any cached release completely. Warm connect sends **no archive**.
    Otherwise acquire a digest lock, create 0700 unique same-filesystem staging,
    bound upload, verify **archive SHA-256 before tar**, extract, verify exact
@@ -177,6 +187,13 @@ calls use 45 seconds. Timeout/failure does not authorize stale-lock stealing.
   diagnostic suggestion; running it is a **real connection**, requiring approval.
 - **Locale/TERM/path/probe (22):** use an already installed UTF-8 locale/tool or
   approved existing path; never install or loosen root validation on login.
+- **Noexec root (22):** `approved root is on a noexec filesystem` means the
+  direct executable preflight failed (a security policy may also deny execution).
+  Pick and approve a root on an exec-capable filesystem; changing permission bits
+  does not bypass `noexec`. REP reported a temporary root under `/dev/shm` worked
+  on the NAS-class Linux pilot: it was root-owned, sticky and exec-capable, unlike
+  that pilot's `/tmp`. Verify these properties on each target; neither path is a
+  universal guarantee. Do not remount or weaken security policy during login.
 - **Release locked (24):** retry after the active publisher finishes. If the lock
   persists, inspect `$root/locks/<digest>` privately; confirm its owner is gone
   and obtain explicit cleanup approval before removal. No age-based stealing.
@@ -229,7 +246,13 @@ reported the selected NAS-class Linux pilot has compiled xterm/vt100 terminfo
 but neither `infocmp` nor `tput`, only language-specific `.utf8` locales (the
 policy requests `en_US.UTF-8`), and an ACL-managed writable HOME ancestor. The
 pilot therefore uses an approved temporary root under sticky system temp.
-These are attributed probe observations, not live verification of this correction.
+REP subsequently reported a Herdr E2E passed with a prompt, `xterm-256color`
+fallback, `en_US.utf8`, no history file, find/grep helpers, explicit editor
+recovery, colors, and clean exit with the temporary child removed. REP also
+verified hangup cleanup. The successful root was under exec-capable `/dev/shm`;
+the earlier `/tmp` root staged but could not launch because its mount was
+`noexec`. These are attributed live observations, not live verification of this
+correction's executable preflight. Temporary-child cleanup is unchanged.
 
 The pilot also lacks Neovim, Mosh and tmux. The existing missing-editor path
 reports `vi -u NONE` for explicit recovery; it does not auto-run vi. Offline
@@ -277,7 +300,7 @@ shellcheck remote/bootstrap.sh remote/profile/bin/* remote/profile/shell/bashrc
 git diff --check
 ```
 
-Current correction gate: **58 Python tests: 57 passed, 1 skipped**;
+Current correction gate: **61 Python tests: 60 passed, 1 skipped**;
 **17/17 Lua suites** through `run-lua.sh` (exit 0); **173/173 Node tests** pass. ShellCheck, plain StyLua
 checks using the directory configs above, and `git diff --check` pass. The stale
 168/173 missing-dependency caveat is closed; REP supplied the existing Node
@@ -304,3 +327,9 @@ fixtures cover compiled terminfo without either inspection tool, every search
 location and both layouts, fallback order and probe flags, missing-entry exit 22,
 and `en_US.UTF-8` normalization against `en_US.utf8`. REP must rerun the corrected
 bootstrap on the pilot; this implementation agent made no live connection.
+
+P6/P7 correction fixtures emulate execution denial without mounts: inspect
+returns 22 before upload/staging for either root or releases, cached-connect
+denial is rejected, launch rechecks, and preflight files are removed on success
+and failure. Root-alphabet tests now explicitly reject `@` before transport.
+REP owns the live rerun of the new preflight.

@@ -121,6 +121,7 @@ BOOTSTRAP_ERRORS = {
     **{message: 22 for message in ('SHA-256 unavailable', 'absolute root required', 'noncanonical root',
        'symlink in root', 'root component is not a directory', 'foreign-owned root', 'writable root ancestor',
        'cannot create private root', 'root must be owned mode 0700', 'approved locale unavailable',
+       'cannot create executable preflight', 'approved root is on a noexec filesystem',
        'approved locale is not UTF-8', 'Bash /bin/bash required', 'unsupported tar', 'unsafe extra PATH',
        'no supported terminal', 'unknown operation', 'bad storage mode', 'bad digest', 'bad digest alphabet')},
 }

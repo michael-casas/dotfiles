@@ -107,7 +107,7 @@ class RevisionTest(TransportTest):
                     cli.load_policy(p)
 
     def test_revision_bad_roots(self):
-        for root in ['/one', '/a/../b', '/a//b', '/a/b/', '/a/./b']:
+        for root in ['/one', '/a/../b', '/a//b', '/a/b/', '/a/./b', '/volumeN/@tmp/fixture']:
             self.update(root=root)
             self.assertEqual(self.cli('fixture').returncode, 20)
         self.assertFalse(self.log.exists())
@@ -168,6 +168,57 @@ class RevisionTest(TransportTest):
         self.assertEqual(r.returncode, 22, r.stderr)
         self.assertIn(b'no supported terminal', r.stderr)
         self.no_upload()
+
+    def test_revision_noexec_stops_at_inspect_without_upload(self):
+        real_chmod = shutil.which('chmod')
+        for location in [self.store, self.store / 'releases']:
+            with self.subTest(location=location):
+                if self.store.exists():
+                    shutil.rmtree(self.store)
+                self.log.unlink(missing_ok=True)
+                # Emulate execution denial on this filesystem without mounting:
+                # intercept chmod only for the tiny executable preflight fixture.
+                (self.shims / 'chmod').write_text(
+                    '#!/bin/bash\n' +
+                    f'case "$2" in "{location}"/exec-check.*) exec "{real_chmod}" 0600 "$2" ;; esac\n' +
+                    f'exec "{real_chmod}" "$@"\n')
+                (self.shims / 'chmod').chmod(0o755)
+                r = self.cli('fixture', '--allow-dirty')
+                self.assertEqual(r.returncode, 22, r.stderr)
+                self.assertIn(b'approved root is on a noexec filesystem', r.stderr)
+                self.assertNotIn(b'Permission denied', r.stderr)
+                self.assertEqual(len(self.log.read_text().splitlines()), 1)
+                self.no_upload()
+                self.assertFalse((self.store / 'staging').exists())
+                self.assertFalse(list(self.store.rglob('exec-check.*')))
+
+    def test_revision_cached_release_noexec_rechecked_before_launch(self):
+        artifact = pack.build(cli.ROOT, allow_dirty=True)
+        self.assertEqual(self.stage(artifact).returncode, 0)
+        location = self.store / 'releases'
+        real_chmod = shutil.which('chmod')
+        (self.shims / 'chmod').write_text(
+            '#!/bin/bash\n' +
+            f'case "$2" in "{location}"/exec-check.*) exec "{real_chmod}" 0600 "$2" ;; esac\n' +
+            f'exec "{real_chmod}" "$@"\n')
+        (self.shims / 'chmod').chmod(0o755)
+        r = self.cli('fixture', '--use-cached', '--allow-dirty')
+        self.assertEqual(r.returncode, 22, r.stderr)
+        self.assertIn(b'approved root is on a noexec filesystem', r.stderr)
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
+        self.no_upload()
+        # Even a mount change after inspect is rechecked by the launch operation.
+        r = self.stage(artifact, operation='launch')
+        self.assertEqual(r.returncode, 23, r.stderr)
+        self.assertIn(b'approved root is on a noexec filesystem', r.stderr)
+        self.assertNotIn(b'Permission denied', r.stderr)
+        self.assertFalse(list(self.store.rglob('exec-check.*')))
+        self.assertEqual(list((self.store / 'staging').iterdir()), [])
+
+    def test_revision_exec_preflight_cleans_up_on_success(self):
+        r = self.cli('fixture', '--allow-dirty')
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertFalse(list(self.store.rglob('exec-check.*')))
 
     def test_revision_ssh_argv(self):
         self.update(user='fixture-user', port=2222)

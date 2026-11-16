@@ -48,6 +48,18 @@ private_path() {
         fail 'root must be owned mode 0700'
     fi
 }
+check_execution() (
+    # A subshell owns only this disposable file/traps, not staging or session cleanup.
+    test_file=$(mktemp "$1/exec-check.XXXXXXXX") || fail 'cannot create executable preflight'
+    trap 'rm -f -- "$test_file"' EXIT
+    trap 'exit 23' HUP INT TERM
+    printf '#!/bin/sh\nexit 0\n' > "$test_file" || fail 'cannot create executable preflight'
+    chmod 0700 "$test_file" || fail 'cannot create executable preflight'
+    # Execute directly, not via sh (which would bypass a noexec mount).
+    if ! "$test_file" >/dev/null 2>&1; then
+        fail 'approved root is on a noexec filesystem'
+    fi
+)
 check_release() {
     local release=$1 mode size expected path directory owner perms count=0
     [ -d "$release" ] && [ ! -L "$release" ] || return 1
@@ -216,7 +228,10 @@ if [ "$operation" = inspect ]; then
 fi
 # The local policy owns this absolute root. No inferred HOME destination.
 private_path "$root"
-for dir in releases staging locks state; do private_path "$root/$dir"; done
+if [ "$operation" = inspect ] || [ "$operation" = launch ]; then check_execution "$root"; fi
+private_path "$root/releases"
+if [ "$operation" = inspect ] || [ "$operation" = launch ]; then check_execution "$root/releases"; fi
+for dir in staging locks state; do private_path "$root/$dir"; done
 release="$root/releases/$digest"
 if [ "$operation" = inspect ]; then
     if [ -e "$release" ] || [ -L "$release" ]; then
