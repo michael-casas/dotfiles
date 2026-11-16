@@ -399,6 +399,9 @@ function M.open(path, opts)
       vim.cmd("split")
     end
     api.nvim_set_current_buf(buf)
+    -- A window already showing the file is not re-entered, so nothing rechecks it:
+    -- reload an unmodified copy from disk (a modified one gets Neovim's usual prompt).
+    pcall(vim.cmd.checktime, buf)
     api.nvim_win_set_cursor(0, { math.min(line, api.nvim_buf_line_count(buf)), 0 })
   end)
   map("<Tab>", function()

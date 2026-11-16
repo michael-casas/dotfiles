@@ -70,6 +70,18 @@ assert(vim.uv.fs_rename(path .. ".tmp", path))
 wait(function()
   return not api.nvim_win_get_config(win).title[1][1]:find("STALE", 1, true)
 end, "atomic recovery")
+local marked = vim.deepcopy(fixture)
+for i, l in ipairs(marked) do
+  if l:find("^# ") then
+    marked[i] = l .. " (marked)"
+    break
+  end
+end
+vim.fn.writefile(marked, path .. ".tmp", "b")
+assert(vim.uv.fs_rename(path .. ".tmp", path))
+wait(function()
+  return table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), "\n"):find("(marked)", 1, true) ~= nil
+end, "board renders the changed file")
 local edit
 for _, map in ipairs(api.nvim_buf_get_keymap(buf, "n")) do
   if map.lhs == "e" then
@@ -83,8 +95,33 @@ assert(
   "explicit board source opens"
 )
 assert(
+  table.concat(api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("(marked)", 1, true),
+  "e shows the file as it is on disk, not a stale loaded copy"
+)
+assert(
   api.nvim_buf_get_lines(draft, 0, 1, false)[1] == "unsaved draft" and vim.bo[draft].modified,
   "invoker draft preserved"
+)
+-- e from a window that already shows the board file: that loaded copy must be refreshed from disk.
+M.open(path)
+local board_buf = api.nvim_get_current_buf()
+local again = vim.deepcopy(marked)
+for i, l in ipairs(again) do
+  again[i] = l:gsub("%(marked%)", "(marked again)")
+end
+vim.fn.writefile(again, path .. ".tmp", "b")
+assert(vim.uv.fs_rename(path .. ".tmp", path))
+wait(function()
+  return table.concat(api.nvim_buf_get_lines(board_buf, 0, -1, false), "\n"):find("(marked again)", 1, true) ~= nil
+end, "board renders the second change")
+for _, map in ipairs(api.nvim_buf_get_keymap(board_buf, "n")) do
+  if map.lhs == "e" then
+    map.callback()
+  end
+end
+assert(
+  table.concat(api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("(marked again)", 1, true),
+  "e refreshes a window already showing the board file"
 )
 api.nvim_set_current_win(before)
 M.open(path)
