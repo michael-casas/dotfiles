@@ -279,6 +279,13 @@ test("load flags reset on ordinary and interrupted scripts", function()
   s.load_layout("let SessionLoad = 1\nthrow 'synthetic layout failure'\n")
   assert(not s.loading and not vim.g.SessionLoad, "failed layout must not disable every future save")
 end)
+test("one failing layout line does not drop the rest of the layout", function()
+  vim.g.hcmux_after_error = nil
+  s.load_layout("lcd " .. dir .. "/folder-that-was-removed\nlet g:hcmux_after_error = 1\n")
+  assert(vim.g.hcmux_after_error == 1, "a removed folder must not abort the remaining layout script")
+  assert(not s.loading and not vim.g.SessionLoad)
+  vim.g.hcmux_after_error = nil
+end)
 s.name, s.state = nil, "off"
 vim.fn.delete(dir, "rf")
 print(("session-save: %d cases, %d failures"):format(cases, #failures))

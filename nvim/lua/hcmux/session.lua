@@ -336,7 +336,9 @@ function M.load_layout(text)
   f:close()
   M.loading = true
   local session_load = vim.g.SessionLoad
-  local ok, err = pcall(vim.cmd, "silent source " .. vim.fn.fnameescape(tmp))
+  -- `silent!`: one bad line (a removed folder or file) must not drop the rest of
+  -- the layout; under pcall a plain `source` aborts at the first error.
+  local ok, err = pcall(vim.cmd, "silent! source " .. vim.fn.fnameescape(tmp))
   M.loading = false
   vim.g.SessionLoad = session_load -- even a script that aborts before its final unlet
   os.remove(tmp)
