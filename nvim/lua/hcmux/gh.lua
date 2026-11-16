@@ -32,12 +32,19 @@ function M.error(text)
     text:find("not logged")
     or text:find("authentication")
     or text:find("gh auth login", 1, true)
-    or text:find("401")
+    or text:find("bad credentials", 1, true)
+    or text:find("http 401", 1, true)
   then
     return { kind = "auth", message = "GitHub: not logged in · run gh auth login" }
   end
   if text:find("rate limit") or text:find("secondary rate") then
     return { kind = "rate", message = "offline · rate limited · r to retry" }
+  end
+  -- GitHub answered but refused (e.g. 422 on a review): say so instead of "offline".
+  local code = text:match("http (4%d%d)")
+  if code then
+    local first = (text:match("[^\n]+") or ""):gsub("%c", " "):sub(1, 120)
+    return { kind = "api", message = "GitHub: HTTP " .. code .. " · " .. first }
   end
   return { kind = "offline", message = "offline · r to retry" }
 end

@@ -21,6 +21,10 @@ local MARK = "t3"
 local source = vim.uv.fs_realpath(debug.getinfo(1, "S").source:sub(2)) or debug.getinfo(1, "S").source:sub(2)
 local nvim_root = vim.fn.fnamemodify(source, ":h:h:h")
 local main = nvim_root .. "/tools/t3-thread/main.mjs"
+-- main.mjs is tracked; what a fresh clone lacks is node and the npm dependencies.
+local function ready()
+  return vim.fn.executable("node") == 1 and vim.uv.fs_stat(nvim_root .. "/tools/t3-thread/node_modules/ink") ~= nil
+end
 local hub_file = vim.fn.fnamemodify(nvim_root, ":h") .. "/theme/theme.json"
 local last -- address shown last
 
@@ -267,8 +271,8 @@ function M.open(id, opts)
   if addr then
     return show(addr, where, opts)
   end
-  if vim.fn.filereadable(main) == 0 then
-    return vim.notify("t3: missing " .. main .. " (npm install in tools/t3-thread)", vim.log.levels.ERROR)
+  if not ready() then
+    return vim.notify("t3: run `npm install` in tools/t3-thread (and install node)", vim.log.levels.ERROR)
   end
   local buf, new = term.open(argv, {
     where = where == "float" and "float" or nil, -- nil: the focused popover window
@@ -318,8 +322,8 @@ function M.attach_in(win, id)
       vim.api.nvim_set_current_win(win)
     end
   else
-    if vim.fn.filereadable(main) == 0 then
-      return vim.notify("t3: missing " .. main, vim.log.levels.ERROR)
+    if not ready() then
+      return vim.notify("t3: run `npm install` in tools/t3-thread (and install node)", vim.log.levels.ERROR)
     end
     buf, new = term.open({ "node", main, id }, {
       name = name_for(id),

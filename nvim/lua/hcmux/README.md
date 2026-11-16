@@ -205,9 +205,9 @@ quits cleanly, leaving the previous saved editor layout untouched (the holder
 is not released by a write; its exited pid is detected on the next attach). Session detach/reload, commands and
 terminal restoration are otherwise unchanged.
 
-Headless checks from the repository root: `nvim --headless -u NONE
-'+luafile nvim/tools/t3-thread/test/<name>.lua' +qa`, for `layout`, `sidebar`,
-`feed`, `session-skip`, `session-only-t3`, plus the existing `popover` and `restart` checks.
+Headless checks: `nvim/tools/t3-thread/test/run-lua.sh` runs every Lua suite (or the named ones, e.g.
+`run-lua.sh layout sidebar`) and exits nonzero if one fails. A bare `nvim --headless '+luafile …' +qa` exits 0 even
+when the suite throws, so don't gate on it.
 
 ## AGENT mode (`hcmux.agent`)
 

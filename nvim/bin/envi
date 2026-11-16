@@ -21,7 +21,10 @@ case "${1:-}" in
   -h | --help | help) sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
-cd "$HOME/.dotfiles"
+# A session start runs in the dotfiles; `envi <file>` keeps the caller's cwd, like nvim.
+if [ $# -eq 0 ] || [ -n "${ENVI_RELOAD_SESSION:-}${ENVI_SESSION:-}" ]; then
+  cd "$HOME/.dotfiles"
+fi
 # A reload returns to the session it left; ENVI_SESSION picks another one.
 # Both apply with or without arguments (e.g. `ENVI_SESSION=x envi --listen s`).
 if [ -n "${ENVI_RELOAD_SESSION:-}${ENVI_SESSION:-}" ]; then

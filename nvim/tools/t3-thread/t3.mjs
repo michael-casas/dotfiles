@@ -47,6 +47,8 @@ async function issueToken() {
   ]);
   fs.mkdirSync(path.dirname(SESSION), { recursive: true });
   fs.writeFileSync(SESSION, stdout, { mode: 0o600 });
+  fs.chmodSync(SESSION, 0o600); // mode only applies when the file is created
+
   return JSON.parse(stdout);
 }
 

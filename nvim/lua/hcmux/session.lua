@@ -49,7 +49,8 @@ end
 
 --- The folder a session belongs to: the git root, else the directory.
 function M.root_of(dir)
-  dir = vim.fn.fnamemodify(dir or vim.fn.getcwd(), ":p"):gsub("/$", "")
+  -- Strip a trailing slash but keep "/" itself ("" would resolve to the cwd).
+  dir = vim.fn.fnamemodify(dir or vim.fn.getcwd(), ":p"):gsub("(.)/$", "%1")
   return vim.fs.root(dir, ".git") or dir
 end
 
@@ -463,7 +464,8 @@ function M.attach(name, o)
     return vim.notify("hcmux: session " .. name .. ": " .. tostring(err), vim.log.levels.ERROR)
   end
   M.name, M.version, M.last_text = name, version or 0, nil
-  M.root = type(value) == "table" and value.root or M.root_of()
+  -- A new session belongs to the requested folder (`nvim <dir>`), not the caller's cwd.
+  M.root = type(value) == "table" and value.root or o.root or M.root_of()
   vim.g.hcmux_session = name
   warned = {}
 
@@ -726,8 +728,21 @@ local group = vim.api.nvim_create_augroup("hcmux.session", { clear = true })
 local stdin = false
 
 --- Plain `nvim` and `nvim <dir>` attach; `nvim <file>` is a plain editor.
+-- Folders that never get an automatic session (as the old auto-session config did).
+local function suppressed(dir)
+  local home = vim.fn.expand("~")
+  local root = M.root_of(dir)
+  for _, d in ipairs({ home, "/", "/tmp", "/private/tmp", home .. "/Downloads" }) do
+    if root == d then
+      return true
+    end
+  end
+  return false
+end
+
 function M.autostart()
-  if vim.env.HCMUX_NO_SESSION == "1" or stdin then
+  -- Implicit, so silent: without herdr-core (a fresh clone, a remote box) nvim is a plain editor.
+  if vim.env.HCMUX_NO_SESSION == "1" or stdin or not core.available() then
     return
   end
   local name = vim.env.HCMUX_SESSION
@@ -739,7 +754,11 @@ function M.autostart()
     if #args > 1 or (#args == 1 and vim.fn.isdirectory(args[1]) == 0) then
       return
     end
+    if suppressed(args[1]) then
+      return
+    end
     name = M.default_name(args[1])
+    return M.attach(name, { root = M.root_of(args[1]) })
   end
   M.attach(name)
 end

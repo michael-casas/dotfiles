@@ -72,6 +72,10 @@ for _, entry in ipairs({
   { "not logged into any GitHub hosts", "auth" },
   { "API rate limit exceeded", "rate" },
   { "error connecting to api.github.com", "offline" },
+  { "gh: Unprocessable Entity (HTTP 422)", "api" },
+  { "gh: Bad credentials (HTTP 401)", "auth" },
+  -- A 4xx that merely mentions 401 (e.g. PR #401) is not an auth failure.
+  { "gh: Validation Failed on pull request #401 (HTTP 422)", "api" },
 }) do
   vim.env.PRS_ERROR = entry[1]
   local cached, err = await(function(cb)

@@ -318,9 +318,9 @@ From this directory:
 ```sh
 for file in *.mjs; do node --check "$file" || exit; done
 node --test test/*.test.mjs
-# From the repository root, mocked safety tests (never call hc or kill real terminals):
-nvim --headless -u NONE '+luafile nvim/tools/t3-thread/test/restart.lua' +qa
-nvim --headless -u NONE '+luafile nvim/tools/t3-thread/test/popover.lua' +qa
+# The envi Lua suites (mocked; never call hc or kill real terminals). Exits nonzero on a failure:
+test/run-lua.sh               # all of them
+test/run-lua.sh restart prs   # named ones
 ```
 
 The tests cover protocol/projection behavior (`test/thread.test.mjs`), `/`/`$` completion (`test/commands.test.mjs`), frame and
