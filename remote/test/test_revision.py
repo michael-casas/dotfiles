@@ -40,12 +40,34 @@ class RevisionTest(TransportTest):
                      'ssh: connect to host fixture.invalid port 22: Connection refused',
                      'Connection closed by fixture.invalid port 22',
                      'kex_exchange_identification: Connection closed by remote host',
-                     'No ED25519 host key is known for fixture.invalid and you have requested strict checking.']:
+                     'No ED25519 host key is known for fixture.invalid and you have requested strict checking.',
+                     'ssh: connect to host fixture.invalid port 22: Operation timed out',
+                     'ssh: connect to host fixture.invalid port 22: Host is down',
+                     'ssh: connect to host fixture.invalid port 22: Connection reset by peer',
+                     'ssh: Could not resolve hostname fixture.invalid: nodename nor servname provided, or not known',
+                     'ssh: Could not resolve hostname fixture.invalid: No address associated with nodename',
+                     'ssh: Could not resolve hostname fixture.invalid: Non-recoverable failure in name resolution',
+                     'Connection timed out during banner exchange',
+                     'Connection reset by 192.0.2.1 port 22',
+                     'Connection closed by 2001:db8::1 port 22',
+                     'Connection to fixture.invalid closed by remote host.']:
             with self.subTest(text=text):
                 r = self.cli('fixture', '--allow-dirty', FAKE_SSH_ERROR=text)
                 self.assertEqual(r.returncode, 21)
                 self.assertIn(text.encode(), r.stderr)
                 self.assertIn(b'ssh -F /dev/null', r.stderr)
+                self.no_upload()
+
+    def test_revision_ssh_errors_pin_explicit_policy(self):
+        self.update(user='fixture-user', port=2222)
+        for text in ['fixture-user@fixture.invalid: Permission denied (publickey,password,keyboard-interactive,hostbased,gssapi-with-mic).',
+                     'ssh: connect to host fixture.invalid port 2222: Operation timed out',
+                     'Connection reset by 192.0.2.1 port 2222',
+                     'No ED25519 host key is known for [fixture.invalid]:2222 and you have requested strict checking.']:
+            with self.subTest(text=text):
+                r = self.cli('fixture', '--allow-dirty', FAKE_SSH_ERROR=text)
+                self.assertEqual(r.returncode, 21)
+                self.assertIn(text.encode(), r.stderr)
                 self.no_upload()
 
     def test_revision_lock_and_verify_diagnostics(self):
@@ -117,7 +139,19 @@ class RevisionTest(TransportTest):
     def test_revision_remote_exit255_stderr_is_withheld(self):
         from unittest.mock import patch
         for text in ['private remote output', 'Host key verification failed. private remote suffix',
-                     'Permission denied (publickey). private remote suffix']:
+                     'Permission denied (publickey). private remote suffix',
+                     'tok_9f8e7d6c5b4a: Permission denied (AKIA-SECRET-VALUE).',
+                     'Connection closed by ' + 'a' * 400,
+                     'ssh: connect to host other.invalid port 22: Operation timed out',
+                     'ssh: connect to host fixture.invalid port 2222: Connection refused',
+                     'ssh: Could not resolve hostname other.invalid: unknown host',
+                     'Connection to other.invalid closed by remote host.',
+                     'Connection reset by 192.0.2.1 port 2222',
+                     'Connection closed by other.invalid port 22',
+                     'wrong-user@fixture.invalid: Permission denied (publickey).',
+                     'Permission denied (unknown-method).',
+                     'No SECRET host key is known for fixture.invalid and you have requested strict checking.',
+                     'No ED25519 host key is known for other.invalid and you have requested strict checking.']:
             with self.subTest(text=text):
                 result = subprocess.CompletedProcess([], 255, stdout=b'', stderr=text.encode())
                 with patch.object(cli.subprocess, 'run', return_value=result):

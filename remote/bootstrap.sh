@@ -119,11 +119,37 @@ extra_path() {
     done
     export PATH
 }
+terminfo_present() {
+    local term=$1 first hex directory rest
+    case "$term" in ''|*[!A-Za-z0-9._+-]*) return 1 ;; esac
+    # If available, infocmp remains authoritative (including lookup failures).
+    if command -v infocmp >/dev/null 2>&1; then
+        infocmp "$term" >/dev/null 2>&1
+        return $?
+    fi
+    first=${term:0:1}
+    printf -v hex '%02x' "'$first"
+    local directories=("${TERMINFO:-}" "${HOME:+$HOME/.terminfo}")
+    rest=${TERMINFO_DIRS:-}
+    while [ -n "$rest" ]; do
+        directory=${rest%%:*}
+        directories+=("$directory")
+        case "$rest" in *:*) rest=${rest#*:} ;; *) break ;; esac
+    done
+    # Empty TERMINFO_DIRS fields denote system defaults, always searched below.
+    directories+=(/etc/terminfo /lib/terminfo /usr/share/terminfo /usr/lib/terminfo)
+    for directory in "${directories[@]}"; do
+        [ -n "$directory" ] || continue
+        if [ -f "$directory/$first/$term" ] && [ -r "$directory/$first/$term" ]; then return 0; fi
+        if [ -f "$directory/$hex/$term" ] && [ -r "$directory/$hex/$term" ]; then return 0; fi
+    done
+    return 1
+}
 select_term() {
     local candidate
     for candidate in "${TERM:-}" xterm-256color vt100 dumb; do
         case "$candidate" in ''|*[!A-Za-z0-9._+-]*) continue ;; esac
-        if infocmp "$candidate" >/dev/null 2>&1; then
+        if terminfo_present "$candidate"; then
             TERM=$candidate
             export TERM
             return
@@ -156,7 +182,7 @@ probe() {
     select_term
     printf 'term=%s\n' "$TERM"
     for term in xterm-256color tmux-256color; do
-        if infocmp "$term" >/dev/null 2>&1; then present=1; else present=0; fi
+        if terminfo_present "$term"; then present=1; else present=0; fi
         case "$term" in xterm-*) printf 'terminfo_xterm=%s\n' "$present" ;; *) printf 'terminfo_tmux=%s\n' "$present" ;; esac
     done
     for tool in nvim git starship rg fd fdfind fzf tmux mosh-server; do

@@ -1,14 +1,14 @@
 # envi-remote — portable minimal profile
 
-Host-free implementation of design steps 1, 2, 4, 5. No real host has been
-probed or accepted. Mosh, remote tmux and developer provisioning are **not
-implemented**; requests must not silently fall back. Never run `setup.sh` remotely.
+Host-free implementation of design steps 1, 2, 4, 5. REP has selected and
+probed a NAS-class Linux pilot; full live acceptance is still pending. Mosh,
+remote tmux and developer provisioning are **not implemented**; requests must not silently fall back. Never run `setup.sh` remotely.
 
 Local requirements: Python 3.9+, Git, OpenSSH. Target candidate: Linux/macOS,
 `/bin/bash` 3.2+, GNU tar or bsdtar (ustar/gzip), `sha256sum` or `shasum`,
-GNU/BSD stat, `/usr/bin/base64 -d`, `infocmp`, ordinary POSIX utilities and an
-installed UTF-8 locale. Account login shells tested locally: Bash, sh, zsh, fish,
-csh and tcsh. The carried interactive shell is still Bash only. Local
+GNU/BSD stat, `/usr/bin/base64 -d`, ordinary POSIX utilities, installed terminfo
+and an installed UTF-8 locale. `infocmp` and `tput` are not required. Account
+login shells tested locally: Bash, sh, zsh, fish, csh and tcsh. The carried interactive shell is still Bash only. Local
 filesystems only; network mounts are not certified. Optional tools never install.
 
 ## Trust and export
@@ -60,8 +60,15 @@ ASCII letters/digits, underscore, dot, hyphen, slash and space. Quotes/control
 characters, `..`, duplicate/trailing slashes fail. All existing ancestors must
 be root/self-owned and not group/world writable (root-owned sticky system temp
 ancestors excepted); root/subroots must be self-owned 0700, never symlinks.
+ACL-managed shares whose mode bits are group/world writable and non-sticky
+are rejected by design, even if their ACLs restrict access. We do not interpret
+ACLs or loosen the guard. If such a share is an ancestor of HOME, no root under
+HOME is eligible. For temporary storage, the supported workaround is an approved
+private root beneath root-owned sticky system temp (e.g. `/tmp`), with the usual
+ownership, mode and symlink checks. System temp may be cleared by the OS.
 `locale` must match an installed `locale -a` entry and yield UTF-8. Codeset
 matching ignores case/hyphens: `C.UTF-8`, `C.utf8` and `C.UTF8` are equivalent;
+`en_US.UTF-8` similarly matches an installed `en_US.utf8`;
 the probe exports and returns the **host's actual spelling**. Language/territory
 are not guessed. The example keeps portable request spelling `C.UTF-8`.
 
@@ -76,8 +83,17 @@ extra must be canonical absolute ASCII (same alphabet as `root`), and every
 component must exist, be root/self-owned, non-symlinked and not group/world
 writable. The target's existing PATH remains target policy, not a sandbox.
 `TERM` is validated locally and remotely; missing terminfo falls back through
-`xterm-256color`, `vt100`, then `dumb`. No installed fallback means stop. No invented
-locale, package install, network download, service start or global config edit.
+`xterm-256color`, `vt100`, then `dumb`. The selector and probe availability flags
+share one check: use `infocmp` when present; otherwise look for readable compiled
+entry files in `$TERMINFO`, `$HOME/.terminfo`, the colon-separated `TERMINFO_DIRS`
+entries, then `/etc/terminfo`, `/lib/terminfo`, `/usr/share/terminfo` and
+`/usr/lib/terminfo`. Both first-letter (`x/`) and hexadecimal (`78/`) directory
+layouts are supported. Empty `TERMINFO_DIRS` entries use the system defaults.
+These variables are consulted when present in the bootstrap environment; the
+clean SSH trampoline does not forward local environment overrides. No installed
+fallback means stop with 22; a failing installed `infocmp` does not trigger a
+file-based override. No invented locale, package install, network download,
+service start or global config edit.
 
 ```sh
 # Use a checkout command directly, or add remote/bin to your LOCAL PATH manually.
@@ -99,8 +115,11 @@ new shells; existing shells retain their pinned release. Local error codes:
 **22** probe/platform/root/protocol; **24** release lock contention;
 **25** cache/stage/verification. Bootstrap uses 23 internally and the wrapper maps
 only exact authored diagnostics. For ambiguous exit 255, only complete known
-OpenSSH client-message forms are displayed; all other lines are withheld with a
-fixed message and diagnostic hint. This pattern check is not authentication of
+OpenSSH client-message forms (Linux and macOS/BSD wording) are displayed; hostname,
+port and explicit account fields must match the policy, authentication methods
+and host-key types are fixed known names, and closed/reset peers are either the
+exact policy target or bounded IP-shaped fields. All other lines are withheld with a fixed message and
+diagnostic hint. This pattern check is not authentication of
 the message source—a remote can imitate a client message. After tty
 attachment, stock SSH's exit status and interactive diagnostics are preserved.
 
@@ -148,7 +167,11 @@ calls use 45 seconds. Timeout/failure does not authorize stale-lock stealing.
   checking or delete/replace a changed key automatically.
 - **Authentication (21):** check the approved account/port and default keys or
   `SSH_AUTH_SOCK`. `-F /dev/null` ignores `IdentityAgent`/`IdentityFile` config;
-  unsupported config-only authentication needs a reviewed policy extension.
+  a key named only there will not be selected. With approval, load that key into
+  the local agent for a limited time: `ssh-add -t <secs> <key>`, using your chosen
+  lifetime and private key path. This is the route REP reported working on the
+  pilot; the wrapper does not load keys itself. Other config-only requirements
+  still need a reviewed policy extension; there is no identity-file policy field.
 - **DNS/reachability/timeout (21):** check the approved DNS target and network.
   The error prints a matching `ssh -F /dev/null -p P [-l U] -- TARGET true`
   diagnostic suggestion; running it is a **real connection**, requiring approval.
@@ -201,8 +224,19 @@ Locale probes cover both macOS-style and glibc-style UTF-8 spelling. No test pro
 SSH authentication/account hooks, real TTY/terminfo/color/key behavior, recording
 policy, UDP, network filesystems or power-loss durability.
 
-REP owns independent review and manual Herdr E2E. Pilot selection/approval is
-still required. Step 3 must implement and test stock Mosh bootstrap/locale/server
+REP owns independent review, all real-host checks, and manual Herdr E2E. REP
+reported the selected NAS-class Linux pilot has compiled xterm/vt100 terminfo
+but neither `infocmp` nor `tput`, only language-specific `.utf8` locales (the
+policy requests `en_US.UTF-8`), and an ACL-managed writable HOME ancestor. The
+pilot therefore uses an approved temporary root under sticky system temp.
+These are attributed probe observations, not live verification of this correction.
+
+The pilot also lacks Neovim, Mosh and tmux. The existing missing-editor path
+reports `vi -u NONE` for explicit recovery; it does not auto-run vi. Offline
+Neovim acceptance awaits an existing supported Neovim or a separately approved
+host package installation. Step 3 would also require Mosh/tmux packages on this
+pilot; installation is a user decision, never bootstrap work. Step 3 must
+implement and test stock Mosh bootstrap/locale/server
 version, approved UDP range, seven-day orphan timeout, private tmux socket,
 pinned named sessions/panes, concurrency, stale-session recovery and rollback.
 Step 6 must prove real target isolation, edit/save/search, nested keys/colors,
@@ -243,7 +277,7 @@ shellcheck remote/bootstrap.sh remote/profile/bin/* remote/profile/shell/bashrc
 git diff --check
 ```
 
-Current correction gate: **54 Python tests: 53 passed, 1 skipped**;
+Current correction gate: **58 Python tests: 57 passed, 1 skipped**;
 **17/17 Lua suites** through `run-lua.sh` (exit 0); **173/173 Node tests** pass. ShellCheck, plain StyLua
 checks using the directory configs above, and `git diff --check` pass. The stale
 168/173 missing-dependency caveat is closed; REP supplied the existing Node
@@ -263,3 +297,10 @@ Round-2 corrections add an exit-255 withholding regression (including recognized
 message prefixes with unrecognized suffixes), retain client-error diagnostics,
 and remove the obsolete standalone cache-check operation. The REP-only `probe`
 entry point remains covered by probe tests.
+
+Round-3 corrections retain Linux and macOS/BSD SSH diagnostics while pinning
+policy fields and withholding spoofed account/method/peer text. New host-free
+fixtures cover compiled terminfo without either inspection tool, every search
+location and both layouts, fallback order and probe flags, missing-entry exit 22,
+and `en_US.UTF-8` normalization against `en_US.utf8`. REP must rerun the corrected
+bootstrap on the pilot; this implementation agent made no live connection.
