@@ -167,7 +167,30 @@ first), with stable two-letter coloured badges and disclosure chevrons. Within
 a project, active threads and unseen completions lead, then newest activity.
 `Enter` / `o` on a project header collapses it: its green done count remains,
 along with the selected/working threads. On a thread's title or branch line,
-those keys attach and focus its client. Native `j k gg G` move; `R` refreshes.
+those keys attach and focus its client. The bar's NORMAL-mode keys are buffer-local:
+
+| Key | Action |
+|---|---|
+| `j` / `k` (with counts, e.g. `3j`) | Next / previous visible distinct thread card; land on its title, skip metadata/headers/blanks, clamp without wrapping; never open/attach |
+| `gg` / `G`, mouse | Native row navigation; reach disclosure headers |
+| `Enter` / `o` | Open thread in the T3 layout's main client; on a project/Settled header, toggle disclosure |
+| `/` | Search full thread titles across all projects, including collapsed and settled cards; exclude archived/unlisted threads |
+| Search `Enter` / `Esc` | Open hit through `layout.open_thread`, move bar cursor to its visible title / cancel without changing bar cursor or main client |
+| `R` | Refresh the shared feed |
+
+From a card's secondary line, `j/k` step relative to that card, not to its
+own title. From a header/blank, they choose the next card below / previous card
+above. Collapsed groups' existing selected/working exceptions remain visible
+and participate; hidden cards do not. Feed re-renders retain the cursor's card
+id and exact subrow key when available. No global or leader keys are added.
+
+Title search uses the already-installed Snacks picker: case-insensitive fuzzy
+matching of untruncated snapshot titles only, with project and age context
+from the shared presentation helpers. There is no client preview or attach on
+highlight; Esc closes from INSERT or NORMAL and returns to the sidebar. The
+candidate list is a snapshot at picker-open time; reopen for newer feed data.
+`search_items()` provides UI-independent candidates for headless checks.
+
 The bottom `Settled {count}` disclosure reveals settled threads locally; no
 server state is changed. Unread titles are bold; selection covers both lines.
 Branches/worktrees use a muted second line. Status stays right-aligned at the

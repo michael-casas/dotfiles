@@ -421,6 +421,114 @@ end
 M.presentation =
   { highlights = highlights, clean = clean, truncate = truncate, age = age, harness = harness, recent = recent }
 
+-- Navigation uses only rendered title anchors, never metadata or hidden cards.
+local function move_card(direction, count)
+  local win = vim.api.nvim_get_current_win()
+  local line = vim.api.nvim_win_get_cursor(win)[1]
+  local current = rows[line]
+  local cards, seen, origin = {}, {}, nil
+  for index = 1, vim.api.nvim_buf_line_count(buf) do
+    local row = rows[index]
+    if row and row.id and row.part == "title" and not seen[row.id] then
+      seen[row.id] = true
+      cards[#cards + 1] = index
+      if current and current.id == row.id then
+        origin = #cards
+      end
+    end
+  end
+  if #cards == 0 then
+    return
+  end
+  local target
+  if origin then
+    target = origin + direction * count
+  elseif direction > 0 then
+    target = #cards
+    for index, anchor in ipairs(cards) do
+      if anchor > line then
+        target = index + count - 1
+        break
+      end
+    end
+  else
+    target = 1
+    for index = #cards, 1, -1 do
+      if cards[index] < line then
+        target = index - count + 1
+        break
+      end
+    end
+  end
+  target = math.max(1, math.min(#cards, target))
+  vim.api.nvim_win_set_cursor(win, { cards[target], 0 })
+end
+
+--- Full, UI-independent title candidates. Context is displayed, not matched.
+function M.search_items()
+  local value = M.snapshot()
+  local ui = M.presentation
+  local projects, items = {}, {}
+  for _, project in ipairs(value.projects or {}) do
+    projects[project.id] = ui.clean(project.name or project.id)
+  end
+  for _, thread in ipairs(value.threads or {}) do
+    if not thread.archived and thread.listed ~= false then
+      items[#items + 1] = {
+        id = thread.id,
+        text = ui.clean(thread.title or thread.id),
+        project = projects[thread.projectId] or "No project",
+        age = ui.age(thread.updatedAt),
+      }
+    end
+  end
+  return items
+end
+
+function M.search()
+  if not (_G.Snacks and Snacks.picker) then
+    return vim.notify("T3: snacks.nvim picker is required", vim.log.levels.ERROR)
+  end
+  local sidebar = vim.api.nvim_get_current_win()
+  return Snacks.picker.pick({
+    title = "Search thread titles",
+    -- Snacks otherwise prefers file buffers over this scratch sidebar on close.
+    main = { current = true },
+    items = M.search_items(),
+    matcher = { fuzzy = true, ignorecase = true, smartcase = false, filename_bonus = false, file_pos = false },
+    format = function(item)
+      return {
+        { item.text, "Normal" },
+        { "  · " .. item.project .. " · " .. item.age, "EnviT3SideBranch" },
+      }
+    end,
+    preview = false,
+    layout = { preset = "select", preview = false },
+    confirm = function(picker, item)
+      picker:close()
+      if not item then
+        return
+      end
+      -- Let the picker restore its invoker before the layout opens the client.
+      vim.schedule(function()
+        require("hcmux.layout").open_thread(item.id)
+        if vim.api.nvim_win_is_valid(sidebar) and vim.api.nvim_win_get_buf(sidebar) == buf then
+          for line, row in pairs(rows) do
+            if row.id == item.id and row.part == "title" then
+              vim.api.nvim_win_set_cursor(sidebar, { line, 0 })
+              break
+            end
+          end
+        end
+      end)
+    end,
+    win = {
+      input = { keys = { ["<Esc>"] = { "close", mode = { "n", "i" } } } },
+      list = { keys = { ["<Esc>"] = "close" } },
+    },
+  })
+end
+
 function M.buffer()
   if buf and vim.api.nvim_buf_is_valid(buf) then
     return buf
@@ -450,7 +558,15 @@ function M.buffer()
   vim.keymap.set("n", "R", function()
     M.start(true)
   end, { buffer = buf, desc = "T3: refresh threads" })
-  -- j/k/gg/G deliberately retain native Neovim motions. No leader maps.
+  -- j/k step visible distinct cards (counts, clamped), landing on titles without
+  -- opening clients. Native gg/G and the mouse still reach disclosure headers.
+  -- Search is local to this bar; no global or leader maps.
+  for key, direction in pairs({ j = 1, k = -1 }) do
+    vim.keymap.set("n", key, function()
+      move_card(direction, vim.v.count1)
+    end, { buffer = buf, silent = true, desc = "T3: " .. (direction > 0 and "next" or "previous") .. " thread card" })
+  end
+  vim.keymap.set("n", "/", M.search, { buffer = buf, silent = true, desc = "T3: search thread titles" })
   local ok, value = pcall(function()
     return vim.json.decode(
       table.concat(vim.fn.readfile(root .. "/tools/t3-thread/test/fixtures/threads-snapshot.json"), "\n")
