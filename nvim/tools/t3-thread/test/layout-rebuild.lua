@@ -2,6 +2,7 @@
 vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
 vim.o.columns, vim.o.lines = 120, 40
 local facts, bufs, attaches, sent, notices = {}, {}, 0, {}, {}
+local answer = true
 vim.notify = function(message)
   notices[#notices + 1] = message
 end
@@ -71,6 +72,19 @@ package.loaded["hcmux.term"] = {
 }
 vim.fn.chansend = function(_, bytes)
   sent[#sent + 1] = bytes
+  local id = bytes:match("^\27%[>777;9;(%d+)u$")
+  if answer and id then
+    local buf = vim.api.nvim_get_current_buf()
+    local cols, rows = vim.api.nvim_win_get_width(0), vim.api.nvim_win_get_height(0)
+    vim.schedule(function()
+      vim.api.nvim_exec_autocmds("TermRequest", {
+        buffer = buf,
+        data = {
+          sequence = ("\27]7503;envi-t3-layout=%s;cols=%d;rows=%d;frozen=%d;reflowed=0"):format(id, cols, rows, cols),
+        },
+      })
+    end)
+  end
   return #bytes
 end
 local t3 = require("hcmux.t3")
@@ -97,7 +111,12 @@ local function reply(buf, id, reflowed)
   vim.api.nvim_exec_autocmds("TermRequest", {
     buffer = buf,
     data = {
-      sequence = ("\27]7503;envi-t3-layout=%d;cols=80;rows=24;frozen=60;reflowed=%d"):format(id, reflowed or 1),
+      sequence = ("\27]7503;envi-t3-layout=%d;cols=%d;rows=%d;frozen=60;reflowed=%d"):format(
+        id,
+        vim.api.nvim_win_get_width(0),
+        vim.api.nvim_win_get_height(0),
+        reflowed or 1
+      ),
     },
   })
 end
@@ -198,6 +217,7 @@ local cases = {
     function()
       local before = attaches
       sent = {}
+      answer = false
       vim.cmd("T3Recenter")
       drain(30)
       local id
@@ -205,9 +225,30 @@ local cases = {
         id = id or tonumber(bytes:match("^\27%[>777;9;(%d+)u$"))
       end
       assert(id)
+      answer = true -- the fresh viewer's ownership confirmation answers normally
       reply(vim.api.nvim_get_current_buf(), id)
       drain()
       assert(attaches == before + 1, "matching solicited rebuild reattaches")
+      answer = true
+    end,
+  },
+  {
+    "H2.r1 real later same-width rebuild still refreshes and burst coalesces during check",
+    function()
+      drain()
+      local before, buf = attaches, vim.api.nvim_get_current_buf()
+      reply(buf, 0)
+      reply(buf, 0)
+      drain()
+      assert(attaches == before + 1, "same-width rebuild after settle is not suppressed")
+      buf = vim.api.nvim_get_current_buf()
+      require("hcmux.t3layout").settle()
+      reply(buf, 0)
+      vim.defer_fn(function()
+        reply(buf, 0)
+      end, 80)
+      drain(450)
+      assert(attaches == before + 2, "settle and overlapping stale signals replay once")
     end,
   },
 }

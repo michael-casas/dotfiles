@@ -390,7 +390,9 @@ geometry.on_refresh(function(win)
   restore_mode()
   -- Follow term BufEnter's scheduled auto-insert; COMMAND stays COMMAND.
   vim.schedule(restore_mode)
-  geometry.settle(win)
+  -- Finish the existing handoff immediately; do not start a delayed resize
+  -- check whose intermediate background width could commit another rebuild.
+  geometry.replayed(win)
 end)
 
 local function live(addr)

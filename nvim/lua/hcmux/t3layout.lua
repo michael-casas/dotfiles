@@ -7,11 +7,13 @@ local active, timer
 local focused = true -- FocusLost keeps another editor's most-recent focus authoritative.
 local stale, refresh_timer, refreshing = {}, nil, false
 local refresh_viewer -- registered by t3.lua so every fresh buffer gets mark()'s maps
+local size -- replay only after the focused width has been reconciled
 
 local function refresh_current()
   local win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_win_get_buf(win)
-  if not focused or not stale[buf] or refreshing or not refresh_viewer then
+  local pending = stale[buf]
+  if not focused or not pending or refreshing or not refresh_viewer or active or timer then
     return
   end
   if refresh_timer then
@@ -22,7 +24,15 @@ local function refresh_current()
   end
   refresh_timer = vim.defer_fn(function()
     refresh_timer = nil
-    if focused and vim.api.nvim_get_current_win() == win and vim.api.nvim_win_get_buf(win) == buf and stale[buf] then
+    if
+      focused
+      and not active
+      and not timer
+      and vim.api.nvim_get_current_win() == win
+      and vim.api.nvim_win_get_buf(win) == buf
+      and stale[buf]
+      and stale[buf].cols == size(win)
+    then
       refreshing = true
       refresh_viewer(win)
       refreshing = false
@@ -30,10 +40,24 @@ local function refresh_current()
   end, 100)
 end
 
-local function rebuilt(buf)
+local function rebuilt(buf, cols)
   if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].hcmux_float == "t3" then
-    stale[buf] = true
-    vim.schedule(refresh_current)
+    stale[buf] = { cols = cols }
+    vim.schedule(function()
+      if
+        not active
+        and not timer
+        and focused
+        and vim.api.nvim_get_current_buf() == buf
+        and cols ~= size(vim.api.nvim_get_current_win())
+      then
+        -- A delayed completion can describe the previous controller's width.
+        -- Reconcile first instead of replaying that obsolete geometry.
+        M.settle()
+      else
+        refresh_current()
+      end
+    end)
   end
 end
 
@@ -41,7 +65,7 @@ function M.on_refresh(callback)
   refresh_viewer = callback
 end
 
-local function size(win)
+size = function(win)
   local info = vim.fn.getwininfo(win)[1]
   return math.max(1, vim.api.nvim_win_get_width(win) - (info and info.textoff or 0)),
     math.max(1, vim.api.nvim_win_get_height(win))
@@ -99,6 +123,7 @@ local function finish(r, client)
     return
   end
   active = nil
+  refresh_current()
   if not r.manual then
     return
   end
@@ -220,7 +245,7 @@ local function read_pty(r)
   end
 end
 
-function M.check(win, manual)
+function M.check(win, manual, replay)
   win = win or vim.api.nvim_get_current_win()
   cancel()
   local buf, job, addr = viewer(win)
@@ -244,7 +269,18 @@ function M.check(win, manual)
     manual = manual,
   }
   active = r
-  read_pty(r)
+  if replay then
+    -- A fresh attach must immediately reclaim input ownership. Replacing a
+    -- buffer shared with a narrower background window resizes its old job;
+    -- hand off before the client's width debounce commits that transient size.
+    ask_client(r)
+  else
+    read_pty(r)
+  end
+end
+
+function M.replayed(win)
+  M.check(win, false, true)
 end
 
 function M.settle(win)
@@ -317,7 +353,7 @@ vim.api.nvim_create_autocmd("TermRequest", {
     end
     if id == "0" then
       if reflowed == "1" then
-        rebuilt(ev.buf)
+        rebuilt(ev.buf, tonumber(cols))
       end
       return
     end
@@ -326,7 +362,11 @@ vim.api.nvim_create_autocmd("TermRequest", {
     end
     r.waiting = false
     if reflowed == "1" then
-      rebuilt(ev.buf)
+      rebuilt(ev.buf, tonumber(cols))
+    elseif stale[ev.buf] and cols == frozen then
+      -- A stale background copy may have missed another viewer's correlated
+      -- rebuild reply. This check confirms the replay is now at our width.
+      stale[ev.buf].cols = tonumber(cols)
     end
     -- TermRequest can run in a restricted context, like the action-7 handler.
     vim.schedule(function()
