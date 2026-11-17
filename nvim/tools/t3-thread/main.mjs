@@ -188,13 +188,21 @@ function Thread({ initialId, T }) {
     history.current = next;
     write(historyOutput(next.items.slice(old.items.length)));
   }
-  function reflow(cols) {
-    const next = scrollback.reflow(history.current, cols, freeze);
+  function layoutReply(requestId, current, frozen, reflowed) {
+    process.stdout.write(`\x1b]7503;envi-t3-layout=${requestId};cols=${current.cols};rows=${current.rows};frozen=${frozen};reflowed=${reflowed ? 1 : 0}\x1b\\`);
+  }
+  function reflow(current, requestId = 0) {
+    const frozen = scrollback.frozenWidth(history.current, current.cols);
+    const next = scrollback.reflow(history.current, current.cols, freeze);
     if (next === history.current) return false;
     history.current = next;
     // Public Ink write clears its tracked live frame before writing this batch
     // and redraws it afterwards. No Static cache can replay old geometry.
     write(CLEAR_HISTORY + historyOutput(next.items));
+    // Ink's public writer has no completion callback. An empty write queues a
+    // barrier behind its clear/history/live batch, including pending backpressure.
+    // Only then may viewers discard their buffer and replay from the core.
+    process.stdout.write("", () => layoutReply(requestId, current, frozen, true));
     return true;
   }
   useEffect(() => {
@@ -202,7 +210,7 @@ function Thread({ initialId, T }) {
   }, [partition, size.cols, T, projectMap]);
   useEffect(() => {
     clearTimeout(reflowTimer.current);
-    reflowTimer.current = setTimeout(() => reflow(size.cols), 200);
+    reflowTimer.current = setTimeout(() => reflow(currentSize.current), 200);
     return () => clearTimeout(reflowTimer.current);
   }, [size.cols]);
   const pending = t3.pendingRequests(state),
@@ -428,8 +436,7 @@ function Thread({ initialId, T }) {
       clearTimeout(reflowTimer.current);
       const current = size.refresh();
       const frozen = scrollback.frozenWidth(history.current, current.cols);
-      const reflowed = reflow(current.cols);
-      process.stdout.write(`\x1b]7503;envi-t3-layout=${requestId};cols=${current.cols};rows=${current.rows};frozen=${frozen};reflowed=${reflowed ? 1 : 0}\x1b\\`);
+      if (!reflow(current, requestId)) layoutReply(requestId, current, frozen, false);
     } else if (action === "model") {
       dialogRef.current = null;
       setCompactDialog(null);

@@ -265,3 +265,51 @@ test("H1-04: layout check repairs missed resize events without changing the draf
     assert.deepEqual(c.fake.commands, []);
   } finally { await c.stop(); }
 });
+
+function assertPostFlushReply(bytes, id, cols, rows, frozen) {
+  const reply = `\x1b]7503;envi-t3-layout=${id};cols=${cols};rows=${rows};frozen=${frozen};reflowed=1\x1b\\`;
+  assert.equal(count(bytes, reply), 1, "one completion notification per rebuild");
+  const start = bytes.indexOf("\x1b[3J");
+  const end = bytes.indexOf(reply);
+  assert.ok(start >= 0 && start < end, "completion follows the clear");
+  // Inspect the entire history batch, including the last answer's final row
+  // and trailing blank lines, not merely its first visible marker.
+  const before = plain(bytes.slice(start, end));
+  assert.equal(count(before, "last row 7"), 1, "last history row is printed before completion");
+  assert.ok(before.slice(before.indexOf("last row 7")).startsWith("last row 7\r\n\r\n\r\n"), "last history row and both separators precede completion");
+  const after = plain(bytes.slice(end + reply.length));
+  for (let i = 0; i < S.HISTORY_RUNS; i++) {
+    assert.equal(count(before, S.historyMarker(i)), 1, "all history precedes completion");
+    assert.equal(count(after, S.historyMarker(i)), 0, "no history appears after completion");
+  }
+}
+
+test("H1-amend-1: automatic reflow notifies id 0 only after the complete history batch", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()]});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    assert.equal(count(c.text, "envi-t3-layout=0;"), 0, "startup without rebuild emits no notification");
+    c.mark("before"); c.resize(39, 160); await sleep(500); c.mark("after");
+    const bytes = c.phase("before", "after").text;
+    assertReplay(bytes, 160);
+    assertPostFlushReply(bytes, 0, 160, 39, 100);
+    c.mark("noop"); c.resize(38, 160); await sleep(300); c.mark("noop-end");
+    assert.equal(count(c.phase("noop", "noop-end").text, "envi-t3-layout=0;"), 0, "rows-only resize never notifies rebuild");
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-amend-1: solicited reflow completion follows all reprinted bytes without a second id-0 notification", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()], missedResize: true});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    c.resize(38, 160); await sleep(100);
+    c.mark("before"); c.input("\x1b[>777;9;51u");
+    await c.until(t => t.includes("envi-t3-layout=51;cols=160;rows=38;frozen=100;reflowed=1"));
+    await sleep(350); c.mark("after");
+    const bytes = c.phase("before", "after").text;
+    assertPostFlushReply(bytes, 51, 160, 38, 100);
+    assert.equal(count(bytes, "envi-t3-layout=0;"), 0, "solicited rebuild has only its correlated completion");
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});

@@ -31,14 +31,16 @@ unsent drafts, pending requests and server subscriptions are unchanged. The live
 frame resizes immediately; a theme change alone still affects only live/new output.
 This avoids Ink's permanent Static cache retaining old-width copies.
 
-**Known blocker (H1):** Neovim 0.11.6 does not honor `CSI 3J` for its existing
-terminal-buffer scrollback: visible history clears but old buffered lines survive.
-The installed herdr-core 0.1.21 does drop history, including `hc attach --history
-2000` replay. Thus reflow currently duplicates older lines in an already attached
-Neovim buffer, although a fresh core replay contains only the rebuilt copy.
-Do not treat this candidate as complete until viewer-side clearing is resolved
-and checked by VERIFIER. Reflow also resets scroll position/selection and affects
-all viewers sharing the client; it does not choose a controlling viewer.
+Neovim 0.11.6 terminal buffers keep their scrollback on `CSI 3J`, even though
+herdr-core 0.1.21 drops its history (including fresh `hc attach --history 2000`
+replay). Viewers therefore re-attach after a rebuild: the client emits a completion
+OSC only after the entire clear/reprint batch has flushed, and the Neovim adapter
+replaces the stale terminal buffer with a fresh replay of the **same** core client.
+The adapter handles this immediately for the focused viewer, and on next entry
+for other stale viewers; no client is restarted. This viewer-side behavior and
+its real-Neovim proof are owned by the separate H2 change and must ship together.
+Reflow/re-attach resets scroll position/selection and affects all viewers sharing
+the client; the client itself does not choose a controlling viewer.
 
 - Assistant replies retain Markdown, code, lists, blockquotes and wrapping tables.
   Agent/MCP prompts retain right-aligned chips; human prompts retain bubbles.
@@ -405,7 +407,13 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   needed and immediately reflows any mismatched committed widths. It replies
   on stdout with `OSC 7503;envi-t3-layout=<id>;cols=<C>;rows=<R>;frozen=<F>;reflowed=<0|1> ST`.
   `F` is the minimum committed width **before** this check, or `C` without history;
-  `reflowed=1` means this request caused a rebuild. Same-width checks are no-ops.
+  `reflowed=1` means this request caused a rebuild. Same-width checks are no-ops
+  and receive `reflowed=0`. After an automatic rebuild, an unsolicited reply uses
+  the same format with **id 0** and `reflowed=1`; id 0 is never a request ID.
+  Both automatic and solicited rebuild completions are emitted only after stdout
+  has flushed the clear and all reprinted history. No id-0 reply is emitted when
+  no rebuild ran. Viewers use these completion replies to refresh stale buffers;
+  there is no handshake and no temporary scrollback-limit shrinking.
   Split/malformed private bytes never reach Ink. Like action 7, this local check
   never sends an RPC, submits, answers or interrupts. The action 9 caller lives
   in the separately maintained Neovim adapter.
@@ -459,9 +467,12 @@ replays and redraw counts. Scenarios live in `test/t3-scrollback-strikes.feature
 `test/history-reflow.test.mjs` covers action 9 decoding/filtering, immutable
 semantic width rebuilds and real Ink cell-style parity. The PTY resize suite
 also covers debounce, return-to-original and row-only no-ops, current centered
-columns, no RPCs, correlated checks, and a dropped resize event. The required
-`test/history-clear.test.mjs` is intentionally still RED on Neovim 0.11.6; it
-checks real buffer history, not only the visible screen. See the blocker above.
+columns, no RPCs, correlated checks, and a dropped resize event. Real-PTY checks
+assert that id-0 and solicited completion OSC bytes follow the last reprinted
+history row and its separators, with no redundant automatic notification after
+a solicited rebuild. Scenario 6a (real Neovim buffer replacement/replay) is owned
+by H2 under REP's amendment; the old client-only clear assertion was removed.
+The private-core clear/read/attach evidence remains in H1's report.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,
@@ -486,7 +497,7 @@ hover actions, fades/shimmer, microphone and attachment controls are not
 reproduced. Agent chips show a truncated prompt rather than a full expanded
 prompt view. The live preview can omit earlier streaming text; the committed final is complete.
 Native history cannot be restyled or collapsed in place; width reflow uses a full
-clear/reprint, subject to the Neovim scrollback blocker above.
+clear/reprint plus the Neovim viewer re-attach described above.
 Final pixel-level acceptance belongs to a real-popover check;
 replay and pure frame tests do not prove visual fidelity on their own.
 
