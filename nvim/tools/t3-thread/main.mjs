@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { render, Box, Text, Transform, Static, useInput, useStdout } from "ink";
+import { render, Box, Text, Transform, useInput, useStdout } from "ink";
 import path from "node:path";
+import { historyOutput, CLEAR_HISTORY } from "./history-output.mjs";
 import * as t3 from "./t3.mjs";
 import * as view from "./view.mjs";
 import * as layout from "./layout.mjs";
@@ -62,15 +63,20 @@ function useSize() {
   const read = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
   const [size, setSize] = useState(read);
   useEffect(() => {
-    const resize = () => setSize(read());
+    const resize = () => refresh();
     // Ink repaints from its own "resize" listener, registered before this
     // one. Run first so the tree already has the new size: otherwise Ink
-    // measures the old, taller live frame against the new height, clears the
-    // whole terminal (scrollback too) and replays every <Static> item.
+    // measures the old, taller live frame against the new height and clears
+    // the whole terminal, destroying committed history.
     stdout.prependListener("resize", resize);
     return () => stdout.off("resize", resize);
   }, [stdout]);
-  return size;
+  function refresh() {
+    const next = read();
+    setSize(old => old.cols === next.cols && old.rows === next.rows ? old : next);
+    return next;
+  }
+  return { ...size, refresh };
 }
 function Screen({ size, lines, inline = false }) {
   return h(
@@ -96,7 +102,11 @@ function Thread({ initialId, T }) {
     [busy, setBusy] = useState(false),
     [flash, setFlash] = useState("");
   const [expanded, setExpanded] = useState(new Set());
-  const [history, setHistory] = useState(scrollback.ledger);
+  const history = useRef(scrollback.ledger());
+  const { write } = useStdout();
+  const currentSize = useRef(size);
+  currentSize.current = size;
+  const reflowTimer = useRef(null);
   const expansionId = useRef(0);
   const [details, setDetails] = useState({}),
     [now, setNow] = useState(Date.now()),
@@ -162,13 +172,39 @@ function Thread({ initialId, T }) {
     [state, expanded, now],
   );
   const rows = partition.live;
-  const freeze = (block, details = {}) => ({
+  // Keep semantic rows, expanded tool detail and commit-time presentation. A
+  // resize changes geometry only, never the original colours/path labels.
+  const freeze = (block, cols = size.cols) => ({
     ...block,
-    lines: layout.historyLines(block, size.cols, T, t3.threadMeta(state, projectMap), details),
+    cols,
+    lines: layout.historyLines(block, cols, block.tokens, block.meta, block.details),
   });
+  function commit(blocks, details = {}) {
+    const old = history.current;
+    const next = scrollback.append(old, blocks, block => freeze({
+      ...block, tokens: T, meta: t3.threadMeta(state, projectMap), details,
+    }, currentSize.current.cols));
+    if (next === old) return;
+    history.current = next;
+    write(historyOutput(next.items.slice(old.items.length)));
+  }
+  function reflow(cols) {
+    const next = scrollback.reflow(history.current, cols, freeze);
+    if (next === history.current) return false;
+    history.current = next;
+    // Public Ink write clears its tracked live frame before writing this batch
+    // and redraws it afterwards. No Static cache can replay old geometry.
+    write(CLEAR_HISTORY + historyOutput(next.items));
+    return true;
+  }
   useEffect(() => {
-    setHistory(old => scrollback.append(old, partition.committed, freeze));
+    commit(partition.committed);
   }, [partition, size.cols, T, projectMap]);
+  useEffect(() => {
+    clearTimeout(reflowTimer.current);
+    reflowTimer.current = setTimeout(() => reflow(size.cols), 200);
+    return () => clearTimeout(reflowTimer.current);
+  }, [size.cols]);
   const pending = t3.pendingRequests(state),
     request = pending[0];
   const card =
@@ -388,7 +424,13 @@ function Thread({ initialId, T }) {
     return false;
   }
   controlHandler.current = (action, requestId) => {
-    if (action === "model") {
+    if (action === "layout") {
+      clearTimeout(reflowTimer.current);
+      const current = size.refresh();
+      const frozen = scrollback.frozenWidth(history.current, current.cols);
+      const reflowed = reflow(current.cols);
+      process.stdout.write(`\x1b]7503;envi-t3-layout=${requestId};cols=${current.cols};rows=${current.rows};frozen=${frozen};reflowed=${reflowed ? 1 : 0}\x1b\\`);
+    } else if (action === "model") {
       dialogRef.current = null;
       setCompactDialog(null);
       openModelPicker(true);
@@ -548,8 +590,7 @@ function Thread({ initialId, T }) {
           catch (e) { details[r.id] = { error: e.message }; }
         }));
         const id = `expanded:${++expansionId.current}`;
-        const frozen = freeze({ ...block, id }, details);
-        setHistory(old => scrollback.append(old, [frozen]));
+        commit([{ ...block, id }], details);
       }, "Loading expanded work…");
       return;
     }
@@ -597,11 +638,6 @@ function Thread({ initialId, T }) {
     setEditor((e) => view.editInput(e.value, e.cursor, ch, key));
   });
   return h(React.Fragment, null,
-    h(Static, { items: history.items }, block =>
-      h(Box, { key: block.id, flexDirection: "column" },
-        ...block.lines.map((segments, key) => h(DisplayLine, { key, segments })),
-      ),
-    ),
     h(Screen, { size, lines: screen.innerLines, inline: true }),
   );
 }

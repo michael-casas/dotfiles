@@ -863,7 +863,7 @@ function requestLines(state, width, T, ui) {
     .map((l) => clip(l, width));
 }
 
-/** Frozen at commit time: history keeps its original width and theme on resize. */
+/** Render semantic history at a width, using its commit-time presentation. */
 export function historyLines(block, cols = 80, T = {}, meta = {}, details = {}) {
   const g = geometry(cols);
   return [...timelineLines(block.rows, g.column, details, T, meta), []].map(l =>
