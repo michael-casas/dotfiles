@@ -54,7 +54,7 @@ function* parse(state) {
  * startFakeT3({ initial }) -> { url, push(values), requests, connected, close() }
  * `initial` is the first Chunk for orchestration.subscribeThread.
  */
-export async function startFakeT3({ initial }) {
+export async function startFakeT3({ initial, config = {} }) {
   const sockets = new Set();
   const requests = [];
   const commands = [];
@@ -97,7 +97,7 @@ export async function startFakeT3({ initial }) {
           send({ _tag: "Chunk", requestId: m.id, values: initial });
           onSubscribe();
         } else {
-          send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Success", value: {} } });
+          send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Success", value: m.tag === "server.getConfig" ? config : {} } });
         }
       }
     });

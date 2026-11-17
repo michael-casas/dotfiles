@@ -102,6 +102,8 @@ function Thread({ initialId, T }) {
     [now, setNow] = useState(Date.now()),
     [answerDraft, setAnswerDraft] = useState({});
   const [questionSelection, setQuestionSelection] = useState(null);
+  // Dismiss only the view, never the request/draft. Re-entering INSERT reveals it.
+  const [dismissedQuestion, setDismissedQuestion] = useState(null);
   const answerRequest = useRef(null);
   const sentAnswers = useRef(null);
   // `/` and `$` completion: providers from server.getConfig, the highlighted
@@ -113,7 +115,7 @@ function Thread({ initialId, T }) {
   const [compactDialog, setCompactDialog] = useState(null);
   const dialogRef = useRef(null);
   const controlHandler = useRef(null);
-  useEffect(() => controls.onAction(action => controlHandler.current?.(action)), []);
+  useEffect(() => controls.onAction((action, requestId) => controlHandler.current?.(action, requestId)), []);
   const catalogAsked = useRef(new Set());
   const client = useRef(null),
     streams = useRef(new Map()),
@@ -245,6 +247,7 @@ function Thread({ initialId, T }) {
           now,
           answerDraft,
           questionSelection,
+          dismissedQuestion,
           projects: projectMap,
           timelineRows: rows,
           flash,
@@ -267,6 +270,7 @@ function Thread({ initialId, T }) {
       now,
       answerDraft,
       questionSelection,
+      dismissedQuestion,
       projectMap,
       rows,
       flash,
@@ -372,7 +376,18 @@ function Thread({ initialId, T }) {
     if (result.stop) act(() => client.current.stop(), "Interrupting…");
     if (result.send) act(() => client.current.send(result.send), "Compacting…");
   }
-  controlHandler.current = action => {
+  function dismissOverlay() {
+    if (dialogRef.current) { confirmationAction("cancel"); return true; }
+    const next = control.escapeAction({ model: modelDraft, menu });
+    if (next === "close-model") { setModelDraft(null); setFlash(""); return true; }
+    if (next === "close-menu") { setDismissed(tokenKey); return true; }
+    if (userInput && dismissedQuestion !== request.id) {
+      setDismissedQuestion(request.id);
+      return true;
+    }
+    return false;
+  }
+  controlHandler.current = (action, requestId) => {
     if (action === "model") {
       dialogRef.current = null;
       setCompactDialog(null);
@@ -380,12 +395,15 @@ function Thread({ initialId, T }) {
     } else if (action === "compact" || action === "interrupt") {
       setModelDraft(null);
       confirmationAction("open", action);
-    } else if (action === "dismiss") {
-      if (dialogRef.current) return confirmationAction("cancel");
-      const next = control.escapeAction({ model: modelDraft, menu });
-      if (next === "close-model") { setModelDraft(null); setFlash(""); }
-      if (next === "close-menu") setDismissed(tokenKey);
-    } else confirmationAction(action);
+    } else if (action === "dismiss" || action === "escape") {
+      const consumed = dismissOverlay();
+      if (action === "escape") {
+        // Per-key acknowledgement: unlike cached OSC 7501 agent status this
+        // answers whether THIS dismiss consumed an overlay. No server command.
+        process.stdout.write(`\x1b]7502;envi-t3-escape=${requestId};overlay=${consumed ? 1 : 0}\x1b\\`);
+      }
+    } else if (action === "resume") setDismissedQuestion(null);
+    else confirmationAction(action);
   };
   function openModelPicker(preserveDraft = false) {
     if (busy || !state?.thread) return;
@@ -465,11 +483,10 @@ function Thread({ initialId, T }) {
       return;
     }
     if (key.escape) {
-      const action = control.escapeAction({ model: modelDraft, menu });
-      if (action === "close-model") { setModelDraft(null); setFlash(""); }
-      if (action === "close-menu") setDismissed(tokenKey);
+      dismissOverlay();
       return;
     }
+    if (dismissedQuestion) setDismissedQuestion(null);
     if (modelDraft) {
       if (busy) return;
       const result = modelPicker.input(modelDraft, ch, key, providers, state);

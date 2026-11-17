@@ -19,7 +19,7 @@ export function createControlInput(source) {
     state = result.state;
     for (const event of result.events) {
       if (event.type === "text") stdin.write(event.text);
-      else for (const listener of listeners) listener(event.action);
+      else for (const listener of listeners) listener(event.action, event.requestId);
     }
     if (flush(state)) {
       timer = setTimeout(() => {

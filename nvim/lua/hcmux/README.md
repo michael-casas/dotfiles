@@ -49,6 +49,16 @@ closes and the program keeps running.
 
 LazyVim's `<leader>bd` and `:bd!` also only detach.
 
+In the **T3 layout**, INSERT `Esc` dismisses a client overlay first; otherwise it
+shows/focuses the thread bar in NORMAL on the currently open thread's card title.
+`Ctrl-]` still enters COMMAND in place for native scroll/select. Bar `Enter`/`o`
+or a left-click release on any card line opens/focuses its main terminal in INSERT;
+clicking project/Settled headers toggles them. Blank space does nothing; native
+bar drag selection/wheel and main-terminal mouse handling remain unchanged.
+Popover Esc retains dismiss → COMMAND behavior. See the
+[T3 client guide](../../tools/t3-thread/README.md#keys) for overlay acknowledgements,
+question resume and the safe old-client timeout fallback.
+
 ## Commands
 
 `:Hc` (picker), `:Hc new|split|vsplit|tab [cmd…]`, `:Hc attach <t>`,
