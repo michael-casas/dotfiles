@@ -12,6 +12,8 @@ local function main_options()
   vim.wo[main].number = false
   vim.wo[main].relativenumber = false
   vim.wo[main].signcolumn = "no"
+  vim.wo[main].foldcolumn = "0"
+  vim.wo[main].statuscolumn = ""
 end
 
 local function placeholder()
@@ -62,6 +64,7 @@ local function show_sidebar()
   vim.wo[sidebar].cursorline = true
   vim.wo[sidebar].winhl = "CursorLine:EnviT3SideSelected"
   side.render()
+  require("hcmux.t3layout").settle(main)
 end
 
 function M.go(name)
@@ -133,6 +136,7 @@ function M.sidebar_toggle()
   if valid(focus) then
     vim.api.nvim_set_current_win(focus)
   end
+  require("hcmux.t3layout").settle(main)
 end
 
 --- Layout-local escape destination. Never switch a different tab or viewer.

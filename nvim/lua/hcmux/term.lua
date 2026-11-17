@@ -56,7 +56,10 @@ local function set_name(buf, addr)
   end
   local title = core.title(core.terms[addr]):gsub("/", "∕")
   local old = vim.api.nvim_buf_get_name(buf)
-  pcall(vim.api.nvim_buf_set_name, buf, ("hc://%s/%s"):format(addr, title))
+  local name = ("hc://%s/%s"):format(addr, title)
+  if not pcall(vim.api.nvim_buf_set_name, buf, name) then
+    pcall(vim.api.nvim_buf_set_name, buf, name .. " [viewer " .. buf .. "]")
+  end
   -- Renaming leaves the old name behind as an unlisted alternate buffer.
   local stale = old ~= "" and vim.fn.bufnr(old) or -1
   if stale > 0 and stale ~= buf and not vim.bo[stale].buflisted and not vim.api.nvim_buf_is_loaded(stale) then
@@ -195,9 +198,14 @@ end
 
 --- Show terminal `addr` in a window. Reuses its buffer if one exists.
 ---@param where? "current"|"split"|"vsplit"|"tab"
----@param o? {size?:number, title?:string} float options
+---@param o? {size?:number, title?:string, separate?:boolean} float options; separate creates a viewer when already shown
 function M.attach(addr, where, o)
   local buf = M.buf_of(addr)
+  -- Differently sized T3 windows need independent PTYs. A shared job is
+  -- resized by Neovim when either window replaces its buffer during replay.
+  if buf and o and o.separate and #vim.fn.win_findbuf(buf) > 0 then
+    buf = nil
+  end
   if buf then
     local win = vim.fn.win_findbuf(buf)[1]
     if win and (where == nil or where == "current") then
@@ -219,6 +227,35 @@ function M.attach(addr, where, o)
   end
   if M.config.auto_insert then
     vim.cmd.startinsert()
+  end
+  return buf
+end
+
+--- Fresh replay for one focused stale viewer, never a new core program.
+--- Other windows retain their old buffer until they elect to refresh too.
+function M.reattach(win)
+  if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_get_current_win() ~= win then
+    return
+  end
+  local old = vim.api.nvim_win_get_buf(win)
+  local addr = M.addr_of(old)
+  if not addr then
+    return
+  end
+  local buf = vim.api.nvim_create_buf(vim.bo[old].buflisted, false)
+  vim.b[buf].hcmux_display = vim.b[old].hcmux_display
+  vim.api.nvim_win_set_buf(win, buf)
+  if not start_viewer(buf, addr) then
+    vim.api.nvim_win_set_buf(win, old)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    return
+  end
+  -- Reusing an address is intentional: distinguish viewer buffer names while
+  -- another window still carries the previous replay.
+  if #vim.fn.win_findbuf(old) == 0 then
+    vim.b[old].hcmux_closing = true
+    pcall(vim.api.nvim_buf_delete, old, { force = true })
+    set_name(buf, addr)
   end
   return buf
 end

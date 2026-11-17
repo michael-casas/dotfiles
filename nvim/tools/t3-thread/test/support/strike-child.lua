@@ -47,7 +47,16 @@ return function(root, o)
   end
   core.exec_async = function() end
 
-  vim.system = function(argv, opts)
+  vim.system = function(argv, opts, cb)
+    if argv[1] == "hc" and argv[2] == "get" then
+      assert(cb, "geometry reads must be async")
+      local win = vim.api.nvim_get_current_win()
+      local fact = { cols = vim.api.nvim_win_get_width(win), rows = vim.api.nvim_win_get_height(win) }
+      vim.schedule(function()
+        cb({ code = 0, stdout = vim.json.encode(fact), stderr = "" })
+      end)
+      return {}
+    end
     assert(argv[1] == "hc" and argv[2] == "connect", "unexpected process " .. table.concat(argv, " "))
     local rpc = vim.json.decode(opts.stdin)
     local reply

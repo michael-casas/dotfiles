@@ -1,4 +1,4 @@
-// Append-only terminal history. Pure: no I/O, clocks, React, or theme mutation.
+// Semantic terminal history with an append-only dedup ledger. Pure: no I/O, clocks, React, or theme mutation.
 import * as t3 from "./t3.mjs";
 import * as view from "./view.mjs";
 
@@ -10,6 +10,15 @@ export function append(book, blocks, render = b => b) {
     ids: new Set([...book.ids, ...fresh.map(b => b.id)]),
     items: [...book.items, ...fresh.map(render)],
   };
+}
+
+// Commit IDs and semantic rows survive a width rebuild unchanged.
+export function frozenWidth(book, cols) {
+  return book.items.reduce((min, block) => Math.min(min, block.cols), book.items[0]?.cols ?? cols);
+}
+export function reflow(book, cols, render) {
+  if (!book.items.some(block => block.cols !== cols)) return book;
+  return { ids: book.ids, items: book.items.map(block => render(block, cols)) };
 }
 
 export function partition(state, expanded = new Set(), now = 0) {

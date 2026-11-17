@@ -1,4 +1,5 @@
 -- Read-only/unit harness: no hc process is called and no real terminal is killed.
+vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
 local killed, opened = {}, {}
 local fact
 local fail

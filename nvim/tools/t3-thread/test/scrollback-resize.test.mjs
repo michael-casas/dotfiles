@@ -25,14 +25,14 @@ const CLEARS = [
 const ERASE_BATCH = /(?:\x1b\[2K\x1b\[1A)*\x1b\[2K\x1b\[G/g;
 const count = (text, needle) => text.split(needle).length - 1;
 
-async function client({ rows, cols, initial }) {
+async function client({ rows, cols, initial, missedResize = false }) {
   const fake = await startFakeT3({ initial });
   const env = { ...process.env, T3_URL: fake.url, T3_SESSION_TOKEN: "synthetic", FORCE_COLOR: "3", TERM: "xterm-256color", COLORTERM: "truecolor" };
   for (const k of ["CONTINUOUS_INTEGRATION", "BUILD_NUMBER", "RUN_ID", "T3_THREAD_DEBUG"]) delete env[k];
   // Ink's is-in-ci also treats any CI_* key as CI; CI=0 is its supported
   // override, so the child always renders interactively.
   env.CI = "0";
-  const child = spawn("python3", [PTY, String(rows), String(cols), "--", process.execPath, MAIN, S.THREAD_ID], {
+  const child = spawn("python3", [PTY, String(rows), String(cols), "--", process.execPath, ...(missedResize ? ["--import", here("./support/missed-resize.mjs")] : []), MAIN, S.THREAD_ID], {
     env,
     stdio: ["pipe", "pipe", "inherit"],
   });
@@ -58,14 +58,15 @@ async function client({ rows, cols, initial }) {
       const b = marks.find((m) => m.label === to);
       return { text: out.subarray(a.offset, b.offset).toString("latin1"), ms: b.at - a.at };
     },
+    input(text) { child.stdin.write(`input ${Buffer.from(text).toString("hex")}\n`); },
     resize(r, c) {
       child.stdin.write(`resize ${r} ${c}\n`);
     },
     async until(pred, ms = 8000) {
       const end = Date.now() + ms;
       while (!pred(api.text)) {
-        if (Date.now() > end) throw new Error(`timed out; output tail: ${JSON.stringify(api.text.slice(-400))}`);
-        if (exited !== null) throw new Error(`client exited ${exited}: ${JSON.stringify(api.text.slice(-400))}`);
+        if (Date.now() > end) throw new Error(`timed out; output tail: ${JSON.stringify(api.text.slice(-400))}; replies: ${JSON.stringify(api.text.match(/\x1b\]7503[^\x1b]*/g))}`);
+        if (exited !== null) throw new Error(`client exited ${exited}: ${JSON.stringify(api.text.slice(-400))}; replies: ${JSON.stringify(api.text.match(/\x1b\]7503[^\x1b]*/g))}`);
         await sleep(20);
       }
     },
@@ -181,4 +182,189 @@ test("BATDD-T3STRIKE-05: stable-size idle and streaming redraws are bounded", as
   } finally {
     await c.stop();
   }
+});
+
+const plain = text => text.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+function assertReplay(text, cols) {
+  assert.equal(count(text, "\x1b[3J"), 1, "one scrollback clear");
+  assert.equal(count(text, "\x1b[2J"), 1, "one screen clear");
+  const replay = plain(text.slice(text.indexOf("\x1b[3J")));
+  for (let i = 0; i < S.HISTORY_RUNS; i++) {
+    assert.equal(count(replay, S.historyMarker(i)), 1, "every committed answer once");
+    const line = replay.split(/\r?\n/).find(l => l.includes(S.historyMarker(i)));
+    const left = 3 + Math.floor((cols - 6 - Math.min(92, cols - 6)) / 2);
+    assert.equal(line.indexOf(S.historyMarker(i)), left, "history begins at current centered column");
+  }
+}
+
+test("H1-01/03/05: width bursts rebuild all history exactly once at the final width without server traffic", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()]});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7)));
+    await sleep(300);
+    const requests = [...c.fake.requests];
+    c.mark("before");
+    for (const cols of [120, 140, 160]) { c.resize(40, cols); await sleep(40); }
+    await sleep(450); c.mark("after");
+    assertReplay(c.phase("before", "after").text, 160);
+    assert.deepEqual(c.fake.requests, requests, "reflow sends no RPCs");
+    assert.deepEqual(c.fake.commands, []);
+    c.mark("resync");
+    c.fake.push([S.snapshot({seq: 2})]);
+    await sleep(250); c.mark("settled");
+    for (let i = 0; i < S.HISTORY_RUNS; i++) assert.equal(count(c.phase("resync", "settled").text, S.historyMarker(i)), 0);
+    c.mark("back"); c.resize(40, 100); await sleep(450); c.mark("back-end");
+    assertReplay(c.phase("back", "back-end").text, 100);
+  } finally { await c.stop(); }
+});
+
+test("H1-02: row-only and return-to-original width bursts leave history untouched", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()]});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    c.mark("before"); c.resize(35, 100); await sleep(300);
+    c.resize(35, 140); await sleep(40); c.resize(35, 100); await sleep(450); c.mark("after");
+    const bytes = c.phase("before", "after").text;
+    assert.deepEqual(clears(bytes), []);
+    assert.equal(count(bytes, S.historyMarker(0)), 0);
+  } finally { await c.stop(); }
+});
+
+test("H1-04/05: action 9 reconciles real dimensions immediately, reports pre-check width, never sends", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()]});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    const requests = [...c.fake.requests];
+    c.mark("before"); c.resize(38, 160);
+    await sleep(40); // kernel SIGWINCH updates Node stdout before the local check; still inside debounce
+    c.input("\x1b[>777;9;41u");
+    await c.until(t => t.includes("\x1b]7503;envi-t3-layout=41;cols=160;rows=38;frozen=100;reflowed=1\x1b\\"));
+    await sleep(350); c.mark("after");
+    assertReplay(c.phase("before", "after").text, 160);
+    c.mark("check"); c.input("\x1b[>777;9;42u");
+    await c.until(t => t.includes("\x1b]7503;envi-t3-layout=42;cols=160;rows=38;frozen=160;reflowed=0\x1b\\"));
+    c.mark("checked");
+    assert.deepEqual(clears(c.phase("check", "checked").text), []);
+    assert.deepEqual(c.fake.requests, requests);
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-04: layout check repairs missed resize events without changing the draft", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()], missedResize: true});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    c.input("DRAFT_PRESERVED"); await c.until(t => t.includes("DRAFT_PRESERVED"));
+    c.resize(37, 160); await sleep(300); // no React size update or automatic reflow
+    c.mark("check"); c.input("\x1b[>777;9;43u");
+    await c.until(t => t.includes("\x1b]7503;envi-t3-layout=43;cols=160;rows=37;frozen=100;reflowed=1\x1b\\"));
+    await sleep(150); c.mark("checked");
+    const bytes = c.phase("check", "checked").text;
+    assertReplay(bytes, 160);
+    assert.ok(plain(bytes).includes("DRAFT_PRESERVED"));
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+function assertPostFlushReply(bytes, id, cols, rows, frozen) {
+  const reply = `\x1b]7503;envi-t3-layout=${id};cols=${cols};rows=${rows};frozen=${frozen};reflowed=1\x1b\\`;
+  assert.equal(count(bytes, reply), 1, "one completion notification per rebuild");
+  const start = bytes.indexOf("\x1b[3J");
+  const end = bytes.indexOf(reply);
+  assert.ok(start >= 0 && start < end, "completion follows the clear");
+  // Inspect the entire history batch, including the last answer's final row
+  // and trailing blank lines, not merely its first visible marker.
+  const before = plain(bytes.slice(start, end));
+  assert.equal(count(before, "last row 7"), 1, "last history row is printed before completion");
+  assert.ok(before.slice(before.indexOf("last row 7")).startsWith("last row 7\r\n\r\n\r\n"), "last history row and both separators precede completion");
+  const after = plain(bytes.slice(end + reply.length));
+  for (let i = 0; i < S.HISTORY_RUNS; i++) {
+    assert.equal(count(before, S.historyMarker(i)), 1, "all history precedes completion");
+    assert.equal(count(after, S.historyMarker(i)), 0, "no history appears after completion");
+  }
+}
+
+test("H1-amend-1: automatic reflow notifies id 0 only after the complete history batch", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()]});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    assert.equal(count(c.text, "envi-t3-layout=0;"), 0, "startup without rebuild emits no notification");
+    c.mark("before"); c.resize(39, 160); await sleep(500); c.mark("after");
+    const bytes = c.phase("before", "after").text;
+    assertReplay(bytes, 160);
+    assertPostFlushReply(bytes, 0, 160, 39, 100);
+    c.mark("noop"); c.resize(38, 160); await sleep(300); c.mark("noop-end");
+    assert.equal(count(c.phase("noop", "noop-end").text, "envi-t3-layout=0;"), 0, "rows-only resize never notifies rebuild");
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-amend-1: solicited reflow completion follows all reprinted bytes without a second id-0 notification", async () => {
+  const c = await client({rows: 40, cols: 100, initial: [S.snapshot()], missedResize: true});
+  try {
+    await c.until(t => t.includes(S.historyMarker(7))); await sleep(300);
+    c.resize(38, 160); await sleep(100);
+    c.mark("before"); c.input("\x1b[>777;9;51u");
+    await c.until(t => t.includes("envi-t3-layout=51;cols=160;rows=38;frozen=100;reflowed=1"));
+    await sleep(350); c.mark("after");
+    const bytes = c.phase("before", "after").text;
+    assertPostFlushReply(bytes, 51, 160, 38, 100);
+    assert.equal(count(bytes, "envi-t3-layout=0;"), 0, "solicited rebuild has only its correlated completion");
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+// Every destructive clear must carry a complete replacement immediately,
+// before a completion notification tells viewers they may replay the core.
+function assertHistorySurvives(bytes) {
+  const chunks = bytes.split("\x1b[2J\x1b[3J\x1b[H");
+  for (const chunk of chunks.slice(1)) {
+    const history = plain(chunk.split("\x1b]7503;")[0]);
+    for (let i = 0; i < S.HISTORY_RUNS; i++)
+      assert.equal(count(history, S.historyMarker(i)), 1, "each full clear must immediately restore every committed answer");
+  }
+}
+
+test("H1-r1: fixed live parts on a one-row PTY cannot erase committed history", async () => {
+  const initial = S.snapshot();
+  const card = {id:"q",type:"user_input_request",requestId:"request",questions:[{id:"q1",question:"Synthetic question",options:[{label:"One"},{label:"Two"}]}]};
+  initial.projection.runtimeRequests = [{id:"request",kind:"user_input",status:"pending",responseCapability:{type:"resumable"}}];
+  initial.projection.turnItems.push(card);
+  initial.projection.visibleTurnItems.push({position:99,item:card});
+  const c = await client({rows: 30, cols: 100, initial: [initial], missedResize: true});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7))); await sleep(300);
+    c.mark("before"); c.resize(1,100); await sleep(80);
+    c.input("\x1b[>777;9;61u"); await sleep(400); c.mark("after");
+    assertHistorySurvives(c.phase("before","after").text);
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-r1: row shrink with a missed size event restores history before any destructive repaint", async () => {
+  const c = await client({rows: 30, cols: 100, initial:[S.snapshot({stream:S.longStream(0)})], missedResize:true});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7)) && t.includes("chunk 0")); await sleep(300);
+    c.mark("before"); c.resize(8,100); await sleep(80);
+    c.fake.push([S.snapshot({seq:2,stream:S.longStream(1)})]);
+    await sleep(400); c.mark("after");
+    const bytes=c.phase("before","after").text;
+    assert.ok(bytes.includes("\x1b[3J"), "exercise real Ink full-height path with stale React dimensions");
+    assertHistorySurvives(bytes);
+    assertPostFlushReply(bytes, 0, 100, 8, 100);
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-r1: fixed parts and a multiline draft stay bounded on a tiny normal-resize PTY", async () => {
+  const c=await client({rows:30,cols:100,initial:[S.snapshot()]});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7))); await sleep(250);
+    c.input("one\ntwo\nthree\nfour\nfive\nsix"); await sleep(150);
+    c.mark("before"); c.resize(5,100); await sleep(350); c.mark("after");
+    const bytes=c.phase("before","after").text;
+    assertHistorySurvives(bytes);
+    assert.deepEqual(clears(bytes),[],"normal resize hard cap prevents Ink full-height clear");
+    assert.ok(plain(bytes).includes("Completed"),"status survives bottom clipping");
+  } finally { await c.stop(); }
 });

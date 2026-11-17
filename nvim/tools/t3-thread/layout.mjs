@@ -863,7 +863,7 @@ function requestLines(state, width, T, ui) {
     .map((l) => clip(l, width));
 }
 
-/** Frozen at commit time: history keeps its original width and theme on resize. */
+/** Render semantic history at a width, using its commit-time presentation. */
 export function historyLines(block, cols = 80, T = {}, meta = {}, details = {}) {
   const g = geometry(cols);
   return [...timelineLines(block.rows, g.column, details, T, meta), []].map(l =>
@@ -872,10 +872,10 @@ export function historyLines(block, cols = 80, T = {}, meta = {}, details = {}) 
 }
 
 /** Only the live region. Strictly shorter than the terminal (Ink 5 otherwise
- * clears the screen and reprints Static history). No viewport or scroll offset. */
+ * clears the screen, including core history). No viewport or scroll offset. */
 export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } = {}) {
   const g = geometry(cols, rows), width = g.column;
-  const cap = Math.max(1, Math.min(20, rows - 2));
+  const cap = Math.max(0, Math.min(20, rows - 2));
   const meta = t3.threadMeta?.(state, ui.projects || new Map()) || {
     title: state?.thread?.title || ui.threadId || "New thread",
   };
@@ -933,8 +933,15 @@ export function frame({ state, cols = 80, rows = 24, tokens: T = {}, ui = {} } =
         seg(usage == null ? "" : ` · Context ${usage}%`, { color: usage >= 90 ? T.error : usage >= 80 ? T.warning : T.faint }),
       ], width);
   const columnLine = l => pad([space(g.left - 3), ...pad(clip(l, width), width)], g.inner);
-  const innerLines = [...timeline, ...requests, ...(questionCard ? [] : [[]]), ...menu, ...menuGap, ...questionWindow, ...card, status]
-    .slice(-cap).map(columnLine);
+  // When decorations cannot fit, prioritize editable text plus status rather
+  // than retaining only the card's bottom border/control row.
+  const compactInput = cap < card.length + 1
+    ? card.slice(1, Math.max(2, card.length - 3)).slice(-Math.max(1, cap - 1))
+    : null;
+  const assembled = compactInput
+    ? [...compactInput, status]
+    : [...timeline, ...requests, ...(questionCard ? [] : [[]]), ...menu, ...menuGap, ...questionWindow, ...card, status];
+  const innerLines = (cap ? assembled.slice(-cap) : []).map(columnLine);
   const lines = innerLines.map(l => [space(3), ...l, space(3)]);
   return { geometry: g, lines, innerLines, all, bodyRows, composer: card, status, cap };
 }

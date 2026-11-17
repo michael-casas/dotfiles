@@ -92,7 +92,7 @@ for (const [key, decision] of [["y","accept"],["a","acceptForSession"],["n","dec
     assert.equal(c.fake.commands[0].decision, decision);
   } finally { await c.close(); }
 });
-test("real Ink pending list resize stays below screen height without whole-screen clears", async () => {
+test("real Ink pending list resize stays below screen height with one debounced width reflow", async () => {
   const card = {...fixture,questions:[{...fixture.questions[0],options:Array.from({length:30},(_,i)=>({label:`Long option ${i+1}`}))}]};
   const c = await client(card);
   try {
@@ -101,7 +101,10 @@ test("real Ink pending list resize stays below screen height without whole-scree
     await c.resize(12,40);
     for(let i=0;i<12;i++) await c.press("\x1b[B");
     assert.match(c.text().slice(offset),/13 Long option 13/);
-    assert.doesNotMatch(c.text().slice(offset),/\x1b\[(?:2J|3J)|\x1b\[(?:1;1)?H\x1b\[0?J/);
+    const resized = c.text().slice(offset);
+    assert.equal((resized.match(/\x1b\[3J/g) || []).length, 1, "one intentional history reflow after the width change");
+    const afterReflow = resized.slice(resized.indexOf("\x1b[3J") + 4);
+    assert.doesNotMatch(afterReflow,/\x1b\[(?:2J|3J)|\x1b\[(?:1;1)?H\x1b\[0?J/, "question navigation never clears again");
     const frames=[...c.text().slice(offset).matchAll(/(?:\x1b\[2K\x1b\[1A)*\x1b\[2K\x1b\[G/g)];
     const tail=c.text().slice(offset).slice(frames.at(-1).index+frames.at(-1)[0].length);
     assert.ok(tail.split("\n").length-1 < 12);

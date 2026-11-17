@@ -301,7 +301,10 @@ scenarios["BATDD-T3STRIKE-06 modes and hide"] = function()
   c.ready("ownedkeys")
   local log = O.logdir .. "/ownedkeys.log"
   local function typed()
-    return vim.uv.fs_stat(log) and table.concat(vim.fn.readfile(log, "b"), "\n") or ""
+    local bytes = vim.uv.fs_stat(log) and table.concat(vim.fn.readfile(log, "b"), "\n") or ""
+    -- Automatic geometry diagnostics are not user key input; assert the
+    -- original dismiss contract independently of action-9 settle timing.
+    return (bytes:gsub("\27%[>777;9;%d+u", ""))
   end
   local first = c.state()
   check(first.mode == "t", "opens in INSERT, mode=" .. first.mode)
