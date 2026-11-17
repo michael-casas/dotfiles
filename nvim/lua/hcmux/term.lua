@@ -198,9 +198,14 @@ end
 
 --- Show terminal `addr` in a window. Reuses its buffer if one exists.
 ---@param where? "current"|"split"|"vsplit"|"tab"
----@param o? {size?:number, title?:string} float options
+---@param o? {size?:number, title?:string, separate?:boolean} float options; separate creates a viewer when already shown
 function M.attach(addr, where, o)
   local buf = M.buf_of(addr)
+  -- Differently sized T3 windows need independent PTYs. A shared job is
+  -- resized by Neovim when either window replaces its buffer during replay.
+  if buf and o and o.separate and #vim.fn.win_findbuf(buf) > 0 then
+    buf = nil
+  end
   if buf then
     local win = vim.fn.win_findbuf(buf)[1]
     if win and (where == nil or where == "current") then

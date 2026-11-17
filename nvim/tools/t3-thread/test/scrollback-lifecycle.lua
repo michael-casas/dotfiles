@@ -124,7 +124,7 @@ local function canvas_bg(c, s)
 end
 
 -- A client started in the untinted tiled main pane, then opened in the popover
--- too: one buffer, two views, the popover's answers (it attached last).
+-- too: one client, independent viewer PTYs and per-view colour answers.
 local function to_main(c)
   return c.lua([[for _, w in ipairs(vim.api.nvim_list_wins()) do
       if vim.api.nvim_win_get_config(w).relative == "" then
@@ -140,14 +140,16 @@ local function shared(c)
   check_osc(c, main.buf, GLOBAL, "main pane start")
   c.open("owned-main")
   local pop = c.state()
-  check(pop.buf == main.buf and themed(pop.winhl), "same buffer in the themed popover")
+  check(pop.buf ~= main.buf and themed(pop.winhl), "independent buffer in the themed popover")
+  check(c.lua("return vim.b[...].hcmux_addr", main.buf) == pop.addr, "same core client")
   check_osc(c, pop.buf, NORD, "popover")
+  check_osc(c, main.buf, GLOBAL, "main remains untinted while popover is visible")
   check(c.lua("return vim.api.nvim_win_get_buf(...)", main.win) == main.buf, "main pane still shows it")
   return c, main
 end
 -- The surviving main pane: still showing the same buffer/viewer/client, still
 -- untinted, its default cells drawn in the editor's Normal - and the buffer
--- now answers that, not the popover's colours.
+-- continues answering that, independently of the popover's colours.
 local function check_main(c, main, label, runs)
   local now = c.lua(
     [[local w, b = ... return { buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight,
@@ -161,7 +163,10 @@ local function check_main(c, main, label, runs)
   local bg = cell[2].background and ("#%06x"):format(cell[2].background) or GLOBAL.bg -- grid 1: none = Normal
   check(bg == GLOBAL.bg, label .. ": main pane canvas " .. bg)
   check(c.lua("return #STRIKE.runs") == (runs or 1), label .. ": no client recreated")
-  check(c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 1, label .. ": one viewer")
+  check(
+    c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 2,
+    label .. ": two viewers, one client"
+  )
   check(c.lua("return vim.fn.jobwait({ ... }, 0)[1] == -1", now.job), label .. ": viewer still running")
   check_osc(c, main.buf, GLOBAL, label)
 end
@@ -243,9 +248,9 @@ local scenarios = {
       c.ready("ownedy")
       local still =
         c.lua("local w = ... return { buf = vim.api.nvim_win_get_buf(w), winhl = vim.wo[w].winhighlight }", pop.win)
-      check(still.buf == main.buf and themed(still.winhl), "popover still shows it, tinted")
-      check(c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 1, "one viewer")
-      check_osc(c, main.buf, NORD, "after the main pane switched away, before any reattach")
+      check(still.buf == pop.buf and themed(still.winhl), "popover keeps its independent viewer, tinted")
+      check(c.lua("return STRIKE.attaches[STRIKE.facts['t3-owned-main'].address]") == 2, "two viewers, no third attach")
+      check_osc(c, pop.buf, NORD, "after the main pane switched away, before any reattach")
     end,
   },
   {

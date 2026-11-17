@@ -22,8 +22,11 @@ local function hc(args)
   assert(r.code == 0, "private hc: " .. (r.stderr or ""))
   return vim.json.decode(r.stdout)
 end
-local url
+local url, server_exit, child_exit
 local server = vim.fn.jobstart({ "node", root .. "/nvim/tools/t3-thread/test/support/layout-focus-server.mjs" }, {
+  on_exit = function(_, code)
+    server_exit = code
+  end,
   on_stdout = function(_, lines)
     for _, line in ipairs(lines) do
       if line:match("^http://127.0.0.1:") then
@@ -62,14 +65,35 @@ local addr = hc({
   root .. "/nvim/tools/t3-thread/main.mjs",
   "synthetic-strike",
 }).address
-local ch = vim.fn.jobstart({ "nvim", "--embed", "-u", "NONE", "-i", "NONE", "-n" }, { rpc = true, env = env })
+local ch = vim.fn.jobstart({ "nvim", "--embed", "-u", "NONE", "-i", "NONE", "-n" }, {
+  rpc = true,
+  env = env,
+  on_exit = function(_, code)
+    child_exit = code
+  end,
+})
 local function lua(code, ...)
   return vim.rpcrequest(ch, "nvim_exec_lua", code, { ... })
 end
-local function drain(ms)
-  vim.wait(ms, function()
-    return false
-  end, 10)
+local function wait(code, label)
+  assert(
+    vim.wait(8000, function()
+      assert(child_exit == nil, "embedded Neovim exited early: " .. tostring(child_exit))
+      return lua(code)
+    end, 20),
+    "timeout: " .. label
+  )
+end
+local function settled(label)
+  -- First require the replay, its no-op handoff reply and all history bytes.
+  -- Then observe a quiet interval beyond both client/H2 debounce deadlines:
+  -- negative 'no second replay' evidence cannot be established at first success.
+  wait([[return READY()]], label .. " ready")
+  wait(
+    [[local quiet = (vim.uv.hrtime()-LAST_EVENT)/1e6
+    return READY() and quiet >= 1200]],
+    label .. " quiet"
+  )
 end
 local ok, err = pcall(function()
   vim.rpcrequest(ch, "nvim_ui_attach", 234, 57, { rgb = true })
@@ -86,9 +110,21 @@ local ok, err = pcall(function()
     local term = require("hcmux.term")
     term.setup({restore=false})
     EVENTS = {}
-    local start = vim.uv.hrtime()
+    LAST_EVENT = vim.uv.hrtime()
+    local start = LAST_EVENT
+    function READY()
+      local buf = vim.api.nvim_get_current_buf()
+      local text = table.concat(vim.api.nvim_buf_get_lines(buf,0,-1,false),"\n")
+      for i=0,7 do local _,n=text:gsub("HISTORY_"..i," "); if n~=1 then return false end end
+      for i=#EVENTS,1,-1 do
+        local ev=EVENTS[i]
+        if ev.kind=="osc" and ev.extra.buf==buf and ev.extra.seq:match(";frozen="..ev.cols..";reflowed=0$") then return true end
+      end
+      return false
+    end
     function RECORD(kind, extra)
       local w = vim.api.nvim_get_current_win()
+      LAST_EVENT = vim.uv.hrtime()
       EVENTS[#EVENTS+1] = {kind=kind,extra=extra,t=(vim.uv.hrtime()-start)/1e6,win=w,buf=vim.api.nvim_win_get_buf(w),mode=vim.api.nvim_get_mode().mode,cols=vim.api.nvim_win_get_width(w),rows=vim.api.nvim_win_get_height(w)}
     end
     local reattach = term.reattach
@@ -107,11 +143,11 @@ local ok, err = pcall(function()
     root,
     addr
   )
-  drain(1800)
+  settled("initial main")
   lua(
     [[require("hcmux.t3").open("synthetic-strike", {mode="command"}); POP=vim.api.nvim_get_current_win(); RECORD("open-pop")]]
   )
-  drain(1800)
+  settled("popover open")
   for i = 1, 4 do
     lua(
       [[
@@ -123,10 +159,9 @@ local ok, err = pcall(function()
     ]],
       i % 2 == 1
     )
-    drain(1500)
+    settled("focus entry " .. i)
     assert(lua("return vim.api.nvim_get_mode().mode == 'nt'"), "COMMAND after focus entry " .. i)
   end
-  drain(1200)
   local events = lua("return EVENTS")
   vim.fn.writefile({ vim.json.encode(events) }, evidence .. "/focus-events-" .. status.pid .. ".json")
   local per_entry, n, opening = {}, nil, nil
@@ -161,8 +196,33 @@ local ok, err = pcall(function()
   assert(lua("return vim.api.nvim_get_mode().mode == 'nt'"), "COMMAND preserved")
   print("H2-r1 real two-view COMMAND focus: at most one reattach per entry")
 end)
-pcall(vim.rpcnotify, ch, "nvim_command", "qa!")
-hc({ "kill", addr, "--json" })
-hc({ "rm", addr, "--json" })
-vim.fn.chanclose(server, "stdin") -- owned fake server exits on EOF, private core stays for REP
+if child_exit == nil then
+  local captured, events = pcall(lua, "return EVENTS")
+  if captured then
+    vim.fn.writefile({ vim.json.encode(events) }, evidence .. "/focus-events-" .. status.pid .. ".json")
+  end
+end
+-- Observe shutdown, not fire-and-forget RPC followed by killing its peer.
+-- No request may target the child after qa; reap it before touching the core.
+local cleaned, cleanup_err = pcall(function()
+  vim.rpcnotify(ch, "nvim_command", "qa!")
+  assert(
+    vim.wait(5000, function()
+      return child_exit ~= nil
+    end, 20),
+    "child shutdown timeout"
+  )
+  assert(child_exit == 0, "child exit code: " .. tostring(child_exit))
+  hc({ "kill", addr, "--json" })
+  hc({ "rm", addr, "--json" })
+  vim.fn.chanclose(server, "stdin") -- owned server exits on EOF; private core stays for REP
+  assert(
+    vim.wait(5000, function()
+      return server_exit ~= nil
+    end, 20),
+    "server shutdown timeout"
+  )
+  assert(server_exit == 0, "server exit code: " .. tostring(server_exit))
+end)
 assert(ok, err)
+assert(cleaned, cleanup_err)

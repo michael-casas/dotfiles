@@ -417,7 +417,11 @@ local function command_mode(buf, opts)
 end
 
 local function show(addr, where, opts)
-  local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 " })
+  local buf = term.attach(
+    addr,
+    where or "float",
+    { size = M.config.size, title = " T3 ", separate = where == nil or where == "float" }
+  )
   mark(buf)
   theme_float()
   geometry.settle()

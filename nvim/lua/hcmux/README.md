@@ -334,10 +334,12 @@ On focus entry replay waits for the pending geometry check and a completion at
 the focused width, coalescing a stale background notification with that check's
 rebuild. A delayed completion for another width schedules a normal bounded check
 rather than replaying obsolete geometry. After replay a single immediate action-9
-handoff (not another resize/settle cycle) makes the fresh attachment authoritative:
-Neovim may resize an old shared terminal job to its remaining background window
-when the focused window replaces it. Taking ownership immediately prevents that
-transient background size from becoming a second history rebuild. A real later
+handoff (not another resize/settle cycle) makes the fresh attachment authoritative.
+Opening the popover when the client is already visible creates its own attachment
+PTY (`term.attach`'s opt-in `separate` option), not a second window on the same
+terminal job. Otherwise Neovim can resize the shared old job to its remaining
+background window during replacement, racing even the immediate input handoff.
+The core client is still shared; only the local viewer/channel is independent. A real later
 same-width rebuild still refreshes; there is no width-based permanent suppression.
 No program is started/restarted/killed. Other windows sharing the old buffer
 keep it until entered; hidden buffers refresh on `BufWinEnter`. `FocusLost`
