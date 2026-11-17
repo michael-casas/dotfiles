@@ -12,10 +12,10 @@ const ordinaryPrefix = tail => [...EDIT_KEYS.keys()].some(bytes => bytes.startsW
 // "dismiss" = what a bare Esc did: close a dialog, the model picker or a menu; never interrupts.
 const ACTIONS = ["model", "compact", "yes", "cancel", "interrupt", "dismiss", "escape", "resume"];
 export const sequence = (action, requestId) => {
-  if (action === "escape") {
+  if (action === "escape" || action === "layout") {
     if (!Number.isInteger(requestId) || requestId < 1 || requestId > 999999999)
-      throw new Error("Invalid T3 escape request id");
-    return `${PREFIX}7;${requestId}u`;
+      throw new Error("Invalid T3 control request id");
+    return `${PREFIX}${action === "escape" ? 7 : 9};${requestId}u`;
   }
   const index = ACTIONS.indexOf(action);
   if (index < 0) throw new Error(`Unknown T3 control: ${action}`);
@@ -42,10 +42,10 @@ export function decode(chunk, state = {}) {
       }
       const report = input.slice(start, ++at);
       const match = !discard && /^\x1b\[>777;([1-6]|8)u$/.exec(report);
-      const escape = !discard && /^\x1b\[>777;7;([1-9][0-9]{0,8})u$/.exec(report);
+      const correlated = !discard && /^\x1b\[>777;([79]);([1-9][0-9]{0,8})u$/.exec(report);
       discard = false;
       if (match) events.push({ type: "action", action: ACTIONS[Number(match[1]) - 1] });
-      if (escape) events.push({ type: "action", action: "escape", requestId: Number(escape[1]) });
+      if (correlated) events.push({ type: "action", action: correlated[1] === "7" ? "escape" : "layout", requestId: Number(correlated[2]) });
       continue;
     }
     const tail = input.slice(at);

@@ -2,13 +2,12 @@
 
 An Ink client for the local T3 Code orchestration-v2 websocket. Open with
 `:T3Thread`, `:T3Thread <id>` or `:T3Thread new` in envi. Hiding the float does not
-stop the thread or its terminal. Requires Node 22+; no additional dependencies
-were added for the redesign.
+stop the thread or its terminal. Requires Node 22+.
 
 ## Layout
 
 The 85% Neovim popover uses **native terminal scrollback**, not a TUI scroll
-view. Ink 5 `<Static>` appends each finished item once above a small live region;
+view. Committed items use Ink 5's public stdout writer above a small live region;
 there is no alternate screen or mouse reporting. Existing projected history is
 printed oldest first at startup. Item IDs prevent duplicate output after socket
 reconnects, snapshot resyncs, theme repaints, and hiding/reopening the same client.
@@ -23,8 +22,26 @@ fix for programs that ask for their background; it was not the cause of the bars
 
 The conversation, composer and status share a centered column of at most 92
 cells, with three columns of outer padding. The supported small layout is
-80 × 24. Committed lines retain their original width/theme on resize or theme
-change; only new output and the live region use the new settings.
+80 × 24. Committed blocks retain semantic rows, expanded tool detail and their
+commit-time theme/path metadata. After a column change settles for 200 ms, the
+client rebuilds every committed block at the new width, clears the screen and
+scrollback (`CSI 2J`, `CSI 3J`, cursor-home), and prints the rebuilt history once.
+Rows-only resizes and returns to the original width do not normally reflow.
+An emergency renderer clear always restores history, even at unchanged columns. Dedup IDs,
+unsent drafts, pending requests and server subscriptions are unchanged. The live
+frame resizes immediately; a theme change alone still affects only live/new output.
+This avoids Ink's permanent Static cache retaining old-width copies.
+
+Neovim 0.11.6 terminal buffers keep their scrollback on `CSI 3J`, even though
+herdr-core 0.1.21 drops its history (including fresh `hc attach --history 2000`
+replay). Viewers therefore re-attach after a rebuild: the client emits a completion
+OSC only after the entire clear/reprint batch has flushed, and the Neovim adapter
+replaces the stale terminal buffer with a fresh replay of the **same** core client.
+The adapter handles this immediately for the focused viewer, and on next entry
+for other stale viewers; no client is restarted. This viewer-side behavior and
+its real-Neovim proof are owned by the separate H2 change and must ship together.
+Reflow/re-attach resets scroll position/selection and affects all viewers sharing
+the client; the client itself does not choose a controlling viewer.
 
 - Assistant replies retain Markdown, code, lists, blockquotes and wrapping tables.
   Agent/MCP prompts retain right-aligned chips; human prompts retain bubbles.
@@ -33,8 +50,16 @@ change; only new output and the live region use the new settings.
   completion, then the full answer is printed once (not the truncated preview).
 - The live region contains the timer, latest reasoning, active tool, streaming
   answer, pending request cards, completion/model menus, composer and status.
-  It is capped at 20 rows and at two fewer than the terminal's height: Ink 5
-  clears and reprints static output if its dynamic region reaches screen height.
+  It is capped at 20 rows and at two fewer than the terminal's height, with
+  a final Screen-level cap strictly below terminal height. Bottom clipping
+  preserves composer/status ahead of previews/menus; extremely tiny panes may
+  show only status or no live rows; at least two available rows retain editable
+  text plus status without card decorations. Ink 5 clears the terminal if its dynamic
+  region reaches screen height. A public stdout adapter guards that emergency
+  path (for example, a missed resize): it inserts all semantic history immediately
+  after the clear and before the live frame, then emits a post-flush id-0
+  completion so viewers can re-attach. It does not patch Ink, mutate its cache,
+  or intercept input. Normal width rebuilds bypass this emergency guard.
   On resize the client takes the new size before Ink's own resize repaint, so
   shrinking the popover mid-stream never measures the old, taller frame.
   Long streams/details show a bounded preview; menus take priority over preview.
@@ -386,11 +411,31 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   unfocused and >1-second-late replies. Missing replies (e.g. an old persistent
   client) fall back to COMMAND in place, never guess overlay state. Update/restart
   old clients explicitly to enable this protocol; restart discards unsent drafts.
+  Layout reconciliation uses `ESC[>777;9;<request-id>u`, where the decimal ID
+  is 1–999999999. It re-reads stdout dimensions, updates live React layout if
+  needed and immediately reflows any mismatched committed widths. It replies
+  on stdout with `OSC 7503;envi-t3-layout=<id>;cols=<C>;rows=<R>;frozen=<F>;reflowed=<0|1> ST`.
+  `F` is the minimum committed width **before** this check, or `C` without history;
+  `reflowed=1` means this request caused a rebuild. Same-width checks are no-ops
+  and receive `reflowed=0`. After an automatic rebuild, an unsolicited reply uses
+  the same format with **id 0** and `reflowed=1`; id 0 is never a request ID.
+  Both automatic and solicited rebuild completions are emitted only after stdout
+  has flushed the clear and all reprinted history. No id-0 reply is emitted when
+  no rebuild ran. Viewers use these completion replies to refresh stale buffers;
+  there is no handshake and no temporary scrollback-limit shrinking.
+  Split/malformed private bytes never reach Ink. Like action 7, this local check
+  never sends an RPC, submits, answers or interrupts. The action 9 caller lives
+  in the separately maintained Neovim adapter.
   `t3.lua` sends it with chansend
   through `hc attach`; it is not a printable INSERT shortcut. Unknown/malformed
   private reports are swallowed, including split/bounded partial reports.
-- `scrollback.mjs` owns commit/live partitioning, the immutable ID ledger and
-  explicit expanded-work blocks.
+- `scrollback.mjs` owns commit/live partitioning, the immutable ID ledger,
+  semantic width rebuilds and explicit expanded-work blocks.
+- `history-stdout.mjs` is the configured public Ink stdout adapter. It forwards
+  live dimensions/events and restores semantic history on renderer-originated
+  full clears, with a post-flush completion callback.
+- `history-output.mjs` encodes the same Text styles as Ink (using the pinned
+  Chalk dependency already used by Ink), without an internal Static replay cache.
 - `layout.mjs` owns the capped live frame, frozen history lines, wrapping, Markdown
   and shell styling.
 - `theme.mjs` loads and watches semantic theme tokens.
@@ -431,6 +476,16 @@ and the five-second request timeout. Do not print or commit real credentials.
 T3 server (`test/support/fake-t3.mjs`) and checks raw bytes for clears, history
 replays and redraw counts. Scenarios live in `test/t3-scrollback-strikes.feature`.
 
+`test/history-reflow.test.mjs` covers action 9 decoding/filtering, immutable
+semantic width rebuilds and real Ink cell-style parity. The PTY resize suite
+also covers debounce, return-to-original and row-only no-ops, current centered
+columns, no RPCs, correlated checks, and a dropped resize event. Real-PTY checks
+assert that id-0 and solicited completion OSC bytes follow the last reprinted
+history row and its separators, with no redundant automatic notification after
+a solicited rebuild. Scenario 6a (real Neovim buffer replacement/replay) is owned
+by H2 under REP's amendment; the old client-only clear assertion was removed.
+The private-core clear/read/attach evidence remains in H1's report.
+
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,
 exact `Ran 2 commands and read 1 file` group summary, and five ordered expanded
@@ -453,7 +508,8 @@ rows. The desktop's proportional fonts, pixel-smooth rounded surfaces, exact ico
 hover actions, fades/shimmer, microphone and attachment controls are not
 reproduced. Agent chips show a truncated prompt rather than a full expanded
 prompt view. The live preview can omit earlier streaming text; the committed final is complete.
-Native history cannot be restyled, collapsed, or reflowed after printing.
+Native history cannot be restyled or collapsed in place; width reflow uses a full
+clear/reprint plus the Neovim viewer re-attach described above.
 Final pixel-level acceptance belongs to a real-popover check;
 replay and pure frame tests do not prove visual fidelity on their own.
 
