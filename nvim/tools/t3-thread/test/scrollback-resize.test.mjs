@@ -313,3 +313,58 @@ test("H1-amend-1: solicited reflow completion follows all reprinted bytes withou
     assert.deepEqual(c.fake.commands, []);
   } finally { await c.stop(); }
 });
+
+// Every destructive clear must carry a complete replacement immediately,
+// before a completion notification tells viewers they may replay the core.
+function assertHistorySurvives(bytes) {
+  const chunks = bytes.split("\x1b[2J\x1b[3J\x1b[H");
+  for (const chunk of chunks.slice(1)) {
+    const history = plain(chunk.split("\x1b]7503;")[0]);
+    for (let i = 0; i < S.HISTORY_RUNS; i++)
+      assert.equal(count(history, S.historyMarker(i)), 1, "each full clear must immediately restore every committed answer");
+  }
+}
+
+test("H1-r1: fixed live parts on a one-row PTY cannot erase committed history", async () => {
+  const initial = S.snapshot();
+  const card = {id:"q",type:"user_input_request",requestId:"request",questions:[{id:"q1",question:"Synthetic question",options:[{label:"One"},{label:"Two"}]}]};
+  initial.projection.runtimeRequests = [{id:"request",kind:"user_input",status:"pending",responseCapability:{type:"resumable"}}];
+  initial.projection.turnItems.push(card);
+  initial.projection.visibleTurnItems.push({position:99,item:card});
+  const c = await client({rows: 30, cols: 100, initial: [initial], missedResize: true});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7))); await sleep(300);
+    c.mark("before"); c.resize(1,100); await sleep(80);
+    c.input("\x1b[>777;9;61u"); await sleep(400); c.mark("after");
+    assertHistorySurvives(c.phase("before","after").text);
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-r1: row shrink with a missed size event restores history before any destructive repaint", async () => {
+  const c = await client({rows: 30, cols: 100, initial:[S.snapshot({stream:S.longStream(0)})], missedResize:true});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7)) && t.includes("chunk 0")); await sleep(300);
+    c.mark("before"); c.resize(8,100); await sleep(80);
+    c.fake.push([S.snapshot({seq:2,stream:S.longStream(1)})]);
+    await sleep(400); c.mark("after");
+    const bytes=c.phase("before","after").text;
+    assert.ok(bytes.includes("\x1b[3J"), "exercise real Ink full-height path with stale React dimensions");
+    assertHistorySurvives(bytes);
+    assertPostFlushReply(bytes, 0, 100, 8, 100);
+    assert.deepEqual(c.fake.commands, []);
+  } finally { await c.stop(); }
+});
+
+test("H1-r1: fixed parts and a multiline draft stay bounded on a tiny normal-resize PTY", async () => {
+  const c=await client({rows:30,cols:100,initial:[S.snapshot()]});
+  try {
+    await c.until(t=>t.includes(S.historyMarker(7))); await sleep(250);
+    c.input("one\ntwo\nthree\nfour\nfive\nsix"); await sleep(150);
+    c.mark("before"); c.resize(5,100); await sleep(350); c.mark("after");
+    const bytes=c.phase("before","after").text;
+    assertHistorySurvives(bytes);
+    assert.deepEqual(clears(bytes),[],"normal resize hard cap prevents Ink full-height clear");
+    assert.ok(plain(bytes).includes("Completed"),"status survives bottom clipping");
+  } finally { await c.stop(); }
+});

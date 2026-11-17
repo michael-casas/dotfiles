@@ -26,7 +26,8 @@ cells, with three columns of outer padding. The supported small layout is
 commit-time theme/path metadata. After a column change settles for 200 ms, the
 client rebuilds every committed block at the new width, clears the screen and
 scrollback (`CSI 2J`, `CSI 3J`, cursor-home), and prints the rebuilt history once.
-Rows-only resizes and returns to the original width do not reflow. Dedup IDs,
+Rows-only resizes and returns to the original width do not normally reflow.
+An emergency renderer clear always restores history, even at unchanged columns. Dedup IDs,
 unsent drafts, pending requests and server subscriptions are unchanged. The live
 frame resizes immediately; a theme change alone still affects only live/new output.
 This avoids Ink's permanent Static cache retaining old-width copies.
@@ -49,8 +50,16 @@ the client; the client itself does not choose a controlling viewer.
   completion, then the full answer is printed once (not the truncated preview).
 - The live region contains the timer, latest reasoning, active tool, streaming
   answer, pending request cards, completion/model menus, composer and status.
-  It is capped at 20 rows and at two fewer than the terminal's height: Ink 5
-  clears the terminal if its dynamic region reaches screen height.
+  It is capped at 20 rows and at two fewer than the terminal's height, with
+  a final Screen-level cap strictly below terminal height. Bottom clipping
+  preserves composer/status ahead of previews/menus; extremely tiny panes may
+  show only status or no live rows; at least two available rows retain editable
+  text plus status without card decorations. Ink 5 clears the terminal if its dynamic
+  region reaches screen height. A public stdout adapter guards that emergency
+  path (for example, a missed resize): it inserts all semantic history immediately
+  after the clear and before the live frame, then emits a post-flush id-0
+  completion so viewers can re-attach. It does not patch Ink, mutate its cache,
+  or intercept input. Normal width rebuilds bypass this emergency guard.
   On resize the client takes the new size before Ink's own resize repaint, so
   shrinking the popover mid-stream never measures the old, taller frame.
   Long streams/details show a bounded preview; menus take priority over preview.
@@ -422,6 +431,9 @@ node main.mjs new --provider claudeAgent --model claude-haiku-5-5 --title 'My th
   private reports are swallowed, including split/bounded partial reports.
 - `scrollback.mjs` owns commit/live partitioning, the immutable ID ledger,
   semantic width rebuilds and explicit expanded-work blocks.
+- `history-stdout.mjs` is the configured public Ink stdout adapter. It forwards
+  live dimensions/events and restores semantic history on renderer-originated
+  full clears, with a post-flush completion callback.
 - `history-output.mjs` encodes the same Text styles as Ink (using the pinned
   Chalk dependency already used by Ink), without an internal Static replay cache.
 - `layout.mjs` owns the capped live frame, frozen history lines, wrapping, Markdown

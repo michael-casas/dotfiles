@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { render, Box, Text, Transform, useInput, useStdout } from "ink";
 import path from "node:path";
 import { historyOutput, CLEAR_HISTORY } from "./history-output.mjs";
+import { historyStdout } from "./history-stdout.mjs";
 import * as t3 from "./t3.mjs";
 import * as view from "./view.mjs";
 import * as layout from "./layout.mjs";
@@ -15,6 +16,7 @@ import { createControlInput } from "./control-input.mjs";
 import { loadTheme, watchTheme } from "./theme.mjs";
 
 const h = React.createElement;
+const historyTerminal = historyStdout(process.stdout);
 const controls = createControlInput(process.stdin);
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -79,16 +81,18 @@ function useSize() {
   return { ...size, refresh };
 }
 function Screen({ size, lines, inline = false }) {
+  const cap = Math.max(0, size.rows - (inline ? 1 : 3));
+  const visible = cap ? lines.slice(-cap) : [];
   return h(
     Box,
     {
       flexDirection: "column",
-      ...(inline ? {} : { height: size.rows - 1 }),
+      ...(inline ? {} : { height: Math.max(0, size.rows - 1) }),
       width: size.cols,
       paddingX: 3,
-      paddingY: inline ? 0 : 1,
+      paddingY: inline || size.rows < 3 ? 0 : 1,
     },
-    ...lines.map((segments, key) => h(DisplayLine, { key, segments })),
+    ...visible.map((segments, key) => h(DisplayLine, { key, segments })),
   );
 }
 
@@ -198,13 +202,27 @@ function Thread({ initialId, T }) {
     history.current = next;
     // Public Ink write clears its tracked live frame before writing this batch
     // and redraws it afterwards. No Static cache can replay old geometry.
-    write(CLEAR_HISTORY + historyOutput(next.items));
+    historyTerminal.historyWrite(write, CLEAR_HISTORY + historyOutput(next.items));
     // Ink's public writer has no completion callback. An empty write queues a
     // barrier behind its clear/history/live batch, including pending backpressure.
     // Only then may viewers discard their buffer and replay from the core.
     process.stdout.write("", () => layoutReply(requestId, current, frozen, true));
     return true;
   }
+  // Emergency replay also runs at unchanged columns: unlike width reconciliation,
+  // a renderer-originated clear has already discarded the core history.
+  const recoverHistory = useRef(null);
+  recoverHistory.current = () => {
+    if (!history.current.items.length) return null;
+    const current = { cols: process.stdout.columns || 80, rows: process.stdout.rows || 24 };
+    const frozen = scrollback.frozenWidth(history.current, current.cols);
+    history.current = { ids: history.current.ids, items: history.current.items.map(block => freeze(block, current.cols)) };
+    // A missed resize is repaired outside the renderer callback. The adapter
+    // already restores history in this write, so a later repaint is harmless.
+    queueMicrotask(() => currentSize.current.refresh());
+    return { output: historyOutput(history.current.items), flushed: () => layoutReply(0, current, frozen, true) };
+  };
+  useEffect(() => historyTerminal.onClear(() => recoverHistory.current?.()), []);
   useEffect(() => {
     commit(partition.committed);
   }, [partition, size.cols, T, projectMap]);
@@ -733,7 +751,7 @@ function Root() {
 process.on("exit", () => { controls.close(); report("idle"); });
 controls.start();
 try {
-  await render(h(Root), { stdin: controls.stdin, exitOnCtrlC: false }).waitUntilExit();
+  await render(h(Root), { stdin: controls.stdin, stdout: historyTerminal.stream, exitOnCtrlC: false }).waitUntilExit();
 } finally {
   controls.close();
 }
