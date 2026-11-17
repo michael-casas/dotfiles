@@ -282,6 +282,70 @@ alone. COMMAND/INSERT maps remain the popover's maps. COMMAND `q` checks the
 the same buffer shown in the popover still hides that float with `q`. INSERT
 `q` remains text. There is no buffer-map swapping on window transitions.
 
+### T3 geometry check (`t3layout.lua`)
+
+`:T3Recenter` immediately checks the **current T3 window** and emits one result,
+e.g. `T3: 197×53 ok; client checked` or
+`T3: re-applied 197×53 (was 180×53); client checked; client reflowed`.
+No keymap is installed. Automatic checks are silent and trail attach/popover
+open, focus return, `WinResized`/`VimResized` and sidebar show/hide by 150 ms.
+There is no repeating timer, restart, temporary width or text-position heuristic.
+
+**Ownership: most recently focused viewer wins.** Only the current window in
+an editor that has not received `FocusLost` can run a check. Leaving its
+window/buffer, losing editor focus or changing its geometry invalidates pending
+async reads/replies. Hidden/background views never assert their sizes through
+this loop. A shared client has one width, not independent layouts per viewer;
+passive views can therefore show wrapping for the controlling view's width.
+Existing hc/Neovim automatic resize behavior remains; other integrations that
+ignore focus are not made read-only by this module.
+
+The check measures usable cells (`getwininfo().textoff` is subtracted; layout
+main disables number, sign, fold and status-column gutters). It asynchronously
+runs `hc get <address> --json` with a 1 s deadline. A mismatch resends those
+**real** dimensions with `jobresize(terminal_job_id, cols, rows)` to the
+`hc attach` PTY created by `term.lua`. Each attempt has one delayed confirmation;
+at most two resize attempts run per settle. No signal or size sequence is sent
+to the client program. Same-size `jobresize` may not send SIGWINCH; when another
+viewer owns the core width, hc restores this viewer's cached dimensions on its
+next input, which is the following harmless private layout-check action.
+
+The client receives `ESC[>777;9;<id>u`, with a fresh decimal id in 1..999999999.
+Its fixed reply is
+`ESC]7503;envi-t3-layout=<id>;cols=<C>;rows=<R>;frozen=<F>;reflowed=<0|1>ESC\\`.
+The `TermRequest` handler accepts Neovim's stripped terminator and correlates
+buffer, request, invoker window and unchanged geometry. A reply reports whether
+this request reflowed history. If the core had not converged before action 9,
+one final read confirms the input-driven ownership handoff (never another
+resize). Missing replies time out after 1 s: no retry, restart or automatic
+notification; the manual result says `client did not answer (older client)`.
+PTY read errors and nonconvergence are reported honestly by the manual command.
+Client-width disagreements and PTY failures append dimensions/request ids only
+to `stdpath("state")/hcmux/t3-layout.log`, never terminal contents or server errors.
+Client action 9/history reflow lives in `tools/t3-thread`, separately from this
+Neovim check; old clients still benefit from the PTY handoff.
+
+**After a history rebuild:** Neovim terminal buffers keep their old scrollback
+on CSI 3J. A valid `reflowed=1` reply (matching action-9 id, or unsolicited
+`envi-t3-layout=0`) marks that terminal buffer stale. After a 100 ms trailing
+debounce the **current** viewer gets a fresh terminal buffer and
+`hc attach --history 2000` replay for the same core address, in the same window.
+No program is started/restarted/killed. Other windows sharing the old buffer
+keep it until entered; hidden buffers refresh on `BufWinEnter`. `FocusLost`
+editors also wait. The old viewer buffer is wiped only when no window shows it.
+No temporary `'scrollback'` changes race new output.
+
+Reattachment reinstalls T3's maps/handlers, keeps the window role, winbar,
+colours and sidebar selection, follows the rebuilt history at the bottom, and
+preserves INSERT vs COMMAND. It deliberately replaces the old scroll anchor
+and terminal selection. Per-view history is limited to hc's existing 2000-line
+replay. An ordinary old client that never reports reflow never takes this path.
+`layout-rebuild-core.lua` proves the complete real private-core/embedded-Neovim
+boundary: old markers disappear from the **whole** fresh buffer, new markers
+remain, both modes survive, and Esc-to-bar / Ctrl-] still work. Each run leaves
+a private empty core running for REP cleanup and records its PID/socket under
+`.agent/h2/rebuild-core-<pid>.json`; all HC/XDG paths are isolated.
+
 INSERT `<Esc>` and `<C-]>` both go to COMMAND and never forward a raw Esc to the client: they send the
 private `dismiss` control (`ESC[>777;6u`, `tools/t3-thread/control.mjs`), which closes a dialog, the model picker
 or a menu and never interrupts. COMMAND `<C-]>` returns to INSERT (a toggle); COMMAND `<Esc>` is a no-op.

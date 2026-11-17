@@ -1,4 +1,5 @@
 -- Mocked hc/term: real Neovim windows and local maps, no processes or threads.
+vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
 local opened = 0
 local facts = {}
 local base = vim.api.nvim_get_current_win()

@@ -13,6 +13,7 @@
 --   :T3Restart           restart only this client on the same thread
 local term = require("hcmux.term")
 local core = require("hcmux.core")
+local geometry = require("hcmux.t3layout")
 
 local M = {}
 
@@ -350,6 +351,48 @@ local function mark(buf)
   })
 end
 
+-- The core has already cleared/rebuilt its history when OSC7503 says so.
+-- Neovim ignores CSI 3J for scrollback: replace only this focused viewer,
+-- preserving the window role/chrome and re-installing all terminal maps.
+geometry.on_refresh(function(win)
+  local mode = vim.api.nvim_get_mode().mode
+  local insert = mode:sub(1, 1) == "t"
+  local title, winhl = vim.wo[win].winbar, vim.wo[win].winhl
+  local old = vim.api.nvim_win_get_buf(win)
+  local buf = term.reattach(win)
+  if not buf then
+    return
+  end
+  mark(buf)
+  vim.wo[win].winbar, vim.wo[win].winhl = title, winhl
+  if vim.w[win].envi_t3_main then
+    vim.wo[win].number, vim.wo[win].relativenumber = false, false
+    vim.wo[win].signcolumn, vim.wo[win].foldcolumn, vim.wo[win].statuscolumn = "no", "0", ""
+  end
+  sync_display(win)
+  reconcile(old)
+  local function restore_mode()
+    if
+      not vim.api.nvim_win_is_valid(win)
+      or vim.api.nvim_get_current_win() ~= win
+      or vim.api.nvim_win_get_buf(win) ~= buf
+    then
+      return
+    end
+    vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(buf), 0 })
+    if insert then
+      vim.cmd.startinsert()
+    else
+      vim.cmd.stopinsert()
+    end
+    mode_title(buf)
+  end
+  restore_mode()
+  -- Follow term BufEnter's scheduled auto-insert; COMMAND stays COMMAND.
+  vim.schedule(restore_mode)
+  geometry.settle(win)
+end)
+
 local function live(addr)
   local fact = addr and core.get(addr)
   return fact and fact.state == "live" and fact.address or nil
@@ -375,6 +418,7 @@ local function show(addr, where, opts)
   local buf = term.attach(addr, where or "float", { size = M.config.size, title = " T3 " })
   mark(buf)
   theme_float()
+  geometry.settle()
   last = addr
   if buf and vim.bo[buf].buftype == "terminal" then
     vim.cmd.startinsert()
@@ -395,6 +439,7 @@ function M.open(id, opts)
     end
     if not id or (id ~= "new" and fact and fact.labels and fact.labels["t3.thread"] == id) then
       theme_float()
+      geometry.settle(win)
       command_mode(vim.api.nvim_win_get_buf(win), opts)
       return
     end
@@ -435,6 +480,7 @@ function M.open(id, opts)
   })
   mark(buf)
   theme_float()
+  geometry.settle()
   last = new
   command_mode(buf, opts)
   reconcile(leaving)
@@ -489,6 +535,7 @@ function M.attach_in(win, id)
   end
   mark(buf)
   sync_display(win)
+  geometry.settle(win)
   if old ~= buf then
     reconcile(old) -- e.g. still shown in the popover
   end
@@ -570,6 +617,7 @@ function M.restart()
   end
   mark(fresh)
   theme_float()
+  geometry.settle()
   last = new
 end
 

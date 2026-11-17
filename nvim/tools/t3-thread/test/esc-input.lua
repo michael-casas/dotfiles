@@ -32,6 +32,11 @@ local ok, err = pcall(function()
     [[
     local root = ...
     vim.opt.rtp:prepend(root .. "/nvim")
+    vim.system = function(_, _, cb)
+      assert(cb, "unexpected blocking hc call")
+      vim.schedule(function() cb({code=1, stdout="", stderr="synthetic"}) end)
+      return {}
+    end
     vim.o.mouse, vim.o.ttimeoutlen = "a", 20
     local facts, bufs = {}, {}
     package.loaded["hcmux.core"] = {
