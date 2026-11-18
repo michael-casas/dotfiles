@@ -1,14 +1,18 @@
 // Test-wide isolation guard (imported first by every test file, and preloaded
 // into every Node child through NODE_OPTIONS). Fails closed:
-// - HOME and T3CODE_HOME point at a throwaway directory, so production
-//   defaults (~/.t3, the envi session file, the t3 CLI path) resolve there;
-// - T3_URL defaults to a refused loopback port, never the live server;
-// - any socket dial to port 3773 throws;
-// - any filesystem access under the real ~/.t3 or envi state throws.
+// - HOME (when it is the real one) and T3CODE_HOME point at a throwaway
+//   directory, so production defaults (~/.t3, the envi session file, the t3
+//   CLI path) resolve there; T3_URL defaults to a refused loopback port;
+// - any socket connect to port 3773 throws (net.Socket, so TLS too);
+// - any fs call on a path under the real ~/.t3 or envi state throws: sync,
+//   callback, promise (fs.promises is node:fs/promises) and stream APIs;
+// - every denial is recorded and makes the process exit 1, even when the code
+//   under test catches the error.
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const self = fileURLToPath(import.meta.url);
@@ -30,27 +34,45 @@ if (!process.env.T3CODE_HOME || forbidden.some((p) => path.resolve(process.env.T
   process.env.T3CODE_HOME = path.join(home, ".t3");
 process.env.T3_URL ||= "http://127.0.0.1:9";
 
+const violations = [];
 const deny = (what) => {
   const message = `test isolation guard: ${what}`;
+  violations.push(message);
+  process.exitCode = 1;
   try { fs.appendFileSync(path.join(os.tmpdir(), "t3-test-guard.log"), `${process.pid} ${message}\n`); } catch {}
   throw new Error(message);
 };
+process.on("exit", () => {
+  if (!violations.length) return;
+  process.exitCode = 1; // a caught denial still fails the run
+  process.stderr.write(`${violations.length} isolation violation(s): ${violations[0]}\n`);
+});
+
 const connect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function (...args) {
   const target = Array.isArray(args[0]) ? args[0][0] : args[0];
   if (Number(target?.port ?? target) === 3773) deny("dial to the live T3 port 3773");
   return connect.apply(this, args);
 };
+
 const live = (p) => {
-  if (typeof p !== "string" && !(p instanceof URL)) return false;
-  const abs = path.resolve(p instanceof URL ? fileURLToPath(p) : p);
+  if (p instanceof URL) p = p.protocol === "file:" ? fileURLToPath(p) : null;
+  else if (Buffer.isBuffer(p)) p = p.toString();
+  if (typeof p !== "string") return false; // file descriptors, handles
+  const abs = path.resolve(p);
   return forbidden.some((f) => abs === f || abs.startsWith(`${f}/`));
 };
-for (const name of ["readFileSync", "writeFileSync", "appendFileSync", "statSync", "existsSync", "watch",
-  "renameSync", "mkdirSync", "rmSync", "readdirSync", "openSync", "chmodSync", "utimesSync"]) {
-  const original = fs[name];
-  fs[name] = function (p, ...rest) {
-    if (live(p) || (name === "renameSync" && live(rest[0]))) deny(`${name} on live T3 data`);
-    return original.call(this, p, ...rest);
-  };
+const TWO_PATHS = /^(rename|copyFile|link|symlink|cp)(Sync)?$/;
+function wrap(api, label) {
+  for (const name of Object.keys(api)) {
+    const original = api[name];
+    if (typeof original !== "function" || /^[A-Z]/.test(name)) continue; // skip classes
+    api[name] = function (...args) {
+      if (live(args[0]) || (TWO_PATHS.test(name) && live(args[1]))) deny(`${label}.${name} on live T3 data`);
+      return original.apply(this, args);
+    };
+  }
 }
+wrap(fs, "fs");
+wrap(fs.promises, "fs.promises");
+syncBuiltinESMExports(); // named imports (import { readFile } from "node:fs") see the wrappers too

@@ -106,10 +106,13 @@ test("F11: every t3 the harness runs gets only the allocated port and its temp b
   assert.deepEqual(calls.map((c) => c.args.slice(0, 2).join(" ")).sort(), ["auth session", "project add", "serve --base-dir"]);
   const home = base(calls[0]);
   assert.match(home, /t3upd-repro-[^/]+\/home$/);
+  const servePort = calls.find((c) => c.args[0] === "serve").args;
+  const url = `http://127.0.0.1:${servePort[servePort.indexOf("--port") + 1]}`;
   for (const call of calls) {
     assert.equal(base(call), home);
-    assert.deepEqual(call.env, { T3CODE_HOME: home }, "no guard, URL or token variables reach t3");
+    assert.deepEqual(call.env, { T3CODE_HOME: home, T3_URL: url }, "temp home and isolated URL only; no guard or token");
   }
-  const port = calls.find((c) => c.args[0] === "serve").args;
-  assert.notEqual(port[port.indexOf("--port") + 1], "3773");
+  const serve = calls.find((c) => c.args[0] === "serve").args;
+  const port = serve[serve.indexOf("--port") + 1];
+  assert.notEqual(port, "3773");
 });

@@ -96,10 +96,13 @@ function own(child) {
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const signal = (pids, sig) => pids.filter((pid) => { try { process.kill(pid, sig); return true; } catch { return false; } });
 const kids = (pid) => { try { return execFileSync("pgrep", ["-P", String(pid)]).toString().trim().split("\n").map(Number).filter(Boolean); } catch { return []; } };
-// The real t3 (Electron as Node) must not inherit a test guard or our T3 env.
+// The real t3 (Electron as Node) must not inherit a test guard or a token; it
+// gets the temp T3 home and the isolated server's loopback URL explicitly.
+let serverUrl;
 const t3env = () => {
-  const env = { ...process.env, T3CODE_HOME: home };
-  for (const k of ["NODE_OPTIONS", "T3UPD_GUARD_HOME", "T3UPD_GUARD_REAL_HOME", "T3_URL", "T3_SESSION_TOKEN"]) delete env[k];
+  if (!serverUrl) throw new Error("no isolated server URL yet");
+  const env = { ...process.env, T3CODE_HOME: home, T3_URL: serverUrl };
+  for (const k of ["NODE_OPTIONS", "T3UPD_GUARD_HOME", "T3UPD_GUARD_REAL_HOME", "T3_SESSION_TOKEN"]) delete env[k];
   return env;
 };
 function t3(args) {
@@ -132,6 +135,7 @@ process.on("uncaughtException", (e) => {
 const freePort = () => new Promise((resolve) => {
   const s = net.createServer().listen(0, "127.0.0.1", () => {
     const { port } = s.address();
+    serverUrl = `http://127.0.0.1:${port}`;
     s.close(() => resolve(port));
   });
 });
