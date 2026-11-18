@@ -304,10 +304,18 @@ test("setModel dispatches through the adapter socket without projecting an optim
     if (oldToken === undefined) delete process.env.T3_SESSION_TOKEN;
     else process.env.T3_SESSION_TOKEN = oldToken;
   });
-  t.mock.method(globalThis, "fetch", async () => ({
-    ok: true,
-    json: async () => ({ ticket: "fixture-ticket" }),
-  }));
+  // A local ticket endpoint (never the default live server) and a fresh adapter.
+  const http = await import("node:http");
+  const server = http.createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ticket: "fixture-ticket" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const oldURL = process.env.T3_URL;
+  process.env.T3_URL = `http://127.0.0.1:${server.address().port}`;
+  t.after(() => (oldURL === undefined ? delete process.env.T3_URL : (process.env.T3_URL = oldURL)));
+  const t3 = await import(`../t3.mjs?model-picker=${crypto.randomUUID()}`);
   const sent = [];
   let socket;
   let connected;

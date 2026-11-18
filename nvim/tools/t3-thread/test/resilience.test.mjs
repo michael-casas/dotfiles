@@ -321,3 +321,47 @@ test("A3: a live 401 replaces the session file atomically with mode 0600", async
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).token, "issued-fixture");
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
 });
+
+test("A6: when the marker appears a live client closes its socket at once and holds", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, { T3CODE_HOME: home.home });
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  // HTTP keep-alive sockets would be one more thing the server waits on.
+  assert.ok(await until(() => fake.openConnections() === 1, 1000), `open TCP connections: ${fake.openConnections()}`);
+  const written = Date.now();
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 1000), "closed its socket");
+  assert.ok(Date.now() - written < 500, `closed after ${Date.now() - written} ms`);
+  assert.equal(conns.at(-1), "T3 updating…");
+  const upgrades = fake.counts.upgrades;
+  await sleep(800);
+  assert.equal(fake.counts.upgrades, upgrades, "no reconnect while the marker is present");
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live", 1500), "resumed");
+});
+
+test("A6: the sidebar feed closes its socket when the marker appears", async (t) => {
+  const home = t3home(t);
+  const old = process.env.T3CODE_HOME;
+  t.after(() => (old === undefined ? delete process.env.T3CODE_HOME : (process.env.T3CODE_HOME = old)));
+  process.env.T3CODE_HOME = home.home;
+  const h = feedHarness();
+  t.after(() => h.feed.close());
+  assert.ok(await until(() => h.sockets.length === 1));
+  const ws = h.sockets[0];
+  ws.onopen();
+  ws.onmessage({ data: JSON.stringify({ _tag: "Chunk", requestId: "1", values: [{ kind: "snapshot", snapshot: {
+    snapshotSequence: 1, projects: [], threads: [], archivedThreads: [] } }] }) });
+  home.write();
+  assert.ok(await until(() => ws.closed, 500), "closed its socket");
+  assert.deepEqual(h.output.at(-1), { type: "error", message: "T3 updating…" });
+  await sleep(300);
+  assert.equal(h.sockets.length, 1, "no reconnect while the marker is present");
+  home.remove();
+  assert.ok(await until(() => h.sockets.length === 2, 1000), "resumed");
+});

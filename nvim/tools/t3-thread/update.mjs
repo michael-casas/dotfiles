@@ -62,6 +62,28 @@ export function assertNotUpdating() {
 }
 
 /**
+ * Call `cb` whenever the runtime directory changes while an update is in
+ * progress, so live clients can close their sockets before the server stops:
+ * a shutting-down server waits on every open client socket. Callbacks must be
+ * idempotent. Without a watchable directory, a local stat each second.
+ */
+export function onUpdateStart(cb) {
+  const check = () => updatingUntil() && cb();
+  let watcher, timer;
+  try {
+    watcher = fs.watch(runtimeDir(), { persistent: false }, check);
+    watcher.on("error", () => {});
+  } catch {
+    timer = setInterval(check, 1000);
+    timer.unref?.();
+  }
+  return () => {
+    watcher?.close();
+    clearInterval(timer);
+  };
+}
+
+/**
  * Call `resume` once the update marker is gone or expired. A watcher on the
  * runtime directory reacts within milliseconds; a timer at the marker's expiry
  * (at most every 10 s, or 1 s if the directory cannot be watched) is the

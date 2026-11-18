@@ -116,6 +116,11 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
   });
+  const tcp = new Set(); // every open TCP connection, HTTP keep-alive included
+  server.on("connection", (s) => {
+    tcp.add(s);
+    s.on("close", () => tcp.delete(s));
+  });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${server.address().port}`,
@@ -123,6 +128,8 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     commands,
     counts,
     connected,
+    openConnections: () => tcp.size,
+    openSockets: () => sockets.size,
     dropAll() {
       for (const s of sockets) s.destroy();
     },

@@ -9,12 +9,15 @@
 //   orchestration.subscribeThread {threadId} -> values: {kind:"snapshot",snapshotSequence,projection}
 //                                              then  {kind:"event",sequence,event:{type:"<entity>.updated",payload}}
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  RESTARTED, UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, serverIdentity, updatingUntil,
+  RESTARTED, UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, onUpdateStart, serverIdentity,
+  updatingUntil,
 } from "./update.mjs";
 
 const run = promisify(execFile);
@@ -77,10 +80,32 @@ function token() {
   return "";
 }
 
+// One request per connection (agent: false sends Connection: close). An idle
+// keep-alive socket is one more socket a stopping server waits on, and these
+// requests are rare: one ticket per connection, one shell read per process.
+function request1(url, { method = "GET", headers = {}, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https:") ? https : http;
+    const req = lib.request(url, { method, headers, signal, agent: false }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (d) => (body += d));
+      res.on("error", reject);
+      res.on("end", () => resolve({
+        status: res.statusCode,
+        ok: res.statusCode >= 200 && res.statusCode < 300,
+        json: async () => JSON.parse(body),
+      }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 async function authFetch(url, init = {}) {
   assertNotUpdating();
   const go = (tok) =>
-    fetch(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${tok}` } });
+    request1(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${tok}` } });
   const r = await go(token());
   // An explicit T3_SESSION_TOKEN is never replaced (tests, isolated servers).
   if (r.status !== 401 || process.env.T3_SESSION_TOKEN !== undefined) return r;
@@ -472,6 +497,7 @@ export function subscribe(
       onConn?.("connecting");
       const authTicket = await ticket();
       if (closed) return;
+      if (updatingUntil()) return connect(); // marker appeared meanwhile: hold
       ws = new WebSocket(
         `${BASE.replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
       );
@@ -561,10 +587,10 @@ export function subscribe(
       rejectCalls(
         "Connection lost; command outcome may be unknown (not retried)",
       );
-      if (!closed) {
-        onConn?.("reconnecting");
-        later();
-      }
+      if (closed) return;
+      if (updatingUntil()) return connect(); // hold, no reconnect attempts
+      onConn?.("reconnecting");
+      later();
     };
     ws.onerror = () => {};
   }
@@ -586,8 +612,16 @@ export function subscribe(
     timer = setTimeout(connect, retry / 2 + Math.random() * (retry / 2));
     retry = Math.min(retry * 2, 10_000);
   }
+  // A6: on an update, let go of the server at once (it waits on our socket).
+  const unwatch = onUpdateStart(() => {
+    if (closed || hold) return;
+    clearTimeout(timer);
+    if (ws && ws.readyState <= WebSocket.OPEN) ws.close();
+    else connect();
+  });
   const close = () => {
     closed = true;
+    unwatch();
     clearTimeout(timer);
     clearTimeout(notice);
     hold?.();

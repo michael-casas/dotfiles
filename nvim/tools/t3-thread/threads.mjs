@@ -4,7 +4,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { openShellSocket } from "./t3.mjs";
-import { UPDATING, holdWhileUpdating, updatingUntil } from "./update.mjs";
+import { UPDATING, holdWhileUpdating, onUpdateStart, updatingUntil } from "./update.mjs";
 
 const active = new Set(["queued", "preparing", "starting", "running", "waiting"]);
 const terminal = new Set(["completed", "failed", "interrupted", "cancelled", "rolled_back"]);
@@ -225,7 +225,7 @@ export function startFeed(options = {}, {
     if (stopped) return;
     stopped = true; generation++;
     clear(retryTimer); clear(deadline); clear(emitTimer);
-    clear(archiveTimer); clear(archiveDeadline); hold?.();
+    clear(archiveTimer); clear(archiveDeadline); hold?.(); unwatch();
     socket?.close(); finish(code);
   };
   function publish() {
@@ -269,6 +269,7 @@ export function startFeed(options = {}, {
     clear(archiveTimer); clear(archiveDeadline); archiveTimer = undefined;
     archiveRequest = undefined; archiveReady = !options.archived; shellReady = false;
     signature = null; // recovery gets a snapshot even if the rows are unchanged
+    if (updatingUntil()) { socket?.close(); socket = undefined; return void connect(); } // hold
     emit({ type: "error", message });
     socket?.close(); socket = undefined;
     if (options.once) return close(1);
@@ -354,6 +355,12 @@ export function startFeed(options = {}, {
     ws.onerror = lost;
     ws.onclose = lost;
   }
+  // A6: on an update, close the socket at once (a stopping server waits on it).
+  const unwatch = onUpdateStart(() => {
+    if (stopped || hold) return;
+    if (socket) return fail(generation, UPDATING);
+    clear(retryTimer); void connect();
+  });
   void connect();
   return { close, done };
 }
