@@ -332,65 +332,80 @@ local function succeed(run, rt)
   report_clients()
 end
 
-local observe
+-- One watch step. At most one async read/probe is in flight (run.busy), at
+-- most one probe starts per poll_ms, and the deadline ends the run on every
+-- path, including while a probe is in flight (its late result is dropped).
+--
+-- Success: marker absent or expired, a pid other than the baseline, and a
+-- reachable server, all re-read after the probe answers. Stall (once): the
+-- marker expired (after it was seen), the readable pid is the baseline one
+-- and the probe failed. Anything else, contradictory or unknown, keeps
+-- watching until the deadline.
 local function check(run)
-  if M.run ~= run or run.probing then
+  if M.run ~= run then
     return
   end
-  run.probing = true
+  local now = vim.uv.now()
+  if now >= run.started + M.config.timeout_ms then
+    return finish(run, "update watch timed out; :T3Status shows the current state", vim.log.levels.WARN)
+  end
+  if run.busy then
+    return
+  end
+  run.busy = true
   read_state(function(state)
-    run.probing = false
-    if M.run == run then
-      observe(run, state)
+    run.busy = false
+    if M.run ~= run then
+      return
     end
+    local m, rt = state.marker, state.runtime
+    if in_progress(m) and not run.saw then
+      run.saw = true
+      notify("T3 is updating…")
+    end
+    local pid = not in_progress(m) and rt and rt.pid or nil
+    local moved = pid ~= nil and pid ~= run.old.pid
+    local stalling = run.saw and not run.stalled and m and m.ago_ms and pid == run.old.pid
+    if not (moved or stalling) then
+      if not run.saw and vim.uv.now() >= run.started + M.config.start_timeout_ms then
+        finish(
+          run,
+          "no update started (Later, already up to date, or only downloaded: run :T3Update again to restart into it)"
+        )
+      end
+      return
+    end
+    if vim.uv.now() < run.next_probe then
+      return -- rate limit: the timer comes back within poll_ms
+    end
+    run.next_probe = vim.uv.now() + M.config.poll_ms
+    run.busy = true
+    probe(function(up)
+      read_state(function(after)
+        run.busy = false
+        if M.run ~= run then
+          return
+        end
+        local m2, rt2 = after.marker, after.runtime
+        local pid2 = not in_progress(m2) and rt2 and rt2.pid or nil
+        if moved and up and pid2 ~= nil and pid2 ~= run.old.pid and pid2 == pid then
+          succeed(run, rt2)
+        elseif stalling and not up and m2 and m2.ago_ms and pid2 == run.old.pid then
+          run.stalled = true
+          notify(
+            ("update stalled: the marker expired, the server is still pid %d and unreachable; still watching"):format(
+              run.old.pid
+            ),
+            vim.log.levels.WARN
+          )
+        end
+      end)
+    end)
   end)
 end
 
-function observe(run, state)
-  local elapsed = vim.uv.now() - run.started
-  local m = state.marker
-  local updating = in_progress(m)
-  if updating and not run.saw then
-    run.saw = true
-    notify("T3 is updating…")
-  end
-  local rt = not updating and state.runtime
-  local moved = rt and rt.pid and rt.pid ~= run.old.pid
-  if moved or (run.saw and m and m.ago_ms and not run.stalled) then
-    -- Removed or expired: success needs a new pid and a reachable server;
-    -- an expired marker over the old, unreachable server is a stall.
-    run.probing = true
-    probe(function(up)
-      run.probing = false
-      if M.run ~= run then
-        return
-      elseif moved and up then
-        return succeed(run, rt)
-      elseif not moved and not up then
-        run.stalled = true
-        notify(
-          "update stalled: the marker expired, the server is still pid "
-            .. run.old.pid
-            .. " and unreachable; still watching",
-          vim.log.levels.WARN
-        )
-      end
-      check(run)
-    end)
-    return
-  end
-  if elapsed >= M.config.timeout_ms then
-    finish(run, "update watch timed out; :T3Status shows the current state", vim.log.levels.WARN)
-  elseif not run.saw and not moved and elapsed >= M.config.start_timeout_ms then
-    finish(
-      run,
-      "no update started (Later, already up to date, or only downloaded: run :T3Update again to restart into it)"
-    )
-  end
-end
-
 local function watch(run)
-  run.started = vim.uv.now()
+  run.started, run.next_probe = vim.uv.now(), 0
   run.timer = vim.uv.new_timer()
   run.timer:start(
     M.config.poll_ms,
