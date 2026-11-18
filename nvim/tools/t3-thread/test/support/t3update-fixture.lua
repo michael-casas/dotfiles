@@ -116,6 +116,11 @@ function F.reset()
   F.calls, F.notices = {}, {}
   F.reply = {}
   F.core.terms = {}
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.b[buf].hcmux_float == "t3" then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end
   F.feed.snapshot, F.feed.message = { projects = {}, threads = {} }, nil
   F.clear()
 end

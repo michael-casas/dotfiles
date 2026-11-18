@@ -80,15 +80,21 @@ local function runtime()
   return { pid = tonumber(value.pid), version = value.serverVersion, started = value.startedAt }
 end
 
--- nil when absent, else { left = seconds or nil }.
+-- The desktop's marker contract (its own waiters use the same TTL):
+-- valid {startedAt, expiresAt} is in progress until expiresAt; malformed or
+-- unreadable is in progress until mtime + 60 s; expired counts as absent.
+-- Returns nil (absent), { left = s } (in progress) or { ago = s } (expired).
+local TTL = 60
 local function marker()
-  local text = read(M.paths().marker)
-  if not text then
+  local path = M.paths().marker
+  local stat = vim.uv.fs_stat(path)
+  if not stat then
     return nil
   end
-  local value = decode(text)
+  local value = decode(read(path))
   local expires = value and tonumber(value.expiresAt)
-  return { left = expires and math.floor((expires - os.time() * 1000) / 1000) or nil }
+  local left = expires and math.floor((expires - os.time() * 1000) / 1000) or (stat.mtime.sec + TTL - os.time())
+  return left > 0 and { left = left } or { ago = -left }
 end
 
 -- cb(up): the server answers its environment endpoint within the timeout.
@@ -137,12 +143,20 @@ end
 local function marker_text(m)
   if not m then
     return "no update in progress"
-  elseif m.left == nil then
-    return "update marker present (unreadable)"
-  elseif m.left < 0 then
-    return ("update marker expired %d s ago"):format(-m.left)
+  elseif m.ago then
+    return ("no update in progress (marker expired %d s ago)"):format(m.ago)
   end
   return ("update in progress (%d s left)"):format(m.left)
+end
+
+-- Process liveness only (the herdr-core terminal); websocket state is not
+-- visible from here.
+local function clients_text(list)
+  local running = 0
+  for _, c in ipairs(list) do
+    running = running + (c.live and 1 or 0)
+  end
+  return ("%d client buffers, %d client processes running"):format(#list, running)
 end
 
 function M.status()
@@ -157,11 +171,7 @@ function M.status()
       parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
     end
     parts[#parts + 1] = marker_text(marker())
-    local list, live = clients(), 0
-    for _, c in ipairs(list) do
-      live = live + (c.live and 1 or 0)
-    end
-    parts[#parts + 1] = ("%d clients (%d live)"):format(#list, live)
+    parts[#parts + 1] = clients_text(clients())
     notify(table.concat(parts, " · "))
   end)
 end
