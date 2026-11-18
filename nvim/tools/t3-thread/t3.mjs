@@ -126,14 +126,15 @@ async function ticket(signal) {
 
 // One connection attempt for both clients: the ticket POST and the websocket
 // share `signal`, so retiring the attempt cancels whichever is in flight. The
-// marker is checked again before the upgrade.
-export async function openShellSocket(signal) {
+// marker is checked again before the upgrade. `closing` collects the
+// caller's sockets still finishing a peer's Close (see ws.mjs).
+export async function openShellSocket(signal, closing) {
   const authTicket = await ticket(signal);
   signal?.throwIfAborted();
   assertNotUpdating();
   return connectWs(
     `${base().replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
-    { signal },
+    { signal, closing },
   );
 }
 
@@ -470,8 +471,8 @@ export function subscribe(
     notice,
     nextId = 1,
     generation = 0, // the current connection attempt; older ones are retired
-    attempt, // its AbortController: ticket HTTP, auth retry and websocket
-    lingering; // a lost socket still finishing a peer-first close
+    attempt; // its AbortController: ticket HTTP, auth retry and websocket
+  const closing = new Set(); // lost sockets still finishing a peer-first close
   let capabilities = {};
   const calls = new Map();
   function rejectCalls(message) {
@@ -516,7 +517,7 @@ export function subscribe(
   }
   // Desktop update: let go of the server and wait, with no attempts and no CLI.
   function holdUpdate() {
-    lingering?.release?.(); // the platform WebSocket has none
+    for (const s of closing) s.release();
     retire("T3 is updating; command outcome may be unknown (not retried)");
     onConn?.(UPDATING);
     hold ??= holdWhileUpdating(() => {
@@ -534,7 +535,7 @@ export function subscribe(
     let sock;
     try {
       onConn?.("connecting");
-      sock = await openShellSocket(controller.signal);
+      sock = await openShellSocket(controller.signal, closing);
     } catch (e) {
       if (!current()) return;
       if (updatingUntil()) return holdUpdate();
@@ -624,7 +625,6 @@ export function subscribe(
     };
     sock.onclose = () => {
       if (!current()) return;
-      lingering = sock;
       if (updatingUntil()) return holdUpdate(); // no reconnect attempts
       retire("Connection lost; command outcome may be unknown (not retried)");
       onConn?.("reconnecting");
@@ -658,7 +658,7 @@ export function subscribe(
     closed = true;
     unwatch();
     hold?.();
-    lingering?.release?.(); // the platform WebSocket has none
+    for (const s of closing) s.release();
     retire("Closed");
   };
   close.rpc = request;

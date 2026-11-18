@@ -237,7 +237,9 @@ An expired marker counts as absent.
     marker describes), `ws.mjs` is a small websocket client that owns its TCP
     socket. Its `close()` sends a close frame and resets the socket 100 ms later
     unless the peer has closed by then. A pending handshake is reset at once.
-  - A Close started by the server is answered with one masked Close frame.
+  - A Close started by the server is answered with one masked Close frame. The
+    socket then waits (up to 1 s) for the server's TCP close; every such socket
+    is released at once when the marker appears or the client is closed.
   - `wss://` and non-loopback endpoints use the platform `WebSocket`, with its
     own TLS, SNI and certificate checks. On the marker it is closed gracefully
     and the client holds; it is closed for the client at once.

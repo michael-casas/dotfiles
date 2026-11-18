@@ -540,6 +540,43 @@ test(`F15: a ws ${client} socket closing peer-first is still released by the mar
   assert.ok(await until(() => fake.counts.upgrades === 2, 2000), "one eligible recovery");
 });
 
+// Two generations closing peer-first at once (round 4): both half-open peers
+// are released on the marker, and on disposal.
+for (const client of ["thread", "feed"]) for (const via of ["marker", "dispose"])
+test(`F15: two ${client} sockets closing peer-first are both released (${via})`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell, withholdClose: true });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const states = [];
+  let dispose;
+  if (client === "thread") t.after((dispose = t3.subscribe("t", { onConn: (c) => states.push(c) })));
+  else {
+    const f = startFeed({}, { openSocket: (...args) => t3.openShellSocket(...args), write: (l) => states.push(JSON.parse(l).message) });
+    t.after((dispose = () => f.close()));
+  }
+  const subscriptions = () => fake.requests.filter((r) => r.startsWith("orchestration.subscribe")).length;
+  assert.ok(await until(() => subscriptions() === 1));
+  fake.serverClose();
+  assert.ok(await until(() => fake.counts.closeFrames === 1, 500), "first acknowledgement");
+  assert.ok(await until(() => subscriptions() === 2, 1000), "second generation subscribed");
+  fake.serverClose();
+  assert.ok(await until(() => fake.counts.closeFrames === 2, 500), "second acknowledgement");
+  assert.equal(fake.openSockets(), 2, "both peers are deliberately half-open");
+  const at = Date.now();
+  if (via === "marker") home.write();
+  else dispose();
+  assert.ok(await until(() => fake.openSockets() === 0, 150), `both released; ${fake.openSockets()} open after ${Date.now() - at} ms`);
+  assert.equal(fake.counts.closeFrames, 2, "one acknowledgement each");
+  assert.equal(fake.counts.unmaskedClose, 0);
+  assert.equal(states.filter((s) => /reconnecting/.test(s ?? "")).length, 2, `one loss transition each: ${states.join(" | ")}`);
+  if (via === "dispose") return;
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 2, "no upgrade during the hold");
+  home.remove();
+  assert.ok(await until(() => subscriptions() === 3, 2000), "one eligible recovery");
+});
+
 for (const [name, url, runtimePort, notices] of [
   ["default https", "https://127.0.0.1", 443, 1],
   ["literal :443", "https://127.0.0.1:443", 443, 1],

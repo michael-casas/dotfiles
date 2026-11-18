@@ -29,7 +29,9 @@ export const ownsTransport = (url) => {
   return protocol === "ws:" && /^(127(\.\d{1,3}){3}|localhost|\[::1\])$/.test(hostname);
 };
 
-export function connectWs(url, { signal } = {}) {
+// `closing`: the caller's Set of sockets still closing after a peer's Close;
+// each joins it on that Close and leaves it when its TCP connection ends.
+export function connectWs(url, { signal, closing } = {}) {
   if (!ownsTransport(url)) {
     // Platform WebSocket. close() is graceful underneath but, as below, closed
     // for the caller at once: onclose fires once, without waiting for the peer.
@@ -78,6 +80,8 @@ export function connectWs(url, { signal } = {}) {
       if (opcode === 8) { // peer-initiated: one masked Close back, then wait (bounded) for its TCP close
         lingering = socket;
         socket = undefined;
+        closing?.add(ws);
+        lingering.once("close", () => closing?.delete(ws));
         lingering.write(frame(8, data.subarray(0, 2)));
         setTimeout(ws.release, 1000).unref();
         return finish();
@@ -127,7 +131,7 @@ export function connectWs(url, { signal } = {}) {
     }
   };
   // A socket still closing after a peer's Close (see above): release it now.
-  ws.release = () => { if (lingering && !lingering.destroyed) drop(lingering); lingering = undefined; };
+  ws.release = () => { if (lingering && !lingering.destroyed) drop(lingering); lingering = undefined; closing?.delete(ws); };
   if (signal?.aborted) queueMicrotask(ws.close);
   else signal?.addEventListener("abort", ws.close, { once: true });
   return ws;

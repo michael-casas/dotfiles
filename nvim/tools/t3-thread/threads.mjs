@@ -217,7 +217,8 @@ export function startFeed(options = {}, {
   let retryTimer, deadline, emitTimer, lastEmission = -Infinity, signature = null;
   let archiveTimer, archiveDeadline, archiveRequest, archiveValues = [], archiveRows = [];
   let archiveReady = !options.archived, archiveDirty = false, nextRequest = 1;
-  let finish, hold, attempt, lingering; // attempt: AbortController of the connection in flight; lingering: a socket finishing a peer-first close
+  let finish, hold, attempt; // attempt: AbortController of the connection in flight
+  const closing = new Set(); // sockets still finishing a peer-first close
   const done = new Promise(resolve => { finish = resolve; });
   const emit = value => write(`${JSON.stringify(value)}\n`);
   const clear = id => { if (id !== undefined) clock.clearTimeout(id); };
@@ -226,7 +227,7 @@ export function startFeed(options = {}, {
     stopped = true; generation++;
     clear(retryTimer); clear(deadline); clear(emitTimer);
     clear(archiveTimer); clear(archiveDeadline); hold?.(); unwatch();
-    attempt?.abort(); lingering?.release?.(); socket?.close(); finish(code);
+    attempt?.abort(); for (const s of closing) s.release(); socket?.close(); finish(code);
   };
   function publish() {
     emitTimer = undefined;
@@ -270,9 +271,8 @@ export function startFeed(options = {}, {
     archiveRequest = undefined; archiveReady = !options.archived; shellReady = false;
     signature = null; // recovery gets a snapshot even if the rows are unchanged
     attempt?.abort(); attempt = undefined; // cancel a ticket or handshake in flight
-    if (socket) lingering = socket;
     socket?.close(); socket = undefined; // released at once, whatever the peer does
-    if (updatingUntil()) { lingering?.release?.(); return void connect(); } // hold, no retry
+    if (updatingUntil()) { for (const s of closing) s.release(); return void connect(); } // hold, no retry
     emit({ type: "error", message });
     if (options.once) return close(1);
     retryTimer = clock.setTimeout(connect, retry);
@@ -293,7 +293,7 @@ export function startFeed(options = {}, {
     deadline = clock.setTimeout(() => fail(gen, "T3 shell connection timed out; reconnecting"), 10000);
     let ws;
     const controller = (attempt = new AbortController());
-    try { ws = await openSocket(controller.signal); }
+    try { ws = await openSocket(controller.signal, closing); }
     catch { return fail(gen, "T3 shell unavailable; reconnecting"); }
     if (stopped || gen !== generation) { ws.close(); return; }
     socket = ws;
