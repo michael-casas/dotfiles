@@ -235,7 +235,11 @@ An expired marker counts as absent.
     turns late callbacks into no-ops.
   - `ws.mjs` is a small websocket client that owns its TCP socket. Its `close()`
     sends a close frame and resets the socket 100 ms later unless the peer has
-    closed by then. A pending handshake is reset at once.
+    closed by then. A pending handshake is reset at once. A WSS (TLS) socket is
+    destroyed instead of reset.
+  - A Close started by the server is answered with one masked Close frame.
+  - Both subscribe boundaries (the thread client's and the feed's `onopen`)
+    check the marker before sending any RPC, in case the watcher is late.
 - While the marker is present, the clients make no connection attempts and never
   run the `t3` CLI, which execs the app bundle being swapped.
   - Commands fail fast with "T3 is updating".
@@ -289,12 +293,19 @@ Modes:
 
   It reports client requests in the marker window and each client's recovery
   time.
-- `marker-lead`: marker, then exactly 0/50/200 ms, then a freeze of the server and
-  every client to count each client's ESTABLISHED sockets, then SIGTERM. There is
-  also a variant that keeps the clients frozen.
+- `marker-lead`: marker, then 0/50/200 ms, then a freeze of the server and every
+  client to count each client's ESTABLISHED sockets.
+  - TERM is sent while everything is still stopped, so each count is the state
+    at TERM.
+  - Publication, freeze, sample, TERM and thaw are timestamped separately.
+  - There is also a variant that keeps the clients frozen.
 - `e1`: every client frozen.
-- `e2`: old clients spinning on a missing thread, against a same-session
-  unfrozen control.
+- `e2`: old clients spinning on a missing thread, SIGTERM at a random phase.
+  - It is a safety gate only (charter Amendment 6): every old TUI pid must
+    upgrade before every TERM (counted per pid by `scripts/upgrade-observer.mjs`),
+    with no SIGKILL and every exit within 2 s.
+  - The median against a same-session unfrozen control is a diagnostic only
+    (`scripts/e2-gate.mjs`).
 - `lifecycle`: the server lifecycle alone, used by the hermetic tests.
 
 Frozen-client modes use a named 10 s observation deadline instead of the
@@ -585,8 +596,9 @@ stalled peers, watcher failures) against `test/support/fake-t3.mjs`, temp
 `T3CODE_HOME`s and a stub `T3_BIN`. Every test file first imports
 `test/support/guard.mjs`, and `test/run-lua.sh` preloads it into Node
 children. The guard makes the suite fail closed if anything dials port 3773 or
-touches the real `~/.t3` or envi state; it also points HOME, T3CODE_HOME and the
-default T3_URL at throwaway values.
+touches the real `~/.t3` or envi state, through sync, callback, promise or
+stream `fs` calls or any socket connect. A caught denial still fails the run. It
+also points HOME, T3CODE_HOME and the default T3_URL at throwaway values.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,

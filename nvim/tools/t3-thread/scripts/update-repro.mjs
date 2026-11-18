@@ -43,6 +43,7 @@ import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { connectWs } from "../ws.mjs";
+import { median, e2Gate } from "./e2-gate.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (name, fallback) => {
@@ -66,7 +67,6 @@ const TITLES = ["t3upd-a", "t3upd-b"];
 const CLIENT_PATHS = ["/api/auth/websocket-ticket/rpc", "/ws", "/api/orchestration/shell", "/.well-known/t3/environment"];
 const HARNESS_UA = "t3upd-repro-harness";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)];
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-repro-"));
 const home = path.join(base, "home");
@@ -481,8 +481,9 @@ async function e1(ctx, runs) {
     killed: results.filter((r) => r.killed).length };
 }
 
-// Amendment 4: old clients spinning on a missing thread, SIGTERM at a random
-// phase; gate against a same-session unfrozen control (6 TUIs + 1 feed).
+// Amendment 6: old clients spinning on a missing thread, SIGTERM at a random
+// phase. Safety gate only (every old TUI pid upgrades before every TERM, no
+// SIGKILL, every exit <= 2 s); median vs a same-session control is diagnostic.
 async function e2(ctx, runs) {
   const controlRuns = Number(arg("--control-runs", 5));
   let server = ctx.server;
@@ -497,36 +498,29 @@ async function e2(ctx, runs) {
     server = await serve(ctx.port);
   }
   await stopClients(steady);
-  const spinners = attach(ctx.env, { feeds: 0, tuis: 3, thread: ctx.threadId, deadThread: 3 });
+  // Each old client records its own upgrades (pid, time) via a preload.
+  const upgradesFile = path.join(base, "upgrades.log");
+  const observer = path.join(here, "upgrade-observer.mjs");
+  const env = { ...ctx.env, T3UPD_UPGRADES: upgradesFile, NODE_OPTIONS: `${ctx.env.NODE_OPTIONS || ""} --import ${observer}`.trim() };
+  const spinners = attach(env, { feeds: 0, tuis: 3, thread: ctx.threadId, deadThread: 3 });
   const spinPids = await clientPids(spinners);
-  await sleep(2000);
+  const upgrades = () => (fs.existsSync(upgradesFile) ? fs.readFileSync(upgradesFile, "utf8").trim().split("\n") : [])
+    .map((l) => l.split(" ").map(Number)).filter(([pid]) => pid);
+  const byPid = (from, to) => Object.fromEntries(spinPids.map((p) => [p, upgrades().filter(([pid, at]) => pid === p && at >= from && at < to).length]));
   const results = [];
-  const upgradesSince = (at) => traceSpans().filter((s) => s.name === "GET" && s.path === "/ws" && s.agent !== HARNESS_UA && s.at >= at).length;
   for (let i = 0; i < runs; i++) {
-    // Spinning first: after a restart the clients are still in their downtime
-    // backoff, so wait for their upgrades to resume on this server.
-    for (let j = 0; j < 150 && upgradesSince(server.readyAt) < 3; j++) await sleep(100);
-    const spinningAt = Date.now();
+    // Spinning first: after a restart every client must upgrade on this server.
+    for (let j = 0; j < 150 && Object.values(byPid(server.readyAt, Infinity)).some((n) => n === 0); j++) await sleep(100);
     const phase = Math.round(Math.random() * 1000);
     await sleep(phase);
     const spinnersAlive = spinPids.filter(alive).length;
-    const connected = Object.values(sockets(ctx.port, spinPids)).filter((n) => n > 0).length;
     const stop = await terminate(server, DESKTOP_STOP_GRACE, "desktop-stop-grace");
-    results.push({ phaseMs: phase, spinnersAlive, spinnersConnectedAtTerm: connected, serverReadyAt: server.readyAt,
-      waitedForSpinMs: spinningAt - server.readyAt, ...stop });
+    results.push({ phaseMs: phase, spinnersAlive, serverReadyAt: server.readyAt, upgradesByPid: byPid(server.readyAt, stop.termAt), ...stop });
     if (i < runs - 1) server = await serve(ctx.port);
   }
   await stopClients(spinners);
-  await sleep(1000);
-  const ups = traceSpans().filter((s) => s.name === "GET" && s.path === "/ws" && s.agent !== HARNESS_UA);
-  for (const r of results) r.wsUpgradesDuringRun = ups.filter((s) => s.at >= r.serverReadyAt && s.at < r.termAt).length;
-  const controlMedianMs = median(control.map((r) => r.exitMs));
-  const exits = results.map((r) => r.exitMs);
-  const gate = { killed: results.filter((r) => r.killed).length, maxExitMs: Math.max(...exits), medianExitMs: median(exits),
-    controlMedianMs, limitMs: Math.round(controlMedianMs * 1.1),
-    spinningEvery: results.every((r) => r.spinnersAlive === 3 && r.wsUpgradesDuringRun >= 3) };
-  gate.pass = gate.killed === 0 && gate.maxExitMs <= 2000 && gate.medianExitMs <= controlMedianMs * 1.1 && gate.spinningEvery;
-  return { mode, valid: true, control: control.map((r) => ({ exitMs: r.exitMs, killed: r.killed })), runs: results, gate };
+  const gate = e2Gate(results, spinPids, control.map((r) => r.exitMs));
+  return { mode, valid: true, spinnerPids: spinPids, control: control.map((r) => ({ exitMs: r.exitMs, killed: r.killed })), runs: results, gate };
 }
 
 try {
