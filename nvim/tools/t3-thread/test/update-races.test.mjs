@@ -219,8 +219,40 @@ test("F02: a websocket handshake still in progress is released by the marker", a
   assert.equal(conns.at(-1), "T3 updating…");
 });
 
+test("F03: the thread command CLI never runs against an unreachable server", async (t) => {
+  const home = t3home(t);
+  const cli = stub(t, home, { out: "[]" });
+  const t3 = await adapter(t, "http://127.0.0.1:1", home, { T3_BIN: cli.bin });
+  await assert.rejects(t3.list("p"), /not reachable/);
+  await assert.rejects(t3.start("p", "hello"), /not reachable/);
+  assert.deepEqual(cli.spawns(), []);
+});
 
+test("F03: a marker that appears during the liveness check stops the CLI", async (t) => {
+  const held = [];
+  const fake = await startFakeT3({ initial: snapshot, routes: { "/.well-known/t3/environment": (req, res) => held.push(res) } });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const cli = stub(t, home, { out: "[]" });
+  const t3 = await adapter(t, fake.url, home, { T3_BIN: cli.bin });
+  const listing = t3.list("p");
+  assert.ok(await until(() => held.length === 1), "liveness checked first");
+  home.write();
+  held[0].end("{}");
+  await assert.rejects(listing, /T3 is updating/);
+  assert.deepEqual(cli.spawns(), []);
+});
 
+test("F03: a live server still runs the command CLI once and returns its result", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, routes: { "/.well-known/t3/environment": (req, res) => res.end("{}") } });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const cli = stub(t, home, { out: '[{"id":"t1"}]' });
+  const t3 = await adapter(t, fake.url, home, { T3_BIN: cli.bin });
+  assert.deepEqual(await t3.list("p"), [{ id: "t1" }]);
+  assert.equal(cli.spawns().length, 1);
+  assert.match(cli.spawns()[0], / thread list --project p --json$/);
+});
 
 // fs.watch replacement whose watchers can be failed on demand.
 function failingWatch(t) {

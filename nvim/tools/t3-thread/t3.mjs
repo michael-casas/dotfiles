@@ -701,7 +701,7 @@ export function subscribe(
       onChunk,
     ).catch((e) => debug("output", e.message));
     return () => {
-      if (ws?.readyState === WebSocket.OPEN)
+      if (ws?.readyState === OPEN)
         ws.send(JSON.stringify({ _tag: "Interrupt", requestId: id }));
       calls.delete(id);
     };
@@ -746,9 +746,15 @@ export function stopCommand(threadId, runId, capabilities) {
 }
 
 // ── commands (CLI for now; verified) ────────────────────────────────────────
-function cli(args, input) {
+// The t3 CLI runs the app bundle an update swaps: never during an update, and
+// only once the server has answered (any HTTP status proves it is up).
+async function cli(args, input) {
+  assertNotUpdating();
+  await request1(`${base()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(5000) }).catch(() => {
+    throw new Error("T3 is not reachable; try again when it is back");
+  });
+  assertNotUpdating(); // the marker may have appeared during the check
   return new Promise((resolve, reject) => {
-    assertNotUpdating(); // the t3 CLI runs the app bundle the update is swapping
     const p = spawn(T3, args, { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
