@@ -485,12 +485,19 @@ async function e2(ctx, runs) {
   const spinPids = await clientPids(spinners);
   await sleep(2000);
   const results = [];
+  const upgradesSince = (at) => traceSpans().filter((s) => s.name === "GET" && s.path === "/ws" && s.agent !== HARNESS_UA && s.at >= at).length;
   for (let i = 0; i < runs; i++) {
+    // Spinning first: after a restart the clients are still in their downtime
+    // backoff, so wait for their upgrades to resume on this server.
+    for (let j = 0; j < 150 && upgradesSince(server.readyAt) < 3; j++) await sleep(100);
+    const spinningAt = Date.now();
     const phase = Math.round(Math.random() * 1000);
-    await sleep(1500 + phase);
+    await sleep(phase);
     const spinnersAlive = spinPids.filter(alive).length;
+    const connected = Object.values(sockets(ctx.port, spinPids)).filter((n) => n > 0).length;
     const stop = await terminate(server, DESKTOP_STOP_GRACE, "desktop-stop-grace");
-    results.push({ phaseMs: phase, spinnersAlive, serverReadyAt: server.readyAt, ...stop });
+    results.push({ phaseMs: phase, spinnersAlive, spinnersConnectedAtTerm: connected, serverReadyAt: server.readyAt,
+      waitedForSpinMs: spinningAt - server.readyAt, ...stop });
     if (i < runs - 1) server = await serve(ctx.port);
   }
   await stopClients(spinners);
