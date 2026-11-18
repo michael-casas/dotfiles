@@ -420,27 +420,35 @@ async function markerLead(ctx, runs) {
     const before = established(ctx.port, pids);
     const written = writeMarker();
     await sleep(lead);
+    // Stop everyone at the lead and queue TERM at once; sample while they stay
+    // stopped (the sampler's time is outside the lead), then thaw.
     signal([server.child.pid], "SIGSTOP");
     const freezeAt = Date.now();
     signal(pids, "SIGSTOP");
-    const sampleAt = Date.now();
-    const perClient = sockets(ctx.port, pids);
-    const sampledAt = Date.now();
-    const frozenClients = stopped(pids);
-    if (frozenClients !== pids.length || pids.some((p) => !alive(p))) throw new Error("a client was missing or not frozen at the sample");
     const deadline = frozen ? [OBSERVATION_DEADLINE, "frozen-observation"] : [DESKTOP_STOP_GRACE, "desktop-stop-grace"];
-    let thawAt;
+    let perClient, frozenClients, sampleStartAt, sampleEndAt, thawAt, sampleError;
     const stop = await terminate(server, ...deadline, () => {
+      try {
+        sampleStartAt = Date.now();
+        perClient = sockets(ctx.port, pids);
+        sampleEndAt = Date.now();
+        frozenClients = stopped(pids); // still stopped after TERM, so stopped at TERM
+      } catch (e) {
+        sampleError = e;
+      }
       if (!frozen) signal(pids, "SIGCONT");
       signal([server.child.pid], "SIGCONT");
       thawAt = Date.now();
     });
+    if (sampleError) throw sampleError;
+    if (frozenClients !== pids.length || pids.some((p) => !alive(p))) throw new Error("a client was missing or not frozen at TERM");
     const counts = Object.values(perClient);
     results.push({ leadMs: lead, frozen, before,
       establishedAtTerm: counts.reduce((a, b) => a + b, 0), clientsHoldingSockets: counts.filter((n) => n > 0).length,
       clientsFrozenAtTerm: frozenClients, clientsAlive: pids.filter(alive).length,
-      clock: { publishedAt: written.publishedAt, freezeLeadMs: freezeAt - written.publishedAt, sampleMs: sampledAt - sampleAt,
-        termLeadMs: stop.termAt - written.publishedAt, freezeToTermMs: stop.termAt - freezeAt, thawAfterTermMs: thawAt - stop.termAt },
+      clock: { publishedAt: written.publishedAt, freezeAt, termAt: stop.termAt, sampleStartAt, sampleEndAt, thawAt,
+        freezeLeadMs: freezeAt - written.publishedAt, termLeadMs: stop.termAt - written.publishedAt,
+        sampleMs: sampleEndAt - sampleStartAt, termToThawMs: thawAt - stop.termAt, drainAfterThawMs: stop.exitAt - thawAt },
       ...stop });
     signal(pids, "SIGCONT");
     release(written);
@@ -454,7 +462,7 @@ async function markerLead(ctx, runs) {
       killed: rs.filter((r) => r.killed).length, established: rs.map((r) => `${r.establishedAtTerm}/${r.before}`), deadline: rs[0].deadline };
   });
   return { mode, valid: true, clients: { feeds: N, tuis: N },
-    tolerance: "Server and clients are stopped from the freeze until TERM is sent (freezeToTermMs, mostly the sample); no process runs in between, so each count is the state at TERM. Wall-clock marker→TERM is termLeadMs.",
+    tolerance: "TERM is queued right after the server and clients stop (termLeadMs - leadMs is the measured lag); the socket sample runs after TERM while all stay stopped, so each count is the state at TERM. termToThawMs is the stopped interval; drainAfterThawMs is the server's exit after it resumes.",
     summary, runs: results };
 }
 

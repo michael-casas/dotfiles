@@ -116,3 +116,16 @@ test("F11: every t3 the harness runs gets only the allocated port and its temp b
   const port = serve[serve.indexOf("--port") + 1];
   assert.notEqual(port, "3773");
 });
+
+test("F09: marker-lead sends TERM at the requested lead and samples while everything is stopped", async (t) => {
+  const r = await harness(t, ["--mode", "marker-lead", "--runs", "1", "--clients", "1"]);
+  assert.equal(r.report.valid, true, JSON.stringify(r.report));
+  for (const run of r.report.runs) {
+    const c = run.clock;
+    assert.ok(c.termLeadMs >= run.leadMs && c.termLeadMs - run.leadMs <= 15, `TERM ${c.termLeadMs} ms for lead ${run.leadMs}`);
+    assert.ok(c.sampleStartAt >= run.termAt && c.sampleEndAt >= c.sampleStartAt, "sampled after TERM was queued");
+    assert.ok(c.thawAt >= c.sampleEndAt, "thawed only after the sample");
+    assert.equal(run.clientsFrozenAtTerm, 2);
+  }
+  clean(r);
+});

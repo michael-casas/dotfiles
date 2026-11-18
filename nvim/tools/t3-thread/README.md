@@ -295,13 +295,16 @@ Modes:
   time.
 - `marker-lead`: marker, then 0/50/200 ms, then a freeze of the server and every
   client to count each client's ESTABLISHED sockets.
-  - TERM is sent while everything is still stopped, so each count is the state
-    at TERM.
-  - Publication, freeze, sample, TERM and thaw are timestamped separately.
+  - TERM is queued right after the freeze, at the requested lead.
+  - Each client's sockets are then sampled while everything is still stopped,
+    so each count is the state at TERM.
+  - Publication, freeze, TERM, sample start and end, thaw and drain are
+    timestamped separately.
   - There is also a variant that keeps the clients frozen.
 - `e1`: every client frozen.
 - `e2`: old clients spinning on a missing thread, SIGTERM at a random phase.
-  - It is a safety gate only (charter Amendment 6): every old TUI pid must
+  - It is a safety gate only (charter Amendment 6), and only a complete packet
+    of 20 runs × 3 distinct old TUI pids can pass: every old TUI pid must
     upgrade before every TERM (counted per pid by `scripts/upgrade-observer.mjs`),
     with no SIGKILL and every exit within 2 s.
   - The median against a same-session unfrozen control is a diagnostic only
