@@ -25,7 +25,7 @@ async function adapter(t, url, env = {}) {
       else process.env[k] = v;
     }
   });
-  Object.assign(process.env, vars);
+  for (const [k, v] of Object.entries(vars)) v === undefined ? delete process.env[k] : (process.env[k] = v);
   return import(`../t3.mjs?resilience=${crypto.randomUUID()}`);
 }
 
@@ -224,14 +224,6 @@ test("A3: during the update marker no t3 CLI runs, even for commands or a 401", 
   assert.equal(r.conns.at(-1), "T3 updating…");
 });
 
-test("A3: a live server's 401 still issues a new session token", async (t) => {
-  const fake = await startFakeT3({ initial: snapshot, ticketStatus: 401 });
-  t.after(() => fake.close());
-  const r = await isolatedClient(t, fake.url, { ms: 400 });
-  assert.ok(fake.counts.http >= 1, "asked the live server first");
-  assert.ok(r.spawns.length >= 1 && r.spawns.every((a) => a.startsWith("auth session issue")), r.spawns.join("; "));
-});
-
 function runtimeFile(home, fields) {
   fs.mkdirSync(path.join(home.home, "userdata"), { recursive: true });
   const file = path.join(home.home, "userdata", "server-runtime.json");
@@ -310,17 +302,42 @@ test("A2: marker contract table (absent, valid, expired, malformed, unreadable)"
   assert.equal(updatingUntil(now), fs.statSync(home.marker).mtimeMs + 60_000, "unreadable = malformed");
 });
 
-test("A3: a live 401 replaces the session file atomically with mode 0600", async (t) => {
-  const fake = await startFakeT3({ initial: snapshot, ticketStatus: 401 });
+for (const [variant, slow401, slowIssue] of [["slow issuer", 0, 300], ["slow 401", 300, 0]])
+test(`A3/F12 (${variant}): a live 401, then one CLI issue, then a retry with the issued token; atomic 0600 session`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, onTicket: (req, res) => {
+    if (req.headers.authorization === "Bearer issued-fixture") return false;
+    setTimeout(() => {
+      res.writeHead(401);
+      res.end();
+    }, slow401);
+    return true;
+  } });
   t.after(() => fake.close());
   const home = t3home(t);
+  const log = path.join(home.home, "t3-spawns.log");
+  const bin = path.join(home.home, "t3-stub");
+  // A slow issuer: the test completes on fixture events, never on a fixed wait.
+  fs.writeFileSync(bin, `#!${process.execPath}\nrequire("fs").appendFileSync(${JSON.stringify(log)}, Date.now() + " " + process.argv.slice(2, 5).join(" ") + "\\n");\nsetTimeout(() => process.stdout.write('{"token":"issued-fixture","expiresAt":"2099-01-01T00:00:00Z"}'), ${slowIssue});\n`, { mode: 0o755 });
   const dir = path.join(home.home, ".local", "state", "envi");
   const file = path.join(dir, "t3-session.json");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ token: "stale-fixture", expiresAt: "2000-01-01T00:00:00Z" }), { mode: 0o600 });
   const inode = fs.statSync(file).ino;
-  const r = await isolatedClient(t, fake.url, { ms: 400, home });
-  assert.ok(r.spawns.length >= 1);
+  const t3 = await adapter(t, fake.url, { HOME: home.home, T3CODE_HOME: home.home, T3_BIN: bin, T3_SESSION_TOKEN: undefined });
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  const spawns = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [])
+    .map((l) => ({ at: Number(l.split(" ")[0]), args: l.split(" ").slice(1).join(" ") }));
+  assert.ok(await until(() => conns.at(-1) === "live", 10_000),
+    `diagnostic: tickets ${JSON.stringify(fake.tickets.map((x) => x.auth))}, spawns ${JSON.stringify(spawns())}, conns ${conns.join(" | ")}`);
+  const [spawn1, ...more] = spawns();
+  assert.deepEqual(more, [], "one CLI issue");
+  assert.equal(spawn1.args, "auth session issue");
+  assert.equal(fake.tickets.length, 2);
+  assert.notEqual(fake.tickets[0].auth, "Bearer issued-fixture");
+  assert.ok(fake.tickets[0].at <= spawn1.at && spawn1.at <= fake.tickets[1].at, "401, then the CLI, then the retry");
+  assert.equal(fake.tickets[1].auth, "Bearer issued-fixture", "the retry uses the issued token");
   const st = fs.statSync(file);
   assert.notEqual(st.ino, inode, "written to a temp file and renamed into place");
   assert.equal(st.mode & 0o777, 0o600);
