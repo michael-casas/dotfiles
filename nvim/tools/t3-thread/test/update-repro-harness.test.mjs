@@ -14,8 +14,9 @@ const fakeCli = fileURLToPath(new URL("./support/fake-t3-cli.mjs", import.meta.u
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
-// Run the harness; `interrupt(pidLogText)` returning true sends SIGINT.
-function harness(t, args, { faults = "", interrupt, argsLog } = {}) {
+// Run the harness; `interrupt(pidLogText)` returning true sends SIGINT;
+// `watch(pidLogText, at)` sees the same logs every 5 ms, on a monotonic clock.
+function harness(t, args, { faults = "", interrupt, watch, argsLog } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-harness-test-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const pidLog = path.join(dir, "pids.log");
@@ -27,9 +28,11 @@ function harness(t, args, { faults = "", interrupt, argsLog } = {}) {
   });
   let stdout = "";
   child.stdout.on("data", (d) => (stdout += d));
-  const timer = interrupt && setInterval(() => {
-    if (interrupt(read(pidLog) + read(fakePids))) { clearInterval(timer); child.kill("SIGINT"); }
-  }, 50);
+  const timer = (interrupt || watch) && setInterval(() => {
+    const at = performance.now(), text = read(pidLog) + read(fakePids);
+    watch?.(text, at);
+    if (interrupt?.(text)) { clearInterval(timer); child.kill("SIGINT"); }
+  }, watch ? 5 : 50);
   return new Promise((resolve) => child.on("exit", async (code) => {
     clearInterval(timer);
     const lines = (read(pidLog) + read(fakePids)).split("\n");
@@ -46,12 +49,31 @@ const clean = (r) => {
   assert.equal(r.baseLeft, false, "temp dir (token included) removed");
 };
 
+// The interval is clocked here, not taken from the report's wall-clock
+// milliseconds (which read 4999 once): from the TERM-resistant server's TERM
+// receipt to its death, each bracketed by the poll before and the poll that
+// saw it. The widest bracket must reach the grace, less signal delivery and
+// timer granularity; the narrowest must stay under 6.5 s, so the old 10 s
+// escalation fails.
+const GRANULARITY_MS = 20;
 test("F08: update-mode escalation is the desktop's 5 s SIGTERM grace", async (t) => {
-  const r = await harness(t, ["--mode", "lifecycle", "--restart-delay", "0"], { faults: "term-resistant" });
+  const clock = {};
+  let prev = performance.now(); // TERM comes later: after the first server is ready
+  const watch = (text, at) => {
+    const pid = Number(/^ignored-SIGTERM (\d+)$/m.exec(text)?.[1]);
+    if (pid && !clock.pid) Object.assign(clock, { pid, termBefore: prev, termSeen: at });
+    else if (clock.pid && !clock.deadSeen && !alive(clock.pid)) Object.assign(clock, { deadBefore: prev, deadSeen: at });
+    prev = at;
+  };
+  const r = await harness(t, ["--mode", "lifecycle", "--restart-delay", "0"], { faults: "term-resistant", watch });
   assert.equal(r.report.valid, true, JSON.stringify(r.report));
   assert.equal(r.report.stop.killed, true);
-  assert.deepEqual(r.report.stop.deadline, { kind: "desktop-stop-grace", ms: 5000 });
-  assert.ok(r.report.stop.exitMs >= 5000 && r.report.stop.exitMs < 6500, `exit after ${r.report.stop.exitMs} ms`);
+  assert.deepEqual(r.report.stop.deadline, { kind: "desktop-stop-grace", ms: 5000 }, "the configured grace");
+  assert.ok(clock.termBefore !== undefined && clock.deadSeen !== undefined, JSON.stringify(clock));
+  const widest = clock.deadSeen - clock.termBefore, narrowest = clock.deadBefore - clock.termSeen;
+  assert.ok(widest >= 5000 - GRANULARITY_MS, `killed early: TERM→KILL at most ${widest.toFixed(1)} ms`);
+  assert.ok(narrowest < 6500, `killed late: TERM→KILL at least ${narrowest.toFixed(1)} ms`);
+  assert.ok(r.report.stop.exitMs < 6500, `exit after ${r.report.stop.exitMs} ms`);
   assert.equal(r.report.marker.released, true);
   clean(r);
 });
