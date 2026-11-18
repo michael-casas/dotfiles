@@ -11,14 +11,17 @@ import path from "node:path";
 export const UPDATING = "T3 updating…";
 export const RESTARTED = "T3 server restarted";
 const TTL_MS = 60_000; // DESKTOP_UPDATE_IN_PROGRESS_TTL_MS
-const REMOTE_WAIT_MS = TTL_MS + 7_000; // REMOTE_UPDATE_WAIT_MS: the longest any launcher waits
 
 // Read at call time so tests and the repro harness can point at a temp home.
 export const t3Home = () => process.env.T3CODE_HOME || path.join(os.homedir(), ".t3");
 const runtimeDir = () => path.join(t3Home(), "runtime");
 const markerPath = () => path.join(runtimeDir(), "desktop-update-in-progress");
 
-/** Epoch ms until which an update is in progress, or 0 when none is. */
+/**
+ * Epoch ms until which an update is in progress, or 0 when none is. Shared
+ * contract: absent or expired = no update; valid JSON = until expiresAt;
+ * malformed or unreadable = until 60 s after its mtime.
+ */
 export function updatingUntil(now = Date.now()) {
   let mtime, until;
   try {
@@ -29,8 +32,7 @@ export function updatingUntil(now = Date.now()) {
   until = mtime + TTL_MS; // malformed: present until 60 s after its mtime
   try {
     const { expiresAt } = JSON.parse(fs.readFileSync(markerPath(), "utf8"));
-    // A far-future expiresAt must not wedge clients beyond the desktop's own wait.
-    if (Number.isFinite(expiresAt)) until = Math.min(expiresAt, mtime + REMOTE_WAIT_MS);
+    if (Number.isFinite(expiresAt)) until = expiresAt;
   } catch {}
   return until > now ? until : 0;
 }

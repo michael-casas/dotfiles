@@ -51,14 +51,21 @@ async function issueToken() {
     "envi-t3-thread",
     "--json",
   ]);
+  const session = JSON.parse(stdout);
+  // Atomic: clients share this file and must never read a torn write.
   fs.mkdirSync(path.dirname(SESSION), { recursive: true });
-  fs.writeFileSync(SESSION, stdout, { mode: 0o600 });
-  fs.chmodSync(SESSION, 0o600); // mode only applies when the file is created
-
-  return JSON.parse(stdout);
+  const tmp = `${SESSION}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, stdout, { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600); // mode only applies when the file is created
+  fs.renameSync(tmp, SESSION);
+  return session;
 }
+let issuing; // one CLI run per process, however many requests saw the 401
+const reissue = () => (issuing ??= issueToken().finally(() => (issuing = undefined)));
 
-// A missing or stale token is sent as is: the server's 401 decides.
+// The single choke point for the t3 CLI: a missing, stale or near-expiry token
+// is sent as is and replaced only after a live server's 401 (never when the
+// server is unreachable, and never during an update).
 function token() {
   if (process.env.T3_SESSION_TOKEN !== undefined)
     return process.env.T3_SESSION_TOKEN;
@@ -77,7 +84,7 @@ async function authFetch(url, init = {}) {
   const r = await go(token());
   // An explicit T3_SESSION_TOKEN is never replaced (tests, isolated servers).
   if (r.status !== 401 || process.env.T3_SESSION_TOKEN !== undefined) return r;
-  return go((await issueToken()).token);
+  return go((await reissue()).token);
 }
 
 async function ticket() {

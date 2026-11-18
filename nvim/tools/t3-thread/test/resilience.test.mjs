@@ -190,8 +190,7 @@ close();
 console.log(JSON.stringify(out));
 process.exit(0);
 `;
-async function isolatedClient(t, url, { marker = false, cli = false, ms = 1500 } = {}) {
-  const home = t3home(t);
+async function isolatedClient(t, url, { marker = false, cli = false, ms = 1500, home = t3home(t) } = {}) {
   if (marker) home.write();
   const log = path.join(home.home, "t3-spawns.log");
   const bin = path.join(home.home, "fake-t3");
@@ -278,4 +277,47 @@ test("A4: the restart notice still counts as connected for interrupt", async () 
   const opened = C.interrupt(null, "open", context).dialog;
   assert.equal(C.interrupt(opened, "yes", context).stop, true);
   assert.equal(C.interrupt(opened, "yes", { ...context, conn: "T3 updating…" }).stop, undefined);
+});
+
+test("A2: marker contract table (absent, valid, expired, malformed, unreadable)", async (t) => {
+  const { updatingUntil } = await import("../update.mjs");
+  const home = t3home(t);
+  const old = process.env.T3CODE_HOME;
+  t.after(() => (old === undefined ? delete process.env.T3CODE_HOME : (process.env.T3CODE_HOME = old)));
+  process.env.T3CODE_HOME = home.home;
+  const now = Date.now();
+  assert.equal(updatingUntil(now), 0, "absent");
+  home.write({ startedAt: now, expiresAt: now + 60_000 });
+  assert.equal(updatingUntil(now), now + 60_000, "valid: until expiresAt");
+  home.write({ startedAt: now, expiresAt: now + 3_600_000 });
+  assert.equal(updatingUntil(now), now + 3_600_000, "valid JSON is trusted as written");
+  home.write({ startedAt: now - 70_000, expiresAt: now - 1 });
+  assert.equal(updatingUntil(now), 0, "expired = absent");
+  for (const body of ["{not json", JSON.stringify({ startedAt: now })]) {
+    home.write(body);
+    const mtime = fs.statSync(home.marker).mtimeMs;
+    assert.equal(updatingUntil(now), mtime + 60_000, `malformed: ${body}`);
+    assert.equal(updatingUntil(mtime + 60_000), 0, "absent once mtime + 60 s passes");
+  }
+  home.remove();
+  fs.mkdirSync(home.marker); // unreadable as a file
+  assert.equal(updatingUntil(now), fs.statSync(home.marker).mtimeMs + 60_000, "unreadable = malformed");
+});
+
+test("A3: a live 401 replaces the session file atomically with mode 0600", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, ticketStatus: 401 });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const dir = path.join(home.home, ".local", "state", "envi");
+  const file = path.join(dir, "t3-session.json");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ token: "stale-fixture", expiresAt: "2000-01-01T00:00:00Z" }), { mode: 0o600 });
+  const inode = fs.statSync(file).ino;
+  const r = await isolatedClient(t, fake.url, { ms: 400, home });
+  assert.ok(r.spawns.length >= 1);
+  const st = fs.statSync(file);
+  assert.notEqual(st.ino, inode, "written to a temp file and renamed into place");
+  assert.equal(st.mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).token, "issued-fixture");
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
 });
