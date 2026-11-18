@@ -217,46 +217,96 @@ reconnect/backoff, safe errors, bootstrap timeout, resume and `--once`.
 
 ## T3 updates and restarts
 
-`update.mjs` follows the desktop's update protocol. While
+`update.mjs` follows the desktop's update protocol. The marker is
 `$T3CODE_HOME/runtime/desktop-update-in-progress` (default `T3CODE_HOME` is
-`~/.t3`) holds valid JSON with `now < expiresAt`, or is malformed or unreadable and
-less than 60 s old, an update is in progress. An expired marker counts as absent.
+`~/.t3`). An update is in progress while the marker:
 
-- When the marker appears, the thread client and the sidebar feed close their
-  websocket at once. A stopping T3 server waits on every open client socket, so
+- holds the desktop's schema (numeric `startedAt` and `expiresAt`) and
+  `now < expiresAt`; or
+- is malformed or unreadable, and is less than 60 s old.
+
+An expired marker counts as absent.
+
+- When the marker appears, the thread client and the sidebar feed let go of the
+  server at once. A stopping T3 server waits on every open client socket, so
   envi must not be one of them.
-- While the marker is present, they make no connection attempts and never run the
-  `t3` CLI, which execs the app bundle being swapped. Commands fail fast with
-  "T3 is updating", and the status line shows `T3 updating…` (the sidebar shows it
-  as a feed error).
-- They resume within milliseconds of the marker going: an `fs.watch` on
-  `runtime/`, with a timer at its expiry as the fallback. Only a local file is
-  checked; the server is never polled.
+  - Each connection attempt owns its ticket request, auth retry and websocket.
+    Retiring the attempt cancels whatever is in flight, rejects pending RPCs, and
+    turns late callbacks into no-ops.
+  - `ws.mjs` is a small websocket client that owns its TCP socket. Its `close()`
+    sends a close frame and resets the socket 100 ms later unless the peer has
+    closed by then. A pending handshake is reset at once.
+- While the marker is present, the clients make no connection attempts and never
+  run the `t3` CLI, which execs the app bundle being swapped.
+  - Commands fail fast with "T3 is updating".
+  - The status line shows `T3 updating…`, even over a pending approval. The
+    sidebar shows it as a feed error.
+- They resume within milliseconds of the marker going. They watch `runtime/`
+  with `fs.watch`, plus a check every second that re-arms the watch after an
+  error or a replaced directory. Only local files are checked; the server is
+  never polled.
 - The thread client resets its backoff only after the stream delivers its first
   chunk. A subscription that exits at once (missing thread, server not ready)
   backs off, with equal jitter, up to 10 s.
-- After a reconnect to a different server process (`pid`/`startedAt` in
-  `userdata/server-runtime.json` for our port; only those fields and
-  `serverVersion` are read), the status shows `T3 server restarted (<version>)`
-  for 5 s.
-- The `t3 auth session issue` CLI runs only after a live server answered 401 and
-  never during an update. The session file is replaced atomically (temp file and
-  rename, mode 0600). Ticket and shell reads use one HTTP connection per request,
-  so no keep-alive socket is left open.
+- After a reconnect to a different server process, the status shows
+  `T3 server restarted (<version>)` for 5 s.
+  - The process is identified by `pid`/`startedAt` in
+    `userdata/server-runtime.json`, for our port only.
+  - Only those fields and `serverVersion` are read.
+- The `t3` CLI rules:
+  - `t3 auth session issue` runs only after a live server answered 401, never
+    during an update.
+  - The session file is replaced atomically (temp file and rename, mode 0600).
+  - Thread commands (`list`, `start`) run only after the server answered
+    `/.well-known/t3/environment`, and never during an update.
+- A project lookup cancelled by an update is not cached, so the first lookup
+  after the update fills the labels.
 
 `scripts/update-repro.mjs` reproduces an update against an **isolated** `t3 serve`
-in a temp directory. It never touches the live server, `~/.t3` or the envi token
-file, and never prints the server log, which contains a pairing QR code. It prints
-a JSON report. `--client-root DIR` runs another checkout's clients, for example
-an extracted older commit. Modes:
+in a temp directory.
 
-- `update` (default): marker, SIGTERM, downtime, restart and release, with request
-  counts in the marker window and recovery times.
-- `marker-lead`: marker, then 0/50/200 ms, then SIGTERM (also with all clients
-  SIGSTOPped), with exit times and client sockets still ESTABLISHED.
-- `e1` / `e2`: frozen clients; old clients spinning on a missing thread.
+- **Isolation.** It never touches the live server, `~/.t3` or the envi token file,
+  and never prints the server log, which contains a pairing QR code.
+- **Report.** It prints one JSON report. A run that cannot prove its result
+  reports `valid: false` and exits 1.
+- **Clients.** `--client-root DIR` runs another checkout's clients, for example
+  an extracted older commit.
+- **Every client is observed.** Each feed and TUI must show the thread title
+  before the trial. In `update` mode each must also show a new title dispatched
+  right after release.
+- **Process ownership.** It owns every process it starts, PTY TUIs included, and
+  stops them all on exit, failure, SIGINT or SIGTERM.
 
-`T3UPD_REAL=1 node --test test/update-repro.test.mjs` runs it as an opt-in test.
+Modes:
+
+- `update` (default): the desktop protocol.
+  1. Write the marker.
+  2. SIGTERM the server, then SIGKILL after 5 s.
+  3. Stay down. A sentinel on the port counts client connects.
+  4. Restart. The successor must show its own pid and our port, and answer the
+     environment endpoint.
+  5. Release the marker only if it is unchanged.
+
+  It reports client requests in the marker window and each client's recovery
+  time.
+- `marker-lead`: marker, then exactly 0/50/200 ms, then a freeze of the server and
+  every client to count each client's ESTABLISHED sockets, then SIGTERM. There is
+  also a variant that keeps the clients frozen.
+- `e1`: every client frozen.
+- `e2`: old clients spinning on a missing thread, against a same-session
+  unfrozen control.
+- `lifecycle`: the server lifecycle alone, used by the hermetic tests.
+
+Frozen-client modes use a named 10 s observation deadline instead of the
+desktop's 5 s.
+
+Tests:
+
+- `test/update-repro-harness.test.mjs` checks the harness itself against a fake
+  `t3` (`test/support/fake-t3-cli.mjs`).
+- `T3UPD_REAL=1 T3UPD_OLD_ROOT=<old t3-thread dir> node --test
+  test/update-repro.test.mjs` runs it against real isolated servers. Only the
+  exact value `1` enables it.
 
 ## Theme hub
 
@@ -529,9 +579,14 @@ a solicited rebuild. Scenario 6a (real Neovim buffer replacement/replay) is owne
 by H2 under REP's amendment; the old client-only clear assertion was removed.
 The private-core clear/read/attach evidence remains in H1's report.
 
-`test/resilience.test.mjs` covers the update/restart behaviour above against
-`test/support/fake-t3.mjs`, temp `T3CODE_HOME`s and, for the CLI rules, child
-processes with a temp `HOME` and a stub `T3_BIN`.
+`test/resilience.test.mjs` and `test/update-races.test.mjs` cover the
+update/restart behaviour and its races (in-flight tickets and auth retries,
+stalled peers, watcher failures) against `test/support/fake-t3.mjs`, temp
+`T3CODE_HOME`s and a stub `T3_BIN`. Every test file first imports
+`test/support/guard.mjs`, and `test/run-lua.sh` preloads it into Node
+children. The guard makes the suite fail closed if anything dials port 3773 or
+touches the real `~/.t3` or envi state; it also points HOME, T3CODE_HOME and the
+default T3_URL at throwaway values.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,

@@ -63,7 +63,7 @@ function* parse(state) {
  * {at, auth} for every ticket request. `shell` answers subscribeShell.
  */
 export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200, onTicket, routes = {},
-  withholdClose = false, no101 = false, shell }) {
+  withholdClose = false, no101 = false, shell, port = 0 }) {
   const tickets = [];
   const sockets = new Set();
   const requests = [];
@@ -136,7 +136,8 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     tcp.add(s);
     s.on("close", () => tcp.delete(s));
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  if (port === 3773) throw new Error("fake T3 refuses the live port");
+  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${server.address().port}`,
     requests,
