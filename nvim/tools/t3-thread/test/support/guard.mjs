@@ -16,6 +16,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const self = fileURLToPath(import.meta.url);
+const realpath = fs.realpathSync.native; // captured before fs is wrapped
 const realHome = process.env.T3UPD_GUARD_REAL_HOME || os.homedir();
 const forbidden = [path.join(realHome, ".t3"), path.join(realHome, ".local/state/envi")];
 if (!process.env.T3UPD_GUARD_HOME) {
@@ -55,12 +56,21 @@ net.Socket.prototype.connect = function (...args) {
   return connect.apply(this, args);
 };
 
+// The filesystem target, not just the spelling: resolve symlinks, and resolve
+// a missing path through its nearest existing parent.
+function resolved(abs) {
+  for (let p = abs, rest = []; ; rest.unshift(path.basename(p)), p = path.dirname(p)) {
+    try { return path.join(realpath(p), ...rest); } catch { if (p === path.dirname(p)) return abs; }
+  }
+}
+const protectedRoots = [...new Set([...forbidden, ...forbidden.map(resolved)])];
+const under = (abs) => protectedRoots.some((f) => abs === f || abs.startsWith(`${f}/`));
 const live = (p) => {
   if (p instanceof URL) p = p.protocol === "file:" ? fileURLToPath(p) : null;
   else if (Buffer.isBuffer(p)) p = p.toString();
   if (typeof p !== "string") return false; // file descriptors, handles
   const abs = path.resolve(p);
-  return forbidden.some((f) => abs === f || abs.startsWith(`${f}/`));
+  return under(abs) || under(resolved(abs));
 };
 const TWO_PATHS = /^(rename|copyFile|link|symlink|cp)(Sync)?$/;
 function wrap(api, label) {
