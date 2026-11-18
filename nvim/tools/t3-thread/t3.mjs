@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, updatingUntil } from "./update.mjs";
 
 const run = promisify(execFile);
 export const BASE = process.env.T3_URL || "http://127.0.0.1:3773";
@@ -358,6 +359,7 @@ export function statusLabel(state, conn = "live") {
   if (pending.length) return ["Awaiting Input", "attention"];
   // A new thread has no server state until its first prompt starts it.
   if (conn === "new") return ["Not started", "muted"];
+  if (conn === UPDATING) return [UPDATING, "warning"];
   if (conn !== "live") return ["Connecting", "info"];
   return {
     working: ["Working", "info"],
@@ -412,6 +414,7 @@ export function subscribe(
     closed = false,
     retry = 500,
     timer,
+    hold,
     nextId = 1;
   let capabilities = {};
   const calls = new Map();
@@ -423,6 +426,7 @@ export function subscribe(
     calls.clear();
   }
   function request(tag, payload, onChunk) {
+    if (updatingUntil()) return Promise.reject(new UpdatingError());
     if (closed || ws?.readyState !== WebSocket.OPEN)
       return Promise.reject(
         new Error("T3 is not connected; retry after reconnect"),
@@ -443,6 +447,16 @@ export function subscribe(
   }
   async function connect() {
     if (closed) return;
+    if (updatingUntil()) {
+      // Desktop update: no tickets, no upgrades, no CLI until the marker goes.
+      onConn?.(UPDATING);
+      hold ??= holdWhileUpdating(() => {
+        hold = undefined;
+        retry = 500;
+        connect();
+      });
+      return;
+    }
     try {
       onConn?.("connecting");
       const authTicket = await ticket();
@@ -553,6 +567,7 @@ export function subscribe(
   const close = () => {
     closed = true;
     clearTimeout(timer);
+    hold?.();
     rejectCalls("Closed");
     ws?.close();
   };
@@ -649,6 +664,7 @@ export function stopCommand(threadId, runId, capabilities) {
 // ── commands (CLI for now; verified) ────────────────────────────────────────
 function cli(args, input) {
   return new Promise((resolve, reject) => {
+    assertNotUpdating(); // the t3 CLI runs the app bundle the update is swapping
     const p = spawn(T3, args, { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
