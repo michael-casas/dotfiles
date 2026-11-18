@@ -54,9 +54,9 @@ local function base_url()
   return ((env and env ~= "") and env or "http://127.0.0.1:3773"):gsub("/+$", "")
 end
 
--- The endpoint's port (explicit, or the scheme default), ignoring userinfo.
-local function url_port()
-  local scheme, rest = base_url():match("^(%a[%w+.-]*)://(.*)$")
+-- A URL's port (explicit, or the scheme default), ignoring userinfo.
+local function url_port(url)
+  local scheme, rest = url:match("^(%a[%w+.-]*)://(.*)$")
   if not scheme then
     return nil
   end
@@ -66,9 +66,9 @@ local function url_port()
 end
 
 -- The supported flow is the local desktop: the endpoint and the desktop home
--- describe one backend. A different runtime port means they do not.
-local function disagreement(rt)
-  local port = url_port()
+-- describe one backend. A runtime port that differs from the port the probe
+-- asked (`port`, bound when its argv was built) means they do not.
+local function disagreement(rt, port)
   if rt and rt.port and port and rt.port ~= port then
     return ("endpoint and desktop home disagree (port %d vs %d)"):format(port, rt.port)
   end
@@ -160,9 +160,13 @@ local function in_progress(m)
   return m ~= nil and m.left_ms ~= nil
 end
 
--- cb(up): the server answers its environment endpoint within the timeout.
+-- cb(up, port): the server answers its environment endpoint within the
+-- timeout. `port` is the one this probe asked, fixed when its argv is built:
+-- a decision pairs `up` with that port, never with a later read of T3_URL.
 local function probe(cb)
   local secs = math.max(1, math.ceil(M.config.probe_timeout_ms / 1000))
+  local url = base_url()
+  local port = url_port(url)
   local argv = {
     "curl",
     "-sS",
@@ -172,16 +176,16 @@ local function probe(cb)
     "%{http_code}",
     "-m",
     tostring(secs),
-    base_url() .. "/.well-known/t3/environment",
+    url .. "/.well-known/t3/environment",
   }
   local ok = pcall(vim.system, argv, { text = true, timeout = M.config.probe_timeout_ms + 1000 }, function(res)
     vim.schedule(function()
-      cb(res.code == 0 and vim.trim(res.stdout or "") == "200")
+      cb(res.code == 0 and vim.trim(res.stdout or "") == "200", port)
     end)
   end)
   if not ok then
     vim.schedule(function()
-      cb(false)
+      cb(false, port)
     end)
   end
 end
@@ -191,7 +195,8 @@ end
 -- while the runtime is read is seen: `busy` is the in-progress marker either
 -- read saw. Every async stage returns through live(), so once the run ended
 -- or its deadline passed nothing further runs or prints. cb runs on the main
--- loop with { up, runtime, marker, busy, expired }.
+-- loop with { up, port, runtime, marker, busy, expired }; `port` is the
+-- probed endpoint's (nil without a probe, or when the URL names none).
 local function observe(run, with_probe, cb)
   local obs, paths = {}, M.paths()
   local function live()
@@ -223,9 +228,9 @@ local function observe(run, with_probe, cb)
   if not with_probe then
     return sample()
   end
-  probe(function(up)
+  probe(function(up, port)
     if live() then
-      obs.up = up
+      obs.up, obs.port = up, port
       sample()
     end
   end)
@@ -286,7 +291,7 @@ function M.status()
     else
       parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
     end
-    parts[#parts + 1] = disagreement(rt or nil)
+    parts[#parts + 1] = disagreement(rt or nil, state.port)
     parts[#parts + 1] = marker_text(state.busy or state.marker)
     parts[#parts + 1] = clients_text()
     notify(table.concat(parts, " · "))
@@ -404,7 +409,9 @@ end
 -- that returns after it.
 --
 -- Success: no marker in progress in either marker read, the same new pid,
--- its port (when published) equal to the endpoint's, and a reachable server.
+-- its port (when published) equal to the port that probe asked, and a 200
+-- from it. A 200 from another port (the endpoint changed while it was in
+-- flight) decides nothing: the next probe asks the configured port.
 -- Stall (once): both marker reads expired, the readable pid is the baseline
 -- one and the probe failed. Anything else keeps watching.
 local function check(run)
@@ -438,7 +445,7 @@ local function check(run)
       run.busy = false
       local rt = after.runtime
       local now_pid = not after.busy and rt and rt.pid or nil
-      if moved and after.up and now_pid == pid and not disagreement(rt) then
+      if moved and after.up and now_pid == pid and not disagreement(rt, after.port) then
         succeed(run, rt)
       elseif stalling and not after.up and after.expired and now_pid == run.old.pid then
         run.stalled = true
@@ -541,7 +548,8 @@ local function refuse(run, text, level)
 end
 
 -- cb(rt) only when, re-read after a fresh probe, no update is in progress,
--- the server answers and its pid is known; otherwise the run is refused.
+-- the server answers, its pid is known and its port is the one that probe
+-- asked; otherwise the run is refused.
 -- Admission between processes stays with the desktop.
 local function validate(run, cb)
   observe(run, true, function(obs)
@@ -552,8 +560,8 @@ local function validate(run, cb)
       return refuse(run, "server unreachable; not starting an update")
     elseif not (rt and rt.pid) then
       return refuse(run, "cannot read the server's pid from server-runtime.json; not starting an update")
-    elseif disagreement(rt) then
-      return refuse(run, disagreement(rt) .. "; not starting an update")
+    elseif disagreement(rt, obs.port) then
+      return refuse(run, disagreement(rt, obs.port) .. "; not starting an update")
     end
     cb(rt)
   end)

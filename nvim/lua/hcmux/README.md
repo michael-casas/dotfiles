@@ -401,7 +401,9 @@ no history cell is black, in the T3 popover and in an ordinary terminal split.
 `http://127.0.0.1:3773`) and the desktop home (`$T3CODE_HOME`, trimmed, default `~/.t3`) describe the same backend,
 the one the local T3 Code desktop runs. Remote or proxied endpoints are not supported. When `server-runtime.json`
 names a port that differs from the endpoint's, `:T3Status` says `endpoint and desktop home disagree (port X vs Y)`
-(endpoint, then home) and `:T3Update` refuses with the same text.
+(endpoint, then home) and `:T3Update` refuses with the same text. "The endpoint's port" is always the port the
+probe asked, fixed when its command line was built: if `T3_URL` changes while a reply is in flight, that reply is
+compared with its own port, never with the new setting.
 
 `:T3Status` prints one asynchronous notice, e.g.
 `T3: server up · v0.1.11 pid 4242 since 2026-11-18T02:33:13Z · no update in progress · 7 client buffers, 7 client processes running`.
@@ -437,8 +439,9 @@ install).
 3. **Watch:** an fs watcher on `runtime/` plus a 2 s timer. A dedicated deadline timer (10 min) ends the run
    regardless of poll cadence; every async stage that returns after it stops without output. At most one probe
    starts per 2 s and one async step runs at a time. Success is decided on the probed observation: no marker in
-   progress, the same new pid in `server-runtime.json`, its port (when published) equal to the endpoint's, and a
-   reachable server: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`.
+   progress, the same new pid in `server-runtime.json`, its port (when published) equal to the port that probe
+   asked, and a 200 from it: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`. A 200 from another
+   port decides nothing; the watch continues and the next probe asks the configured port.
    An expired marker over a readable baseline pid with a failed probe is reported once as `update stalled`, and
    the watch continues. Unknown or contradictory state keeps watching. No marker within 3 min reports
    `no update started`. Every end closes all three handles; late results are dropped.
