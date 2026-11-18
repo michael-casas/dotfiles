@@ -395,6 +395,64 @@ restart boundaries, before any further attach. `viewer-pen.lua` runs the real
 viewer command with `hc` swapped for `support/fake-hc-attach.sh` (hc's captured opening sequence) and checks that
 no history cell is black, in the T3 popover and in an ordinary terminal split.
 
+### T3 status and update (`t3update.lua`)
+
+**Premise: the local desktop.** Both commands assume that the endpoint (`T3_URL`, default
+`http://127.0.0.1:3773`) and the desktop home (`$T3CODE_HOME`, trimmed, default `~/.t3`) describe the same backend,
+the one the local T3 Code desktop runs. Remote or proxied endpoints are not supported. When `server-runtime.json`
+names a port that differs from the endpoint's, `:T3Status` says `endpoint and desktop home disagree (port X vs Y)`
+(endpoint, then home) and `:T3Update` refuses with the same text. "The endpoint's port" is always the port the
+probe asked, fixed when its command line was built: if `T3_URL` changes while a reply is in flight, that reply is
+compared with its own port, never with the new setting.
+
+`:T3Status` prints one asynchronous notice, e.g.
+`T3: server up · v0.1.11 pid 4242 since 2026-11-18T02:33:13Z · no update in progress · 7 client buffers, 7 client processes running`.
+It probes `/.well-known/t3/environment` (2 s), reads only `serverVersion`, `pid`, `startedAt` and `port` from
+`$T3CODE_HOME/userdata/server-runtime.json`, and reports the desktop's update marker
+`$T3CODE_HOME/runtime/desktop-update-in-progress`. Files are read with bounded async libuv reads, never on the UI
+loop. Notices never print the endpoint URL, which may carry credentials. Buffers are counted per buffer, processes
+once per core address (the popover and the main pane can view one client). "Running" means the client's herdr-core
+process is alive, not that its websocket is connected.
+
+**One observation order** serves status, preflight and the watch: [probe] → marker → runtime → marker. The marker is
+read last, and also before the runtime, so a marker that appears while the runtime is read is seen; a decision is
+made only in the callback of that last read.
+
+**Marker contract** (shared with the desktop's own waiters): numeric `{startedAt, expiresAt}` is in progress until
+`expiresAt`, compared in wall-clock milliseconds; anything else (malformed, partial, unreadable) is in progress until
+mtime + 60 s, including a record larger than the 64 KiB read limit (never a decoded prefix); an expired marker
+counts as absent, and so does one removed while it is being read.
+
+`:T3Update` starts the **desktop's own** update flow and never stands in for it: envi never writes or removes the
+update markers, never stops or restarts the server and never runs `t3 update` (that is for the CLI/service
+install).
+
+1. **Preflight** refuses when an update is in progress, or when, after a fresh probe, the server is unreachable,
+   its pid is unknown or the ports disagree. Running threads come from `t3side.feed_state()`, which is live only
+   for a valid frame of the current sidebar feed job: with running threads it asks
+   `N running thread(s) will be interrupted … y/n`; with no live feed (not started, only the render seed, failed or
+   restarting) it says `running threads unknown (sidebar feed not running)` and still asks. After `y` it probes and
+   validates again and takes that pid as the baseline, so nothing that changed during the question is trusted.
+2. **Trigger:** `osascript` activates T3 Code and clicks its app menu's `Check for Updates…` through System
+   Events. App, process, menu and item prefix live in `M.config.app`. The user answers the desktop's dialogs
+   (Download / Restart / Later).
+3. **Watch:** an fs watcher on `runtime/` plus a 2 s timer. A dedicated deadline timer (10 min) ends the run
+   regardless of poll cadence; every async stage that returns after it stops without output. At most one probe
+   starts per 2 s and one async step runs at a time. Success is decided on the probed observation: no marker in
+   progress, the same new pid in `server-runtime.json`, its port (when published) equal to the port that probe
+   asked, and a 200 from it: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`. A 200 from another
+   port decides nothing; the watch continues and the next probe asks the configured port.
+   An expired marker over a readable baseline pid with a failed probe is reported once as `update stalled`, and
+   the watch continues. Unknown or contradictory state keeps watching. No marker within 3 min reports
+   `no update started`. Every end closes all three handles; late results are dropped.
+4. **After:** a notice names the client processes still running and those that are not, with `:T3Restart` for a
+   stuck one. Nothing is restarted automatically.
+
+A System Events failure gives one message naming the missing permission (Accessibility, or Automation for System
+Events) and is not retried. Tests: the `t3update-*.lua` suites stub `vim.system` (curl and osascript never run)
+and `jobstart` (no feed starts), and use a temporary `T3CODE_HOME`; `support/t3update-fixture.lua` is their shared
+helper.
+
 ## AGENT mode (`hcmux.agent`)
 
 `<leader>a` opens a centred, approximately 90% × 85% popover; the next key
