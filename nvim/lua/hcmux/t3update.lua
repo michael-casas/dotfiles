@@ -2,8 +2,8 @@
 --
 --   :T3Status    one async notice: reachability, runtime, update marker, clients
 --   :T3Update    preflight, then click the desktop's "Check for Updates…" menu
---                and watch the desktop's update marker until the new server is up
---   :T3Update!   also click the desktop dialog's Download / Restart button
+--                and watch the desktop's update marker until the new server is
+--                up; the user answers the desktop's own dialogs
 --
 -- envi follows the desktop's protocol and never stands in for it: it never
 -- writes or removes the update markers, never stops or restarts the server,
@@ -176,8 +176,262 @@ function M.status()
   end)
 end
 
+-- ── :T3Update ─────────────────────────────────────────────────────────────
+-- preflight -> (confirm) -> trigger -> watch -> done. One run at a time;
+-- M.run holds it, and every exit goes through finish(), which closes the
+-- watch handles.
+
+-- Clicks the app menu's "Check for Updates…" item. Config values arrive as
+-- argv, never spliced into the source. The desktop then shows its own dialogs.
+local SCRIPT = [[
+on run argv
+  set {appName, procName, menuName, itemPrefix} to argv
+  tell application appName to activate
+  tell application "System Events"
+    repeat 40 times
+      if exists process procName then exit repeat
+      delay 0.25
+    end repeat
+    tell process procName
+      set frontmost to true
+      repeat with menuItem in menu items of menu 1 of menu bar item menuName of menu bar 1
+        set itemName to name of menuItem
+        if itemName is not missing value and itemName starts with itemPrefix then
+          click menuItem
+          return "clicked " & itemName
+        end if
+      end repeat
+    end tell
+  end tell
+  error "T3UPD_NO_MENU" number 9001
+end run]]
+
+function M.trigger_argv()
+  local app = M.config.app
+  return { "osascript", "-e", SCRIPT, app.name, app.process, app.menu, app.item }
+end
+
+-- One actionable message per osascript failure; the caller never retries.
+local function osascript_error(stderr)
+  local host = (vim.env.TERM_PROGRAM or "your terminal") .. " (or Herdr)"
+  local app = M.config.app
+  if stderr:find("-1743", 1, true) or stderr:find("Not authorized to send Apple events", 1, true) then
+    return ("Automation permission needed: System Settings → Privacy & Security → Automation → %s → System Events, then run :T3Update again"):format(
+      host
+    )
+  elseif
+    stderr:find("-25211", 1, true)
+    or stderr:find("-1719", 1, true)
+    or stderr:find("assistive access", 1, true)
+  then
+    return ("Accessibility permission needed: System Settings → Privacy & Security → Accessibility → enable %s, then run :T3Update again"):format(
+      host
+    )
+  elseif stderr:find("T3UPD_NO_MENU", 1, true) then
+    return ('menu item "%s…" not found in the "%s" menu of %s'):format(app.item, app.menu, app.process)
+  end
+  local line = vim.split(vim.trim(stderr), "\n")[1] or ""
+  return ("could not open %s's update menu: %s"):format(app.name, line ~= "" and line or "osascript failed")
+end
+
+local function finish(run, text, level)
+  if M.run ~= run then
+    return
+  end
+  M.run = nil
+  for _, handle in ipairs({ run.timer, run.fs }) do
+    if not handle:is_closing() then
+      handle:stop()
+      handle:close()
+    end
+  end
+  if text then
+    notify(text, level)
+  end
+end
+
+local function report_clients()
+  local running, gone = {}, {}
+  for _, c in ipairs(clients()) do
+    table.insert(c.live and running or gone, c.name)
+  end
+  local text = ("%d client process%s running"):format(#running, #running == 1 and "" or "es")
+  if #gone > 0 then
+    text = text .. "; not running: " .. table.concat(gone, ", ") .. ". :T3Restart restarts one"
+  else
+    text = text .. ". A client that stays stuck: :T3Restart"
+  end
+  notify(text)
+end
+
+local function succeed(run, rt)
+  local old, new = run.old.version or "?", rt.version or "?"
+  finish(
+    run,
+    old == new and ("T3 restarted (same version %s)"):format(new) or ("T3 updated: %s → %s"):format(old, new)
+  )
+  report_clients()
+end
+
+local function check(run)
+  if M.run ~= run or run.probing then
+    return
+  end
+  local elapsed = vim.uv.now() - run.started
+  local m = marker()
+  local updating = m ~= nil and m.left ~= nil
+  if updating and not run.saw then
+    run.saw = true
+    notify("T3 is updating…")
+  end
+  local rt = not updating and runtime()
+  local moved = rt and rt.pid and rt.pid ~= run.old.pid
+  if moved or (run.saw and m and m.ago and not run.stalled) then
+    -- Removed or expired: success needs a new pid and a reachable server;
+    -- an expired marker over the old, unreachable server is a stall.
+    run.probing = true
+    probe(function(up)
+      run.probing = false
+      if M.run ~= run then
+        return
+      elseif moved and up then
+        return succeed(run, rt)
+      elseif not moved and not up then
+        run.stalled = true
+        notify(
+          "update stalled: the marker expired, the server is still pid "
+            .. run.old.pid
+            .. " and unreachable; still watching",
+          vim.log.levels.WARN
+        )
+      end
+      check(run)
+    end)
+    return
+  end
+  if elapsed >= M.config.timeout_ms then
+    finish(run, "update watch timed out; :T3Status shows the current state", vim.log.levels.WARN)
+  elseif not run.saw and not moved and elapsed >= M.config.start_timeout_ms then
+    finish(
+      run,
+      "no update started (Later, already up to date, or only downloaded: run :T3Update again to restart into it)"
+    )
+  end
+end
+
+local function watch(run)
+  run.started = vim.uv.now()
+  run.timer = vim.uv.new_timer()
+  run.timer:start(
+    M.config.poll_ms,
+    M.config.poll_ms,
+    vim.schedule_wrap(function()
+      check(run)
+    end)
+  )
+  -- The fs watcher only reacts sooner; the timer alone is correct. A missing
+  -- runtime dir is left alone (envi never creates the desktop's files).
+  run.fs = vim.uv.new_fs_event()
+  pcall(run.fs.start, run.fs, M.paths().runtime_dir, {}, function()
+    vim.schedule(function()
+      check(run)
+    end)
+  end)
+end
+
+local function trigger(run)
+  local ok = pcall(vim.system, M.trigger_argv(), { text = true, timeout = 30000 }, function(res)
+    vim.schedule(function()
+      if M.run ~= run then
+        return
+      elseif res.code ~= 0 then
+        M.run = nil
+        return notify(osascript_error(res.stderr or ""), vim.log.levels.ERROR)
+      end
+      notify(
+        ("opened %s → Check for Updates; answer its dialog (Download / Restart / Later). Watching…"):format(
+          M.config.app.name
+        )
+      )
+      watch(run)
+    end)
+  end)
+  if not ok then
+    M.run = nil
+    notify("could not run osascript", vim.log.levels.ERROR)
+  end
+end
+
+-- nil when the sidebar feed has not delivered a snapshot.
+local function working()
+  local side = package.loaded["hcmux.t3side"] or select(2, pcall(require, "hcmux.t3side"))
+  if type(side) ~= "table" or not side.snapshot then
+    return nil
+  end
+  local snap, err = side.snapshot()
+  if err or snap.type ~= "snapshot" then
+    return nil
+  end
+  local n = 0
+  for _, t in ipairs(snap.threads or {}) do
+    n = n + (t.status == "working" and 1 or 0)
+  end
+  return n
+end
+
+-- Like the T3 Ctrl-C confirm: one key, only "y" continues.
+local function confirm(question)
+  vim.api.nvim_echo({ { "T3: " .. question .. " Update anyway? y/n", "WarningMsg" } }, false, {})
+  vim.cmd.redraw()
+  local ok, key = pcall(vim.fn.getcharstr)
+  vim.api.nvim_echo({ { "" } }, false, {})
+  return ok and key == "y"
+end
+
+function M.update()
+  if M.run then
+    return notify("T3Update already running", vim.log.levels.WARN)
+  end
+  local m = marker()
+  if m and m.left then
+    return notify(("update already in progress (%d s left)"):format(m.left), vim.log.levels.WARN)
+  end
+  local run = {}
+  M.run = run
+  probe(function(up)
+    if M.run ~= run then
+      return
+    elseif not up then
+      M.run = nil
+      return notify("server unreachable at " .. base_url() .. "; not starting an update", vim.log.levels.ERROR)
+    end
+    local rt = runtime()
+    if not (rt and rt.pid) then
+      M.run = nil
+      return notify(
+        "cannot read the server's pid from server-runtime.json; not starting an update",
+        vim.log.levels.ERROR
+      )
+    end
+    run.old = rt
+    local n = working()
+    local question = n == nil and "running threads unknown (sidebar feed not running)."
+      or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
+    if question and not confirm(question) then
+      M.run = nil
+      return notify("update cancelled")
+    end
+    trigger(run)
+  end)
+end
+
+function M.current()
+  return M.run
+end
+
 function M.setup()
   vim.api.nvim_create_user_command("T3Status", M.status, { desc = "T3 server, update and client state" })
+  vim.api.nvim_create_user_command("T3Update", M.update, { desc = "Start T3 Code's own update flow and watch it" })
 end
 
 return M
