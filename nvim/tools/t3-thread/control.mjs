@@ -1,3 +1,5 @@
+import { RESTARTED } from "./update.mjs";
+
 // Private CSI protocol shared with hcmux/t3.lua. No printable shortcut: these
 // reports are consumed before Ink sees stdin, including unknown/malformed ones.
 const PREFIX = "\x1b[>777;";
@@ -9,6 +11,8 @@ const EDIT_KEYS = new Map([
   ...["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"].map(bytes => [bytes, "\x05"]),
 ]);
 const ordinaryPrefix = tail => [...EDIT_KEYS.keys()].some(bytes => bytes.startsWith(tail));
+// The restart notice is shown while already live.
+const live = conn => conn === "live" || String(conn).startsWith(RESTARTED);
 // "dismiss" = what a bare Esc did: close a dialog, the model picker or a menu; never interrupts.
 const ACTIONS = ["model", "compact", "yes", "cancel", "interrupt", "dismiss", "escape", "resume"];
 export const sequence = (action, requestId) => {
@@ -71,7 +75,7 @@ export function escapeAction({ model, menu } = {}) {
 }
 function compactReason(context) {
   if (!context.threadId) return "no thread is open";
-  if (context.conn !== "live") return "T3 is not connected";
+  if (!live(context.conn)) return "T3 is not connected";
   if (context.working) return "a turn or request is active";
   if (context.busy) return "another action is pending";
   if (!context.compactAvailable) return "this provider does not advertise /compact";
@@ -93,7 +97,7 @@ export function compact(dialog, action, context) {
 
 function interruptNotice(context) {
   if (!context.working) return "Nothing to interrupt. Press any key to dismiss.";
-  if (context.conn !== "live") return "Cannot interrupt: T3 is not connected. Press any key to dismiss.";
+  if (!live(context.conn)) return "Cannot interrupt: T3 is not connected. Press any key to dismiss.";
   if (context.busy) return "Cannot interrupt: another action is pending. Press any key to dismiss.";
   return null;
 }

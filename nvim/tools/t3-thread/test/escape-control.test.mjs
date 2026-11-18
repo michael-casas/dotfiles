@@ -1,4 +1,5 @@
 // Real Ink + PTY, synthetic local T3 only. No hc, real threads or GUI.
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";

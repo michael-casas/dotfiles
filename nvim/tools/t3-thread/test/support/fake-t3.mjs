@@ -2,6 +2,7 @@
 // WebSocket (RFC 6455 text frames) for main.mjs to subscribe to one thread.
 // Binds 127.0.0.1 on an ephemeral port; never talks to a real T3 server.
 import http from "node:http";
+import https from "node:https";
 import crypto from "node:crypto";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -46,23 +47,51 @@ function* parse(state) {
     const payload = Buffer.from(b.subarray(off, off + len));
     if (mask) for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
     state.buf = b.subarray(off + len);
-    yield { opcode, text: payload.toString("utf8") };
+    yield { opcode, text: payload.toString("utf8"), masked: !!mask };
   }
 }
 
 /**
  * startFakeT3({ initial }) -> { url, push(values), requests, connected, close() }
  * `initial` is the first Chunk for orchestration.subscribeThread.
+ * `exitThread` answers subscribeThread with an immediate Exit (missing thread /
+ * server not ready); `ticketStatus` overrides the websocket-ticket status.
+ * `http`/`upgrades` count every HTTP request and websocket upgrade.
+ * Hooks for transport tests: `onTicket(req, res, n)` may answer (or hold) a
+ * ticket request itself and return true; `routes[path](req, res)` answers other
+ * paths; `withholdClose` never answers a client close frame; `no101` accepts an
+ * upgrade request but never completes the handshake. `tickets` logs
+ * {at, auth} for every ticket request. `shell` answers subscribeShell.
+ * `tls: {key, cert}` serves HTTPS/WSS. `beforeUpgrade(req)` runs before the
+ * 101 is written; `closeFrames` counts client Close frames (`unmaskedClose`
+ * those without a mask); `serverClose()` sends a Close (1000) to every socket.
+ * `servernames` logs the TLS SNI of each HTTPS request and WSS upgrade;
+ * `requireSni` answers an upgrade with another (or no) SNI with 421.
  */
-export async function startFakeT3({ initial, config = {} }) {
+export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200, onTicket, routes = {},
+  withholdClose = false, no101 = false, shell, port = 0, tls, beforeUpgrade, requireSni }) {
+  const servernames = [];
+  const tickets = [];
+  const requestLog = [];
   const sockets = new Set();
   const requests = [];
   const commands = [];
+  const counts = { http: 0, upgrades: 0, closeFrames: 0, unmaskedClose: 0 };
   let subscriber = null;
   let onSubscribe;
   const connected = new Promise((resolve) => (onSubscribe = resolve));
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
+    counts.http++;
+    if (tls) servernames.push({ kind: "https", name: req.socket.servername || null });
+    const route = routes[req.url.split("?")[0]];
+    if (route) return route(req, res);
     if (req.method === "POST" && req.url.startsWith("/api/auth/websocket-ticket/rpc")) {
+      tickets.push({ at: Date.now(), auth: req.headers.authorization });
+      if (onTicket?.(req, res, tickets.length)) return;
+      if (ticketStatus !== 200) {
+        res.writeHead(ticketStatus);
+        return res.end();
+      }
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ticket: "synthetic-ticket" }));
     }
@@ -72,27 +101,48 @@ export async function startFakeT3({ initial, config = {} }) {
     }
     res.writeHead(404);
     res.end();
-  });
+  };
+  // withholdClose keeps the peer half-open after the client's EOF (TLS too).
+  const server = tls ? https.createServer({ ...tls, allowHalfOpen: withholdClose }, handler) : http.createServer(handler);
   server.on("upgrade", (req, socket) => {
+    counts.upgrades++;
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    socket.on("error", () => {});
+    if (withholdClose) socket.allowHalfOpen = true;
+    if (tls) servernames.push({ kind: "wss", name: socket.servername || null });
+    if (requireSni && socket.servername !== requireSni)
+      return socket.end("HTTP/1.1 421 Misdirected Request\r\nContent-Length: 0\r\n\r\n");
+    if (no101) return;
+    beforeUpgrade?.(req);
     const key = req.headers["sec-websocket-key"];
     const accept = crypto.createHash("sha1").update(key + GUID).digest("base64");
     socket.write(
       "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
-    sockets.add(socket);
     const state = { buf: Buffer.alloc(0) };
     const send = (msg) => socket.write(frame(JSON.stringify(msg)));
     socket.on("data", (data) => {
       state.buf = Buffer.concat([state.buf, data]);
-      for (const { opcode, text } of parse(state)) {
-        if (opcode === 8) return socket.end();
+      for (const { opcode, text, masked } of parse(state)) {
+        if (opcode === 8) {
+          counts.closeFrames++;
+          if (!masked) counts.unmaskedClose++;
+          return withholdClose ? undefined : socket.end();
+        }
         if (opcode !== 1) continue;
         const m = JSON.parse(text);
+        if (m._tag === "Ack") counts.acks = (counts.acks || 0) + 1;
         if (m._tag !== "Request") continue;
         requests.push(m.tag);
+        requestLog.push({ tag: m.tag, at: Date.now() });
         if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
-        if (m.tag === "orchestration.subscribeThread") {
+        if (m.tag === "orchestration.subscribeThread" && exitThread) {
+          send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Failure", cause: [] } });
+        } else if (m.tag === "orchestration.subscribeShell" && shell) {
+          send({ _tag: "Chunk", requestId: m.id, values: [{ kind: "snapshot", snapshot: shell }] });
+        } else if (m.tag === "orchestration.subscribeThread") {
           subscriber = send;
           send({ _tag: "Chunk", requestId: m.id, values: initial });
           onSubscribe();
@@ -101,21 +151,38 @@ export async function startFakeT3({ initial, config = {} }) {
         }
       }
     });
-    socket.on("close", () => sockets.delete(socket));
-    socket.on("error", () => {});
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const tcp = new Set(); // every open TCP connection, HTTP keep-alive included
+  server.on("connection", (s) => {
+    tcp.add(s);
+    s.on("close", () => tcp.delete(s));
+  });
+  if (port === 3773) throw new Error("fake T3 refuses the live port");
+  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`,
+    url: `${tls ? "https" : "http"}://127.0.0.1:${server.address().port}`,
+    requestLog,
+    serverClose() {
+      for (const s of sockets) s.write(Buffer.from([0x88, 0x02, 0x03, 0xe8]));
+    },
     requests,
+    servernames,
     commands,
+    counts,
+    tickets,
     connected,
+    openConnections: () => tcp.size,
+    openSockets: () => sockets.size,
+    dropAll() {
+      for (const s of sockets) s.destroy();
+    },
     push(values) {
       assertSubscribed(subscriber);
       subscriber({ _tag: "Chunk", requestId: "1", values });
     },
     close() {
       for (const s of sockets) s.destroy();
+      for (const s of tcp) s.destroy(); // held test responses must not block close
       return new Promise((resolve) => server.close(resolve));
     },
   };

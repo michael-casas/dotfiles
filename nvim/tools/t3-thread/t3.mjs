@@ -9,13 +9,21 @@
 //   orchestration.subscribeThread {threadId} -> values: {kind:"snapshot",snapshotSequence,projection}
 //                                              then  {kind:"event",sequence,event:{type:"<entity>.updated",payload}}
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  RESTARTED, UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, onUpdateStart, serverIdentity,
+  updatingUntil,
+} from "./update.mjs";
+import { OPEN, connectWs } from "./ws.mjs";
 
 const run = promisify(execFile);
-export const BASE = process.env.T3_URL || "http://127.0.0.1:3773";
+// Read at call time: never a stale default, and tests can point at a fake.
+const base = () => process.env.T3_URL || "http://127.0.0.1:3773";
 export const T3 = process.env.T3_BIN || path.join(os.homedir(), ".t3/bin/t3");
 const SESSION = path.join(os.homedir(), ".local/state/envi/t3-session.json");
 const DEBUG = process.env.T3_THREAD_DEBUG; // file path: log unknown events there
@@ -30,7 +38,10 @@ export function debug(...a) {
 }
 
 // ── auth ────────────────────────────────────────────────────────────────────
+// The t3 CLI runs only after a live server rejected our token (HTTP 401), and
+// never during a desktop update: it execs the app bundle the update swaps.
 async function issueToken() {
+  assertNotUpdating();
   const { stdout } = await run(T3, [
     "auth",
     "session",
@@ -45,14 +56,22 @@ async function issueToken() {
     "envi-t3-thread",
     "--json",
   ]);
+  const session = JSON.parse(stdout);
+  // Atomic: clients share this file and must never read a torn write.
   fs.mkdirSync(path.dirname(SESSION), { recursive: true });
-  fs.writeFileSync(SESSION, stdout, { mode: 0o600 });
-  fs.chmodSync(SESSION, 0o600); // mode only applies when the file is created
-
-  return JSON.parse(stdout);
+  const tmp = `${SESSION}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, stdout, { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600); // mode only applies when the file is created
+  fs.renameSync(tmp, SESSION);
+  return session;
 }
+let issuing; // one CLI run per process, however many requests saw the 401
+const reissue = () => (issuing ??= issueToken().finally(() => (issuing = undefined)));
 
-async function token() {
+// The single choke point for the t3 CLI: a missing, stale or near-expiry token
+// is sent as is and replaced only after a live server's 401 (never when the
+// server is unreachable, and never during an update).
+function token() {
   if (process.env.T3_SESSION_TOKEN !== undefined)
     return process.env.T3_SESSION_TOKEN;
   try {
@@ -60,32 +79,62 @@ async function token() {
     if (s.token && Date.parse(s.expiresAt) - Date.now() > 5 * 60_000)
       return s.token;
   } catch {}
-  return (await issueToken()).token;
+  return "";
 }
 
-async function ticket() {
-  let tok = await token();
-  let r = await fetch(`${BASE}/api/auth/websocket-ticket/rpc`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${tok}` },
-  });
-  if (r.status === 401) {
-    tok = (await issueToken()).token;
-    r = await fetch(`${BASE}/api/auth/websocket-ticket/rpc`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tok}` },
+// One request per connection (agent: false sends Connection: close). An idle
+// keep-alive socket is one more socket a stopping server waits on, and these
+// requests are rare: one ticket per connection, one shell read per process.
+function request1(url, { method = "GET", headers = {}, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    const lib = url.startsWith("https:") ? https : http;
+    const req = lib.request(url, { method, headers, signal, agent: false }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (d) => (body += d));
+      res.on("error", reject);
+      res.on("end", () => resolve({
+        status: res.statusCode,
+        ok: res.statusCode >= 200 && res.statusCode < 300,
+        json: async () => JSON.parse(body),
+      }));
     });
-  }
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+async function authFetch(url, init = {}) {
+  assertNotUpdating();
+  const go = (tok) =>
+    request1(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${tok}` } });
+  const r = await go(token());
+  // An explicit T3_SESSION_TOKEN is never replaced (tests, isolated servers).
+  if (r.status !== 401 || process.env.T3_SESSION_TOKEN !== undefined) return r;
+  const { token: issued } = await reissue();
+  init.signal?.throwIfAborted(); // the attempt was retired while the CLI ran
+  assertNotUpdating(); // ... or an update started: no POST in the marker window
+  return go(issued);
+}
+
+async function ticket(signal) {
+  const r = await authFetch(`${base()}/api/auth/websocket-ticket/rpc`, { method: "POST", signal });
   if (!r.ok) throw new Error(`websocket ticket: HTTP ${r.status}`);
   return (await r.json()).ticket;
 }
 
-// Additive transport factory for the sidebar shell feed. Reuse the same auth
-// path without changing the thread client's subscription or token lifecycle.
-export async function openShellSocket() {
-  const authTicket = await ticket();
-  return new WebSocket(
-    `${BASE.replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
+// One connection attempt for both clients: the ticket POST and the websocket
+// share `signal`, so retiring the attempt cancels whichever is in flight. The
+// marker is checked again before the upgrade. `closing` collects the
+// caller's sockets still finishing a peer's Close (see ws.mjs).
+export async function openShellSocket(signal, closing) {
+  const authTicket = await ticket(signal);
+  signal?.throwIfAborted();
+  assertNotUpdating();
+  return connectWs(
+    `${base().replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
+    { signal, closing },
   );
 }
 
@@ -93,14 +142,12 @@ export async function openShellSocket() {
 let projectCache;
 export async function projects() {
   projectCache ??= (async () => {
+    const update = new AbortController();
+    const unwatch = onUpdateStart(() => update.abort());
     try {
-      const tok = await token();
-      const response = await fetch(`${BASE}/api/orchestration/shell`, {
-        headers: {
-          authorization: `Bearer ${tok}`,
-          "x-t3-orchestration-protocol": "2",
-        },
-        signal: AbortSignal.timeout(5000),
+      const response = await authFetch(`${base()}/api/orchestration/shell`, {
+        headers: { "x-t3-orchestration-protocol": "2" },
+        signal: AbortSignal.any([update.signal, AbortSignal.timeout(5000)]),
       });
       if (!response.ok) {
         debug("projects unavailable", `HTTP ${response.status}`);
@@ -114,11 +161,15 @@ export async function projects() {
         ]),
       );
     } catch (e) {
+      // An update-induced failure is not cached: look again once it is over.
+      if (e instanceof UpdatingError || update.signal.aborted) projectCache = undefined;
       // Error bodies/messages can contain credentials; log only the failure class.
       try {
         debug("projects unavailable", e?.name || "Error");
       } catch {}
       return new Map();
+    } finally {
+      unwatch();
     }
   })();
   return projectCache;
@@ -352,6 +403,9 @@ export function status(state) {
 }
 
 export function statusLabel(state, conn = "live") {
+  // Update and restart notices outrank a pending request (it returns after).
+  if (conn === UPDATING) return [UPDATING, "warning"];
+  if (conn.startsWith(RESTARTED)) return [conn, "info"];
   const pending = pendingRequests(state);
   if (pending.some((r) => r.kind !== "user_input"))
     return ["Pending Approval", "warning"];
@@ -412,7 +466,13 @@ export function subscribe(
     closed = false,
     retry = 500,
     timer,
-    nextId = 1;
+    hold,
+    server, // last seen server process identity
+    notice,
+    nextId = 1,
+    generation = 0, // the current connection attempt; older ones are retired
+    attempt; // its AbortController: ticket HTTP, auth retry and websocket
+  const closing = new Set(); // lost sockets still finishing a peer-first close
   let capabilities = {};
   const calls = new Map();
   function rejectCalls(message) {
@@ -423,7 +483,8 @@ export function subscribe(
     calls.clear();
   }
   function request(tag, payload, onChunk) {
-    if (closed || ws?.readyState !== WebSocket.OPEN)
+    if (updatingUntil()) return Promise.reject(new UpdatingError());
+    if (closed || ws?.readyState !== OPEN)
       return Promise.reject(
         new Error("T3 is not connected; retry after reconnect"),
       );
@@ -441,24 +502,53 @@ export function subscribe(
       );
     });
   }
+  // Retire the current attempt: cancel its HTTP, release its socket now (no
+  // wait for the peer) and turn its late callbacks into no-ops.
+  function retire(reason) {
+    generation++;
+    clearTimeout(timer);
+    clearTimeout(notice);
+    attempt?.abort();
+    attempt = undefined;
+    const old = ws;
+    ws = undefined;
+    old?.close();
+    rejectCalls(reason);
+  }
+  // Desktop update: let go of the server and wait, with no attempts and no CLI.
+  function holdUpdate() {
+    for (const s of closing) s.release();
+    retire("T3 is updating; command outcome may be unknown (not retried)");
+    onConn?.(UPDATING);
+    hold ??= holdWhileUpdating(() => {
+      hold = undefined;
+      retry = 500;
+      connect();
+    });
+  }
   async function connect() {
     if (closed) return;
+    if (updatingUntil()) return holdUpdate();
+    const mine = ++generation;
+    const current = () => !closed && mine === generation;
+    const controller = (attempt = new AbortController());
+    let sock;
     try {
       onConn?.("connecting");
-      const authTicket = await ticket();
-      if (closed) return;
-      ws = new WebSocket(
-        `${BASE.replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
-      );
+      sock = await openShellSocket(controller.signal, closing);
     } catch (e) {
+      if (!current()) return;
+      if (updatingUntil()) return holdUpdate();
       onConn?.(`offline: ${e.message}`);
       return later();
     }
-    ws.onopen = () => {
-      if (closed) return ws.close();
-      retry = 500;
-      onConn?.("live");
-      ws.send(
+    if (!current()) return sock.close();
+    ws = sock;
+    let healthy = false;
+    sock.onopen = () => {
+      if (!current()) return;
+      if (updatingUntil()) return holdUpdate(); // marker published mid-handshake: no RPC
+      sock.send(
         JSON.stringify({
           _tag: "Request",
           id: "1",
@@ -479,17 +569,25 @@ export function subscribe(
         })
         .catch((e) => debug("config unavailable", e.message));
     };
-    ws.onmessage = (e) => {
+    sock.onmessage = (e) => {
+      if (!current()) return;
       let m;
       try {
         m = JSON.parse(String(e.data));
       } catch {
         return;
       }
-      if (m._tag === "Ping") return ws.send(JSON.stringify({ _tag: "Pong" }));
+      if (m._tag === "Ping") return sock.send(JSON.stringify({ _tag: "Pong" }));
       if (m._tag === "Chunk") {
-        ws.send(JSON.stringify({ _tag: "Ack", requestId: m.requestId }));
+        sock.send(JSON.stringify({ _tag: "Ack", requestId: m.requestId }));
         if (String(m.requestId) === "1") {
+          // Only a delivered stream proves the server healthy. An open socket
+          // whose subscription exits at once must keep backing off.
+          if (!healthy) {
+            healthy = true;
+            retry = 500;
+            announce();
+          }
           for (const v of m.values || []) {
             onValue?.(v);
             state = applyValue(state, v);
@@ -506,7 +604,7 @@ export function subscribe(
       } else if (m._tag === "Exit") {
         if (String(m.requestId) === "1") {
           onConn?.("stream ended; reconnecting");
-          ws.close();
+          sock.close();
         } else {
           const call = calls.get(String(m.requestId));
           if (!call) return;
@@ -522,31 +620,46 @@ export function subscribe(
         }
       } else if (m._tag === "Defect") {
         rejectCalls("T3 RPC defect");
-        ws.close();
+        sock.close();
       }
     };
-    ws.onclose = () => {
-      rejectCalls(
-        "Connection lost; command outcome may be unknown (not retried)",
-      );
-      if (!closed) {
-        onConn?.("reconnecting");
-        later();
-      }
+    sock.onclose = () => {
+      if (!current()) return;
+      if (updatingUntil()) return holdUpdate(); // no reconnect attempts
+      retire("Connection lost; command outcome may be unknown (not retried)");
+      onConn?.("reconnecting");
+      later();
     };
-    ws.onerror = () => {};
+  }
+  // Live again: say once if a different server process now answers (update,
+  // crash, manual restart), then settle on "live".
+  function announce() {
+    const url = new URL(base());
+    const id = serverIdentity(url.port || (url.protocol === "https:" ? 443 : 80));
+    const restarted = id && server && id.key !== server.key;
+    if (id) server = id;
+    if (!restarted) return onConn?.("live");
+    onConn?.(`${RESTARTED} (${id.serverVersion})`);
+    notice = setTimeout(() => onConn?.("live"), 5000);
   }
   function later() {
     if (closed) return;
     clearTimeout(timer);
-    timer = setTimeout(connect, retry);
+    // Equal jitter: wait between half and all of the current step, so clients
+    // dropped together do not reconnect in lockstep. Steps cap at 10 s.
+    timer = setTimeout(connect, retry / 2 + Math.random() * (retry / 2));
     retry = Math.min(retry * 2, 10_000);
   }
+  // A6: the moment an update starts, let go of the server (it waits on us).
+  const unwatch = onUpdateStart(() => {
+    if (!closed && !hold) holdUpdate();
+  });
   const close = () => {
     closed = true;
-    clearTimeout(timer);
-    rejectCalls("Closed");
-    ws?.close();
+    unwatch();
+    hold?.();
+    for (const s of closing) s.release();
+    retire("Closed");
   };
   close.rpc = request;
   close.send = (text, options) =>
@@ -594,7 +707,7 @@ export function subscribe(
       onChunk,
     ).catch((e) => debug("output", e.message));
     return () => {
-      if (ws?.readyState === WebSocket.OPEN)
+      if (ws?.readyState === OPEN)
         ws.send(JSON.stringify({ _tag: "Interrupt", requestId: id }));
       calls.delete(id);
     };
@@ -639,7 +752,19 @@ export function stopCommand(threadId, runId, capabilities) {
 }
 
 // ── commands (CLI for now; verified) ────────────────────────────────────────
-function cli(args, input) {
+// The t3 CLI runs the app bundle an update swaps: never during an update, and
+// only once the server has answered (any HTTP status proves it is up).
+async function cli(args, input) {
+  assertNotUpdating();
+  const update = new AbortController(); // an update cancels the check at once
+  const unwatch = onUpdateStart(() => update.abort());
+  await request1(`${base()}/.well-known/t3/environment`, { signal: AbortSignal.any([update.signal, AbortSignal.timeout(5000)]) })
+    .catch(() => {
+      assertNotUpdating();
+      throw new Error("T3 is not reachable; try again when it is back");
+    })
+    .finally(unwatch);
+  assertNotUpdating(); // the marker may have appeared during the check
   return new Promise((resolve, reject) => {
     const p = spawn(T3, args, { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";

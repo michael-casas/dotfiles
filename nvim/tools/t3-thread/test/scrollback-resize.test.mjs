@@ -1,6 +1,7 @@
 // BATDD-T3STRIKE-04 / -05: the real main.mjs client on a real PTY (python
 // pty-run.py: TIOCSWINSZ -> kernel SIGWINCH), subscribed to a local synthetic
 // T3 server. Raw terminal bytes are measured per phase. Normal non-CI Ink.
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";

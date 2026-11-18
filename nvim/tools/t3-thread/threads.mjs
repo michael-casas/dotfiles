@@ -4,6 +4,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { openShellSocket } from "./t3.mjs";
+import { UPDATING, holdWhileUpdating, onUpdateStart, updatingUntil } from "./update.mjs";
 
 const active = new Set(["queued", "preparing", "starting", "running", "waiting"]);
 const terminal = new Set(["completed", "failed", "interrupted", "cancelled", "rolled_back"]);
@@ -216,7 +217,8 @@ export function startFeed(options = {}, {
   let retryTimer, deadline, emitTimer, lastEmission = -Infinity, signature = null;
   let archiveTimer, archiveDeadline, archiveRequest, archiveValues = [], archiveRows = [];
   let archiveReady = !options.archived, archiveDirty = false, nextRequest = 1;
-  let finish;
+  let finish, hold, attempt; // attempt: AbortController of the connection in flight
+  const closing = new Set(); // sockets still finishing a peer-first close
   const done = new Promise(resolve => { finish = resolve; });
   const emit = value => write(`${JSON.stringify(value)}\n`);
   const clear = id => { if (id !== undefined) clock.clearTimeout(id); };
@@ -224,8 +226,8 @@ export function startFeed(options = {}, {
     if (stopped) return;
     stopped = true; generation++;
     clear(retryTimer); clear(deadline); clear(emitTimer);
-    clear(archiveTimer); clear(archiveDeadline);
-    socket?.close(); finish(code);
+    clear(archiveTimer); clear(archiveDeadline); hold?.(); unwatch();
+    attempt?.abort(); for (const s of closing) s.release(); socket?.close(); finish(code);
   };
   function publish() {
     emitTimer = undefined;
@@ -268,25 +270,36 @@ export function startFeed(options = {}, {
     clear(archiveTimer); clear(archiveDeadline); archiveTimer = undefined;
     archiveRequest = undefined; archiveReady = !options.archived; shellReady = false;
     signature = null; // recovery gets a snapshot even if the rows are unchanged
+    attempt?.abort(); attempt = undefined; // cancel a ticket or handshake in flight
+    socket?.close(); socket = undefined; // released at once, whatever the peer does
+    if (updatingUntil()) { for (const s of closing) s.release(); return void connect(); } // hold, no retry
     emit({ type: "error", message });
-    socket?.close(); socket = undefined;
     if (options.once) return close(1);
     retryTimer = clock.setTimeout(connect, retry);
     retry = Math.min(10000, retry * 2);
   }
   async function connect() {
     if (stopped) return;
+    if (updatingUntil()) {
+      // Desktop update: hold without load; resume as soon as the marker goes.
+      emit({ type: "error", message: UPDATING });
+      if (options.once) return close(1);
+      hold ??= holdWhileUpdating(() => { hold = undefined; retry = 500; connect(); });
+      return;
+    }
     const gen = ++generation;
     const lost = () => fail(gen, "T3 shell connection lost; reconnecting");
     clear(deadline);
     deadline = clock.setTimeout(() => fail(gen, "T3 shell connection timed out; reconnecting"), 10000);
     let ws;
-    try { ws = await openSocket(); }
+    const controller = (attempt = new AbortController());
+    try { ws = await openSocket(controller.signal, closing); }
     catch { return fail(gen, "T3 shell unavailable; reconnecting"); }
     if (stopped || gen !== generation) { ws.close(); return; }
     socket = ws;
     ws.onopen = () => {
       if (stopped || gen !== generation) return ws.close();
+      if (updatingUntil()) return fail(gen, UPDATING); // marker published mid-handshake: hold, no RPC
       ws.send(JSON.stringify({
         _tag: "Request", id: "1", tag: "orchestration.subscribeShell",
         payload: { requestCompletionMarker: true, ...(state ? { afterSequence: state.snapshotSequence } : {}) },
@@ -346,6 +359,11 @@ export function startFeed(options = {}, {
     ws.onerror = lost;
     ws.onclose = lost;
   }
+  // A6: on an update, close the socket at once (a stopping server waits on it).
+  const unwatch = onUpdateStart(() => {
+    if (stopped || hold) return;
+    clear(retryTimer); fail(generation, UPDATING);
+  });
   void connect();
   return { close, done };
 }
