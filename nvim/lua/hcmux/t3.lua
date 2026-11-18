@@ -639,6 +639,7 @@ function M.setup(cfg)
   vim.api.nvim_create_user_command("T3Thread", function(a)
     M.open(a.args ~= "" and a.args or nil)
   end, { nargs = "?", desc = "T3 thread popover (spike)" })
+  require("hcmux.t3update").setup() -- :T3Status, :T3Update
 end
 
 return M
