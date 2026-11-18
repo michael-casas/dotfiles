@@ -1,3 +1,4 @@
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as C from "../commands.mjs";

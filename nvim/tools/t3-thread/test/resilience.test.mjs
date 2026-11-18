@@ -1,6 +1,7 @@
 // T3 desktop update / server restart resilience (HOTFIX T3UPD lane A).
 // Every server here is a local synthetic fake on 127.0.0.1; every T3 home,
 // session file and CLI is a throwaway under the OS temp directory.
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";

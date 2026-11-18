@@ -2,6 +2,7 @@
 // (never the live server). Skipped unless T3UPD_REAL=1. Set T3UPD_OLD_ROOT to
 // an extracted pre-fix t3-thread directory to also prove the old behaviour.
 //   T3UPD_REAL=1 [T3UPD_OLD_ROOT=/tmp/old/nvim/tools/t3-thread] node --test test/update-repro.test.mjs
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
