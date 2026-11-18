@@ -51,7 +51,13 @@ export function connectWs(url, { signal } = {}) {
       const data = Buffer.from(buffer.subarray(at, at + len));
       buffer = buffer.subarray(at + len);
       if (mask) for (let i = 0; i < data.length; i++) data[i] ^= mask[i % 4];
-      if (opcode === 8) return finish();
+      if (opcode === 8) { // peer-initiated: one masked Close back, FIN, bounded wait for its EOF
+        const s = socket;
+        socket = undefined;
+        s.end(frame(8, data.subarray(0, 2)));
+        setTimeout(() => s.destroy(), 1000).unref();
+        return finish();
+      }
       if (opcode === 9) socket.write(frame(10, data));
       if (opcode >= 8) continue;
       parts.push(data);
@@ -87,11 +93,16 @@ export function connectWs(url, { signal } = {}) {
     if (done) return;
     const s = socket ?? req.socket;
     socket = undefined;
-    if (ws.readyState === OPEN) {
-      s.write(frame(8, Buffer.from([0x03, 0xe8])));
-      setTimeout(() => s.destroyed || s.resetAndDestroy(), 100).unref();
-    } else if (s && !s.destroyed) s.resetAndDestroy();
-    finish();
+    // resetAndDestroy() needs a TCP handle; a TLS socket (WSS) is destroyed instead.
+    const drop = () => { try { s.resetAndDestroy(); } catch { s.destroy(); } };
+    try {
+      if (ws.readyState === OPEN) {
+        s.write(frame(8, Buffer.from([0x03, 0xe8])));
+        setTimeout(() => s.destroyed || drop(), 100).unref();
+      } else if (s && !s.destroyed) drop();
+    } finally {
+      finish(); // retired whatever the teardown did
+    }
   };
   if (signal?.aborted) queueMicrotask(ws.close);
   else signal?.addEventListener("abort", ws.close, { once: true });

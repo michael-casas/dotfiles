@@ -367,3 +367,92 @@ test("F06: statusLabel puts connection notices above a pending request", async (
   assert.deepEqual(statusLabel(state, "live"), ["Pending Approval", "warning"]);
   assert.deepEqual(statusLabel(state, "offline"), ["Pending Approval", "warning"]);
 });
+
+// ── round 2: handshake boundary, WSS teardown, peer-initiated close ─────────
+import tls from "node:tls";
+import { execFileSync } from "node:child_process";
+
+// fs.watch that never fires: the subscribe boundary alone must stop RPCs.
+function deadWatch(t) {
+  const original = fs.watch;
+  fs.watch = () => Object.assign(new EventEmitter(), { close() {} });
+  t.after(() => (fs.watch = original));
+}
+// A throwaway localhost certificate, trusted for this process only.
+let certs;
+function tlsFixture(t) {
+  if (!certs) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-tls-"));
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1",
+      "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", path.join(dir, "key.pem"), "-out", path.join(dir, "cert.pem")], { stdio: "ignore" });
+    certs = { key: fs.readFileSync(path.join(dir, "key.pem")), cert: fs.readFileSync(path.join(dir, "cert.pem")) };
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const before = tls.getCACertificates("default");
+  tls.setDefaultCACertificates([...before, certs.cert.toString()]);
+  t.after(() => tls.setDefaultCACertificates(before));
+  return certs;
+}
+function uncaught(t) {
+  const seen = [];
+  const record = (e) => seen.push(e.code || e.message);
+  process.on("uncaughtException", record);
+  t.after(() => process.off("uncaughtException", record));
+  return seen;
+}
+
+for (const client of ["thread", "feed"]) for (const stage of ["pending", "established"])
+test(`F02: a WSS ${client} socket (${stage}) is released on the marker without an exception`, async (t) => {
+  const errors = uncaught(t);
+  const fake = await startFakeT3({ initial: snapshot, shell, tls: tlsFixture(t), no101: stage === "pending", withholdClose: true });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const states = [];
+  if (client === "thread") t.after(t3.subscribe("t", { onConn: (c) => states.push(c) }));
+  else { const out = feed(t, t3); setInterval(() => states.push(out.at(-1)?.message ?? out.at(-1)?.type), 20).unref(); }
+  assert.ok(await until(() => fake.counts.upgrades === 1 && (stage === "pending" || fake.requestLog.length > 0)));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "peer sees the connection closed");
+  assert.ok(await until(() => states.at(-1) === "T3 updating…", 500));
+  assert.deepEqual(errors, []);
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 1, "no retry during the marker");
+  if (stage === "established") {
+    home.remove();
+    assert.ok(await until(() => fake.counts.upgrades === 2, 2000), "one recovery over WSS");
+  }
+});
+
+for (const client of ["thread", "feed"])
+test(`F14: a peer-initiated close is acknowledged once (masked); the ${client} reconnects once`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell });
+  t.after(() => fake.close());
+  const t3 = await adapter(t, fake.url, t3home(t));
+  if (client === "thread") t.after(t3.subscribe("t", {}));
+  else feed(t, t3);
+  assert.ok(await until(() => fake.requestLog.length > 0));
+  fake.serverClose();
+  assert.ok(await until(() => fake.counts.closeFrames === 1, 500), "acknowledged");
+  assert.equal(fake.counts.unmaskedClose, 0, "client frames are masked");
+  assert.ok(await until(() => fake.counts.upgrades === 2, 3000), "eligible reconnect");
+  await sleep(300);
+  assert.equal(fake.counts.closeFrames, 1, "no duplicate Close");
+  assert.equal(fake.counts.upgrades, 2, "one connection-loss transition");
+});
+
+test("F14: a close from both sides at once sends a single Close frame and holds", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  t.after(t3.subscribe("t", { onConn: (c) => conns.push(c) }));
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  fake.serverClose();
+  home.write();
+  assert.ok(await until(() => conns.at(-1) === "T3 updating…", 1500));
+  await sleep(300);
+  assert.equal(fake.counts.closeFrames <= 1, true, `close frames: ${fake.counts.closeFrames}`);
+  assert.equal(fake.counts.upgrades, 1, "no reconnect during the marker");
+});

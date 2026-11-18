@@ -2,6 +2,7 @@
 // WebSocket (RFC 6455 text frames) for main.mjs to subscribe to one thread.
 // Binds 127.0.0.1 on an ephemeral port; never talks to a real T3 server.
 import http from "node:http";
+import https from "node:https";
 import crypto from "node:crypto";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -46,7 +47,7 @@ function* parse(state) {
     const payload = Buffer.from(b.subarray(off, off + len));
     if (mask) for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
     state.buf = b.subarray(off + len);
-    yield { opcode, text: payload.toString("utf8") };
+    yield { opcode, text: payload.toString("utf8"), masked: !!mask };
   }
 }
 
@@ -61,18 +62,22 @@ function* parse(state) {
  * paths; `withholdClose` never answers a client close frame; `no101` accepts an
  * upgrade request but never completes the handshake. `tickets` logs
  * {at, auth} for every ticket request. `shell` answers subscribeShell.
+ * `tls: {key, cert}` serves HTTPS/WSS. `beforeUpgrade(req)` runs before the
+ * 101 is written; `closeFrames` counts client Close frames (`unmaskedClose`
+ * those without a mask); `serverClose()` sends a Close (1000) to every socket.
  */
 export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200, onTicket, routes = {},
-  withholdClose = false, no101 = false, shell, port = 0 }) {
+  withholdClose = false, no101 = false, shell, port = 0, tls, beforeUpgrade }) {
   const tickets = [];
+  const requestLog = [];
   const sockets = new Set();
   const requests = [];
   const commands = [];
-  const counts = { http: 0, upgrades: 0 };
+  const counts = { http: 0, upgrades: 0, closeFrames: 0, unmaskedClose: 0 };
   let subscriber = null;
   let onSubscribe;
   const connected = new Promise((resolve) => (onSubscribe = resolve));
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     counts.http++;
     const route = routes[req.url.split("?")[0]];
     if (route) return route(req, res);
@@ -92,13 +97,15 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     }
     res.writeHead(404);
     res.end();
-  });
+  };
+  const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
   server.on("upgrade", (req, socket) => {
     counts.upgrades++;
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
     if (no101) return;
+    beforeUpgrade?.(req);
     const key = req.headers["sec-websocket-key"];
     const accept = crypto.createHash("sha1").update(key + GUID).digest("base64");
     socket.write(
@@ -109,13 +116,18 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     const send = (msg) => socket.write(frame(JSON.stringify(msg)));
     socket.on("data", (data) => {
       state.buf = Buffer.concat([state.buf, data]);
-      for (const { opcode, text } of parse(state)) {
-        if (opcode === 8) return withholdClose ? undefined : socket.end();
+      for (const { opcode, text, masked } of parse(state)) {
+        if (opcode === 8) {
+          counts.closeFrames++;
+          if (!masked) counts.unmaskedClose++;
+          return withholdClose ? undefined : socket.end();
+        }
         if (opcode !== 1) continue;
         const m = JSON.parse(text);
         if (m._tag === "Ack") counts.acks = (counts.acks || 0) + 1;
         if (m._tag !== "Request") continue;
         requests.push(m.tag);
+        requestLog.push({ tag: m.tag, at: Date.now() });
         if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
         if (m.tag === "orchestration.subscribeThread" && exitThread) {
           send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Failure", cause: [] } });
@@ -139,7 +151,11 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
   if (port === 3773) throw new Error("fake T3 refuses the live port");
   await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}`,
+    url: `${tls ? "https" : "http"}://127.0.0.1:${server.address().port}`,
+    requestLog,
+    serverClose() {
+      for (const s of sockets) s.write(Buffer.from([0x88, 0x02, 0x03, 0xe8]));
+    },
     requests,
     commands,
     counts,
