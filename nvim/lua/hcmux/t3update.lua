@@ -501,6 +501,10 @@ local function confirm(question)
   return ok and key == "y"
 end
 
+local function busy_text(m)
+  return ("update already in progress (%d s left)"):format(math.ceil(m.left_ms / 1000))
+end
+
 local function refuse(run, text, level)
   if M.run == run then
     M.run = nil
@@ -517,11 +521,7 @@ local function validate(run, cb)
       if M.run ~= run then
         return
       elseif in_progress(state.marker) then
-        return refuse(
-          run,
-          ("update already in progress (%d s left)"):format(math.ceil(state.marker.left_ms / 1000)),
-          vim.log.levels.WARN
-        )
+        return refuse(run, busy_text(state.marker), vim.log.levels.WARN)
       elseif not up then
         return refuse(run, "server unreachable; not starting an update")
       end
@@ -546,11 +546,7 @@ function M.update()
     if M.run ~= run then
       return
     elseif in_progress(first.marker) then
-      return refuse(
-        run,
-        ("update already in progress (%d s left)"):format(math.ceil(first.marker.left_ms / 1000)),
-        vim.log.levels.WARN
-      )
+      return refuse(run, busy_text(first.marker), vim.log.levels.WARN)
     end
     validate(run, function(rt)
       local n = working()
