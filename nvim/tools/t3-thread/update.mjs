@@ -63,21 +63,34 @@ export function assertNotUpdating() {
 }
 
 /**
- * Call `cb` whenever the runtime directory changes while an update is in
- * progress, so live clients can close their sockets before the server stops:
- * a shutting-down server waits on every open client socket. Callbacks must be
- * idempotent. Without a watchable directory, a local stat each second.
+ * Call `onEvent` on changes in runtime/: fs.watch for speed, plus a check each
+ * second that re-arms the watch after an error or a replaced directory and
+ * covers a missing one. Only local files are touched, never the server.
  */
-export function onUpdateStart(cb) {
-  const check = () => updatingUntil() && cb();
-  let watcher, timer;
-  try {
-    watcher = fs.watch(runtimeDir(), { persistent: false }, check);
-    watcher.on("error", () => {});
-  } catch {
-    timer = setInterval(check, 1000);
-    timer.unref?.();
-  }
+function watchRuntime(onEvent, keepAlive) {
+  let watcher, ino;
+  const arm = () => {
+    watcher?.close();
+    watcher = undefined;
+    try {
+      ino = fs.statSync(runtimeDir()).ino;
+      watcher = fs.watch(runtimeDir(), { persistent: false }, onEvent);
+      watcher.on("error", () => {
+        watcher?.close();
+        watcher = undefined;
+      });
+    } catch {}
+  };
+  const timer = setInterval(() => {
+    let now;
+    try {
+      now = fs.statSync(runtimeDir()).ino;
+    } catch {}
+    if (!watcher || now !== ino) arm();
+    onEvent();
+  }, 1000);
+  if (!keepAlive) timer.unref?.();
+  arm();
   return () => {
     watcher?.close();
     clearInterval(timer);
@@ -85,36 +98,30 @@ export function onUpdateStart(cb) {
 }
 
 /**
- * Call `resume` once the update marker is gone or expired. A watcher on the
- * runtime directory reacts within milliseconds; a timer at the marker's expiry
- * (at most every 10 s, or 1 s if the directory cannot be watched) is the
- * fallback. Both only stat a local file: the server is never contacted.
- * Returns a cancel function.
+ * Call `cb` while an update is in progress, on every runtime/ change, so live
+ * clients close their sockets before the server stops: a stopping server waits
+ * on every open client socket. Callbacks must be idempotent.
  */
-export function holdWhileUpdating(resume, clock = { setTimeout, clearTimeout }) {
-  let watcher, timer, done = false;
+export const onUpdateStart = (cb) => watchRuntime(() => updatingUntil() && cb(), false);
+
+/**
+ * Call `resume` once the update marker is gone or expired (within about 1 s of
+ * expiry, within milliseconds of removal). Keeps the process alive meanwhile.
+ * The first check is asynchronous, so the caller's handle is set before any
+ * resume. Returns a cancel function.
+ */
+export function holdWhileUpdating(resume) {
+  let done = false;
+  const check = () => {
+    if (done || updatingUntil()) return;
+    stop();
+    resume();
+  };
+  const unwatch = watchRuntime(check, true);
   const stop = () => {
     done = true;
-    watcher?.close();
-    clock.clearTimeout(timer);
+    unwatch();
   };
-  const check = () => {
-    if (done) return;
-    const until = updatingUntil();
-    if (!until) {
-      stop();
-      return resume();
-    }
-    clock.clearTimeout(timer);
-    timer = clock.setTimeout(check, Math.min(until - Date.now() + 25, watcher ? 10_000 : 1_000));
-  };
-  try {
-    watcher = fs.watch(runtimeDir(), { persistent: false }, check);
-    watcher.on("error", () => {
-      watcher?.close();
-      watcher = undefined;
-    });
-  } catch {}
-  check();
+  queueMicrotask(check);
   return stop;
 }

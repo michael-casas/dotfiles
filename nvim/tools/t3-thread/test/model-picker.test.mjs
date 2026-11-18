@@ -299,98 +299,33 @@ test("boolean thinking stays boolean on the wire and displays On/Off rather than
 });
 
 test("setModel dispatches through the adapter socket without projecting an optimistic change", async (t) => {
-  const oldToken = process.env.T3_SESSION_TOKEN;
-  process.env.T3_SESSION_TOKEN = "fixture-only";
-  t.after(() => {
-    if (oldToken === undefined) delete process.env.T3_SESSION_TOKEN;
-    else process.env.T3_SESSION_TOKEN = oldToken;
-  });
-  // A local ticket endpoint (never the default live server) and a fresh adapter.
-  const http = await import("node:http");
-  const server = http.createServer((req, res) => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ ticket: "fixture-ticket" }));
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const oldURL = process.env.T3_URL;
-  process.env.T3_URL = `http://127.0.0.1:${server.address().port}`;
-  t.after(() => (oldURL === undefined ? delete process.env.T3_URL : (process.env.T3_URL = oldURL)));
-  const t3 = await import(`../t3.mjs?model-picker=${crypto.randomUUID()}`);
-  const sent = [];
-  let socket;
-  let connected;
-  const ready = new Promise((resolve) => (connected = resolve));
-  class Socket {
-    static OPEN = 1;
-    readyState = 1;
-    constructor() {
-      socket = this;
-      queueMicrotask(() => {
-        this.onopen();
-        connected();
-      });
-    }
-    send(raw) {
-      const message = JSON.parse(raw);
-      if (message._tag !== "Request") return;
-      sent.push(message);
-      if (message.tag === "orchestration.subscribeThread") return;
-      queueMicrotask(() =>
-        this.onmessage({
-          data: JSON.stringify({
-            _tag: "Exit",
-            requestId: message.id,
-            exit: { _tag: "Success", value: {} },
-          }),
-        }),
-      );
-    }
-    close() {
-      this.readyState = 3;
-      this.onclose?.();
-    }
+  // A local synthetic T3 (never the live server) and a fresh adapter.
+  const { startFakeT3 } = await import("./support/fake-t3.mjs");
+  const fake = await startFakeT3({ initial: [] });
+  t.after(() => fake.close());
+  for (const [k, v] of Object.entries({ T3_URL: fake.url, T3_SESSION_TOKEN: "fixture-only" })) {
+    const old = process.env[k];
+    t.after(() => (old === undefined ? delete process.env[k] : (process.env[k] = old)));
+    process.env[k] = v;
   }
-  t.mock.property(globalThis, "WebSocket", Socket);
+  const t3 = await import(`../t3.mjs?model-picker=${crypto.randomUUID()}`);
   const observed = [];
   const close = t3.subscribe("throwaway", { onState: (s) => observed.push(s) });
   t.after(close);
-  await ready;
+  await fake.connected;
+  while (!observed.length) await new Promise((r) => setTimeout(r, 5)); // the empty first chunk
+  const before = observed.length;
   await close.setModel(selection);
-  const message = sent.find((m) => m.tag === "orchestration.dispatchCommand");
-  assert.deepEqual(message, {
-    _tag: "Request",
-    id: message.id,
-    tag: "orchestration.dispatchCommand",
-    payload: {
-      type: "thread.model-selection.set",
-      commandId: message.payload.commandId,
-      threadId: "throwaway",
-      modelSelection: selection,
-    },
-    headers: [],
-  });
-  assert.equal(
-    observed.length,
-    0,
-    "RPC success alone cannot update the projection",
-  );
-  socket.onmessage({
-    data: JSON.stringify({
-      _tag: "Chunk",
-      requestId: "1",
-      values: [
-        {
-          kind: "snapshot",
-          snapshotSequence: 3,
-          projection: {
-            thread: { id: "throwaway", modelSelection: selection },
-          },
-        },
-      ],
-    }),
-  });
-  assert.equal(observed[0].thread.modelSelection.model, selection.model);
+  assert.deepEqual(fake.commands, [{
+    type: "thread.model-selection.set",
+    commandId: fake.commands[0].commandId,
+    threadId: "throwaway",
+    modelSelection: selection,
+  }]);
+  assert.equal(observed.length, before, "RPC success alone cannot update the projection");
+  fake.push([{ kind: "snapshot", snapshotSequence: 3, projection: { thread: { id: "throwaway", modelSelection: selection } } }]);
+  while (observed.length === before) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(observed.at(-1).thread.modelSelection.model, selection.model);
 });
 
 test("boolean thinking without currentValue defaults Off like the desktop", () => {

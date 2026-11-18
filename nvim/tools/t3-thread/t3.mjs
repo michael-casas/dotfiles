@@ -19,9 +19,11 @@ import {
   RESTARTED, UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, onUpdateStart, serverIdentity,
   updatingUntil,
 } from "./update.mjs";
+import { OPEN, connectWs } from "./ws.mjs";
 
 const run = promisify(execFile);
-export const BASE = process.env.T3_URL || "http://127.0.0.1:3773";
+// Read at call time: never a stale default, and tests can point at a fake.
+const base = () => process.env.T3_URL || "http://127.0.0.1:3773";
 export const T3 = process.env.T3_BIN || path.join(os.homedir(), ".t3/bin/t3");
 const SESSION = path.join(os.homedir(), ".local/state/envi/t3-session.json");
 const DEBUG = process.env.T3_THREAD_DEBUG; // file path: log unknown events there
@@ -85,6 +87,7 @@ function token() {
 // requests are rare: one ticket per connection, one shell read per process.
 function request1(url, { method = "GET", headers = {}, signal } = {}) {
   return new Promise((resolve, reject) => {
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
     const lib = url.startsWith("https:") ? https : http;
     const req = lib.request(url, { method, headers, signal, agent: false }, (res) => {
       let body = "";
@@ -109,21 +112,28 @@ async function authFetch(url, init = {}) {
   const r = await go(token());
   // An explicit T3_SESSION_TOKEN is never replaced (tests, isolated servers).
   if (r.status !== 401 || process.env.T3_SESSION_TOKEN !== undefined) return r;
-  return go((await reissue()).token);
+  const { token: issued } = await reissue();
+  init.signal?.throwIfAborted(); // the attempt was retired while the CLI ran
+  assertNotUpdating(); // ... or an update started: no POST in the marker window
+  return go(issued);
 }
 
-async function ticket() {
-  const r = await authFetch(`${BASE}/api/auth/websocket-ticket/rpc`, { method: "POST" });
+async function ticket(signal) {
+  const r = await authFetch(`${base()}/api/auth/websocket-ticket/rpc`, { method: "POST", signal });
   if (!r.ok) throw new Error(`websocket ticket: HTTP ${r.status}`);
   return (await r.json()).ticket;
 }
 
-// Additive transport factory for the sidebar shell feed. Reuse the same auth
-// path without changing the thread client's subscription or token lifecycle.
-export async function openShellSocket() {
-  const authTicket = await ticket();
-  return new WebSocket(
-    `${BASE.replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
+// One connection attempt for both clients: the ticket POST and the websocket
+// share `signal`, so retiring the attempt cancels whichever is in flight. The
+// marker is checked again before the upgrade.
+export async function openShellSocket(signal) {
+  const authTicket = await ticket(signal);
+  signal?.throwIfAborted();
+  assertNotUpdating();
+  return connectWs(
+    `${base().replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
+    { signal },
   );
 }
 
@@ -131,10 +141,12 @@ export async function openShellSocket() {
 let projectCache;
 export async function projects() {
   projectCache ??= (async () => {
+    const update = new AbortController();
+    const unwatch = onUpdateStart(() => update.abort());
     try {
-      const response = await authFetch(`${BASE}/api/orchestration/shell`, {
+      const response = await authFetch(`${base()}/api/orchestration/shell`, {
         headers: { "x-t3-orchestration-protocol": "2" },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.any([update.signal, AbortSignal.timeout(5000)]),
       });
       if (!response.ok) {
         debug("projects unavailable", `HTTP ${response.status}`);
@@ -148,11 +160,15 @@ export async function projects() {
         ]),
       );
     } catch (e) {
+      // An update-induced failure is not cached: look again once it is over.
+      if (e instanceof UpdatingError || update.signal.aborted) projectCache = undefined;
       // Error bodies/messages can contain credentials; log only the failure class.
       try {
         debug("projects unavailable", e?.name || "Error");
       } catch {}
       return new Map();
+    } finally {
+      unwatch();
     }
   })();
   return projectCache;
@@ -452,7 +468,9 @@ export function subscribe(
     hold,
     server, // last seen server process identity
     notice,
-    nextId = 1;
+    nextId = 1,
+    generation = 0, // the current connection attempt; older ones are retired
+    attempt; // its AbortController: ticket HTTP, auth retry and websocket
   let capabilities = {};
   const calls = new Map();
   function rejectCalls(message) {
@@ -464,7 +482,7 @@ export function subscribe(
   }
   function request(tag, payload, onChunk) {
     if (updatingUntil()) return Promise.reject(new UpdatingError());
-    if (closed || ws?.readyState !== WebSocket.OPEN)
+    if (closed || ws?.readyState !== OPEN)
       return Promise.reject(
         new Error("T3 is not connected; retry after reconnect"),
       );
@@ -482,34 +500,51 @@ export function subscribe(
       );
     });
   }
+  // Retire the current attempt: cancel its HTTP, release its socket now (no
+  // wait for the peer) and turn its late callbacks into no-ops.
+  function retire(reason) {
+    generation++;
+    clearTimeout(timer);
+    clearTimeout(notice);
+    attempt?.abort();
+    attempt = undefined;
+    const old = ws;
+    ws = undefined;
+    old?.close();
+    rejectCalls(reason);
+  }
+  // Desktop update: let go of the server and wait, with no attempts and no CLI.
+  function holdUpdate() {
+    retire("T3 is updating; command outcome may be unknown (not retried)");
+    onConn?.(UPDATING);
+    hold ??= holdWhileUpdating(() => {
+      hold = undefined;
+      retry = 500;
+      connect();
+    });
+  }
   async function connect() {
     if (closed) return;
-    if (updatingUntil()) {
-      // Desktop update: no tickets, no upgrades, no CLI until the marker goes.
-      onConn?.(UPDATING);
-      hold ??= holdWhileUpdating(() => {
-        hold = undefined;
-        retry = 500;
-        connect();
-      });
-      return;
-    }
+    if (updatingUntil()) return holdUpdate();
+    const mine = ++generation;
+    const current = () => !closed && mine === generation;
+    const controller = (attempt = new AbortController());
+    let sock;
     try {
       onConn?.("connecting");
-      const authTicket = await ticket();
-      if (closed) return;
-      if (updatingUntil()) return connect(); // marker appeared meanwhile: hold
-      ws = new WebSocket(
-        `${BASE.replace(/^http/, "ws")}/ws?orchestrationProtocol=2&wsTicket=${encodeURIComponent(authTicket)}`,
-      );
+      sock = await openShellSocket(controller.signal);
     } catch (e) {
+      if (!current()) return;
+      if (updatingUntil()) return holdUpdate();
       onConn?.(`offline: ${e.message}`);
       return later();
     }
+    if (!current()) return sock.close();
+    ws = sock;
     let healthy = false;
-    ws.onopen = () => {
-      if (closed) return ws.close();
-      ws.send(
+    sock.onopen = () => {
+      if (!current()) return;
+      sock.send(
         JSON.stringify({
           _tag: "Request",
           id: "1",
@@ -530,16 +565,17 @@ export function subscribe(
         })
         .catch((e) => debug("config unavailable", e.message));
     };
-    ws.onmessage = (e) => {
+    sock.onmessage = (e) => {
+      if (!current()) return;
       let m;
       try {
         m = JSON.parse(String(e.data));
       } catch {
         return;
       }
-      if (m._tag === "Ping") return ws.send(JSON.stringify({ _tag: "Pong" }));
+      if (m._tag === "Ping") return sock.send(JSON.stringify({ _tag: "Pong" }));
       if (m._tag === "Chunk") {
-        ws.send(JSON.stringify({ _tag: "Ack", requestId: m.requestId }));
+        sock.send(JSON.stringify({ _tag: "Ack", requestId: m.requestId }));
         if (String(m.requestId) === "1") {
           // Only a delivered stream proves the server healthy. An open socket
           // whose subscription exits at once must keep backing off.
@@ -564,7 +600,7 @@ export function subscribe(
       } else if (m._tag === "Exit") {
         if (String(m.requestId) === "1") {
           onConn?.("stream ended; reconnecting");
-          ws.close();
+          sock.close();
         } else {
           const call = calls.get(String(m.requestId));
           if (!call) return;
@@ -580,25 +616,21 @@ export function subscribe(
         }
       } else if (m._tag === "Defect") {
         rejectCalls("T3 RPC defect");
-        ws.close();
+        sock.close();
       }
     };
-    ws.onclose = () => {
-      clearTimeout(notice);
-      rejectCalls(
-        "Connection lost; command outcome may be unknown (not retried)",
-      );
-      if (closed) return;
-      if (updatingUntil()) return connect(); // hold, no reconnect attempts
+    sock.onclose = () => {
+      if (!current()) return;
+      if (updatingUntil()) return holdUpdate(); // no reconnect attempts
+      retire("Connection lost; command outcome may be unknown (not retried)");
       onConn?.("reconnecting");
       later();
     };
-    ws.onerror = () => {};
   }
   // Live again: say once if a different server process now answers (update,
   // crash, manual restart), then settle on "live".
   function announce() {
-    const id = serverIdentity(new URL(BASE).port || 80);
+    const id = serverIdentity(new URL(base()).port || 80);
     const restarted = id && server && id.key !== server.key;
     if (id) server = id;
     if (!restarted) return onConn?.("live");
@@ -613,21 +645,15 @@ export function subscribe(
     timer = setTimeout(connect, retry / 2 + Math.random() * (retry / 2));
     retry = Math.min(retry * 2, 10_000);
   }
-  // A6: on an update, let go of the server at once (it waits on our socket).
+  // A6: the moment an update starts, let go of the server (it waits on us).
   const unwatch = onUpdateStart(() => {
-    if (closed || hold) return;
-    clearTimeout(timer);
-    if (ws && ws.readyState <= WebSocket.OPEN) ws.close();
-    else connect();
+    if (!closed && !hold) holdUpdate();
   });
   const close = () => {
     closed = true;
     unwatch();
-    clearTimeout(timer);
-    clearTimeout(notice);
     hold?.();
-    rejectCalls("Closed");
-    ws?.close();
+    retire("Closed");
   };
   close.rpc = request;
   close.send = (text, options) =>

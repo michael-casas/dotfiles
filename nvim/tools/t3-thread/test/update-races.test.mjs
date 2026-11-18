@@ -67,6 +67,230 @@ const holdFirstTicket = (held) => (req, res, n) => {
   return true;
 };
 
+test("F01: a feed ticket in flight at the marker is cancelled; no upgrade until release", async (t) => {
+  const held = [];
+  const fake = await startFakeT3({ initial: snapshot, shell, onTicket: holdFirstTicket(held) });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const output = feed(t, t3);
+  assert.ok(await until(() => held.length === 1));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), `pending ticket still open: ${fake.openConnections()}`);
+  assert.ok(await until(() => output.at(-1)?.message === "T3 updating…", 500));
+  held[0].writeHead(200, { "content-type": "application/json" });
+  held[0].end('{"ticket":"late"}');
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 0, "the late ticket never upgrades");
+  home.remove();
+  assert.ok(await until(() => output.at(-1)?.type === "snapshot", 2000), "recovered");
+  await sleep(200);
+  assert.equal(fake.counts.upgrades, 1, "exactly one current-generation upgrade");
+});
+
+test("F01: an auth refresh that returns during the marker makes no POST", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, onTicket: (req, res) => {
+    if (req.headers.authorization === "Bearer issued-fixture") return false;
+    res.writeHead(401);
+    res.end();
+    return true;
+  } });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const cli = stub(t, home, { delay: 500 });
+  const t3 = await adapter(t, fake.url, home, { T3_SESSION_TOKEN: undefined, T3_BIN: cli.bin, HOME: home.home });
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => cli.spawns().length === 1), "issuing after the 401");
+  home.write();
+  assert.ok(await until(() => conns.at(-1) === "T3 updating…", 500));
+  await sleep(900); // the CLI returns inside the marker window
+  assert.equal(fake.tickets.length, 1, "no POST in the marker window");
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live", 3000), conns.join(" | "));
+  assert.equal(fake.tickets.at(-1).auth, "Bearer issued-fixture");
+});
+
+test("F01: a ticket from a retired attempt never upgrades", async (t) => {
+  const held = [];
+  const fake = await startFakeT3({ initial: snapshot, onTicket: holdFirstTicket(held) });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => held.length === 1));
+  home.write();
+  assert.ok(await until(() => conns.at(-1) === "T3 updating…", 500));
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live", 2000), "new attempt is live");
+  held[0].writeHead(200, { "content-type": "application/json" });
+  held[0].end('{"ticket":"late"}');
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 1, "only the current attempt upgraded");
+});
+
+test("F01: closing a client with its ticket pending closes the request", async (t) => {
+  const held = [];
+  const fake = await startFakeT3({ initial: snapshot, onTicket: holdFirstTicket(held) });
+  t.after(() => fake.close());
+  const t3 = await adapter(t, fake.url, t3home(t));
+  const close = t3.subscribe("t", {});
+  assert.ok(await until(() => held.length === 1));
+  close();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "request closed");
+  held[0].writeHead(200, { "content-type": "application/json" });
+  held[0].end('{"ticket":"late"}');
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 0);
+});
+
+test("F01/F13: a project lookup paused at the marker is cancelled, not cached, and refilled after", async (t) => {
+  const held = [];
+  let shellReads = 0;
+  const fake = await startFakeT3({ initial: snapshot, routes: { "/api/orchestration/shell": (req, res) => {
+    if (++shellReads === 1) return held.push(res);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ projects: [{ id: "p", title: "Proj", workspaceRoot: "/projects/proj" }] }));
+  } } });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const first = t3.projects();
+  assert.ok(await until(() => held.length === 1));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 1500), "lookup cancelled");
+  assert.equal((await first).size, 0);
+  const during = fake.counts.http;
+  assert.equal((await t3.projects()).size, 0, "still updating");
+  assert.equal(fake.counts.http, during, "no request during the marker");
+  home.remove();
+  const after = await t3.projects();
+  assert.deepEqual([...after], [["p", { title: "Proj", workspaceRoot: "/projects/proj" }]]);
+  assert.equal(shellReads, 2, "one post-release lookup");
+});
+
+test("F02: a peer that never answers the close frame cannot keep the thread socket", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, withholdClose: true });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "socket released without the peer's reply");
+  assert.equal(conns.at(-1), "T3 updating…");
+  await sleep(500);
+  assert.equal(fake.counts.upgrades, 1, "no reconnect during the marker");
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live" && fake.counts.upgrades === 2, 2000), "one recovery");
+});
+
+test("F02: a peer that never answers the close frame cannot keep the feed socket", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell, withholdClose: true });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const output = feed(t, t3);
+  assert.ok(await until(() => output.at(-1)?.type === "snapshot"));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "socket released without the peer's reply");
+  await sleep(500);
+  assert.equal(fake.counts.upgrades, 1, "no reconnect during the marker");
+  home.remove();
+  assert.ok(await until(() => fake.counts.upgrades === 2 && output.at(-1)?.type === "snapshot", 2000), "one recovery");
+});
+
+test("F02: a websocket handshake still in progress is released by the marker", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, no101: true });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => fake.counts.upgrades === 1));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "pending handshake released");
+  assert.equal(conns.at(-1), "T3 updating…");
+});
+
+
+
+
+// fs.watch replacement whose watchers can be failed on demand.
+function failingWatch(t) {
+  const watchers = [];
+  const original = fs.watch;
+  fs.watch = () => {
+    const w = new EventEmitter();
+    w.close = () => {};
+    watchers.push(w);
+    return w;
+  };
+  t.after(() => (fs.watch = original));
+  return () => watchers.forEach((w) => w.emit("error", new Error("watch invalidated")));
+}
+
+test("F05: after a watcher error a live client still releases on the marker", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const fail = failingWatch(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  fail();
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 1500), "released by the fallback check");
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live", 1500), "resumed within about 1 s");
+});
+
+test("F05: after a watcher error a held client still resumes promptly", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  home.write();
+  const fail = failingWatch(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "T3 updating…"));
+  fail();
+  const requests = fake.counts.http;
+  home.remove();
+  assert.ok(await until(() => conns.at(-1) === "live", 1500), "resumed within about 1 s");
+  assert.equal(requests, 0, "no network while held");
+});
+
+test("F05: a replaced runtime directory keeps detecting later updates", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  for (let cycle = 1; cycle <= 2; cycle++) {
+    fs.rmSync(path.join(home.home, "runtime"), { recursive: true });
+    fs.mkdirSync(path.join(home.home, "runtime"));
+    await sleep(50);
+    home.write();
+    assert.ok(await until(() => fake.openConnections() === 0, 1500), `cycle ${cycle}: released`);
+    home.remove();
+    assert.ok(await until(() => conns.at(-1) === "live", 1500), `cycle ${cycle}: resumed`);
+  }
+});
+
 test("F06: update and restart notices are shown over a pending request, which returns after", async (t) => {
   const pendingSnapshot = [{ kind: "snapshot", snapshotSequence: 1, projection: {
     thread: { id: "t", title: "T" }, runtimeRequests: [{ id: "r1", kind: "command_approval", status: "pending" }] } }];

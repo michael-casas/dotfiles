@@ -56,8 +56,15 @@ function* parse(state) {
  * `exitThread` answers subscribeThread with an immediate Exit (missing thread /
  * server not ready); `ticketStatus` overrides the websocket-ticket status.
  * `http`/`upgrades` count every HTTP request and websocket upgrade.
+ * Hooks for transport tests: `onTicket(req, res, n)` may answer (or hold) a
+ * ticket request itself and return true; `routes[path](req, res)` answers other
+ * paths; `withholdClose` never answers a client close frame; `no101` accepts an
+ * upgrade request but never completes the handshake. `tickets` logs
+ * {at, auth} for every ticket request. `shell` answers subscribeShell.
  */
-export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200 }) {
+export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200, onTicket, routes = {},
+  withholdClose = false, no101 = false, shell }) {
+  const tickets = [];
   const sockets = new Set();
   const requests = [];
   const commands = [];
@@ -67,7 +74,11 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
   const connected = new Promise((resolve) => (onSubscribe = resolve));
   const server = http.createServer((req, res) => {
     counts.http++;
+    const route = routes[req.url.split("?")[0]];
+    if (route) return route(req, res);
     if (req.method === "POST" && req.url.startsWith("/api/auth/websocket-ticket/rpc")) {
+      tickets.push({ at: Date.now(), auth: req.headers.authorization });
+      if (onTicket?.(req, res, tickets.length)) return;
       if (ticketStatus !== 200) {
         res.writeHead(ticketStatus);
         return res.end();
@@ -84,19 +95,22 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
   });
   server.on("upgrade", (req, socket) => {
     counts.upgrades++;
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    socket.on("error", () => {});
+    if (no101) return;
     const key = req.headers["sec-websocket-key"];
     const accept = crypto.createHash("sha1").update(key + GUID).digest("base64");
     socket.write(
       "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
         `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
     );
-    sockets.add(socket);
     const state = { buf: Buffer.alloc(0) };
     const send = (msg) => socket.write(frame(JSON.stringify(msg)));
     socket.on("data", (data) => {
       state.buf = Buffer.concat([state.buf, data]);
       for (const { opcode, text } of parse(state)) {
-        if (opcode === 8) return socket.end();
+        if (opcode === 8) return withholdClose ? undefined : socket.end();
         if (opcode !== 1) continue;
         const m = JSON.parse(text);
         if (m._tag === "Ack") counts.acks = (counts.acks || 0) + 1;
@@ -105,6 +119,8 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
         if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
         if (m.tag === "orchestration.subscribeThread" && exitThread) {
           send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Failure", cause: [] } });
+        } else if (m.tag === "orchestration.subscribeShell" && shell) {
+          send({ _tag: "Chunk", requestId: m.id, values: [{ kind: "snapshot", snapshot: shell }] });
         } else if (m.tag === "orchestration.subscribeThread") {
           subscriber = send;
           send({ _tag: "Chunk", requestId: m.id, values: initial });
@@ -114,8 +130,6 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
         }
       }
     });
-    socket.on("close", () => sockets.delete(socket));
-    socket.on("error", () => {});
   });
   const tcp = new Set(); // every open TCP connection, HTTP keep-alive included
   server.on("connection", (s) => {
@@ -128,6 +142,7 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     requests,
     commands,
     counts,
+    tickets,
     connected,
     openConnections: () => tcp.size,
     openSockets: () => sockets.size,
@@ -140,6 +155,7 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     },
     close() {
       for (const s of sockets) s.destroy();
+      for (const s of tcp) s.destroy(); // held test responses must not block close
       return new Promise((resolve) => server.close(resolve));
     },
   };
