@@ -206,21 +206,28 @@ local function probe(cb)
   end
 end
 
--- envi T3 client buffers (t3.lua marks them) and their core terminal facts.
+-- envi T3 client buffers (t3.lua marks them), and the core client processes
+-- they view: one per core address, since the popover and the main pane can
+-- view the same client.
 local function clients()
   local core = package.loaded["hcmux.core"] or {}
-  local list = {}
+  local buffers, procs, seen = 0, {}, {}
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].hcmux_float == "t3" then
+      buffers = buffers + 1
       local addr = vim.b[buf].hcmux_addr
-      local fact = addr and core.terms and core.terms[addr]
-      list[#list + 1] = {
-        name = (fact and fact.name) or addr or vim.api.nvim_buf_get_name(buf),
-        live = fact ~= nil and fact.state == "live",
-      }
+      if addr and not seen[addr] then
+        seen[addr] = true
+        local fact = core.terms and core.terms[addr]
+        procs[#procs + 1] = { name = (fact and fact.name) or addr, live = fact ~= nil and fact.state == "live" }
+      end
     end
   end
-  return list
+  return buffers, procs
+end
+
+local function processes(n)
+  return ("%d client process%s running"):format(n, n == 1 and "" or "es")
 end
 
 local function marker_text(m)
@@ -234,12 +241,13 @@ end
 
 -- Process liveness only (the herdr-core terminal); websocket state is not
 -- visible from here.
-local function clients_text(list)
+local function clients_text()
+  local buffers, procs = clients()
   local running = 0
-  for _, c in ipairs(list) do
+  for _, c in ipairs(procs) do
     running = running + (c.live and 1 or 0)
   end
-  return ("%d client buffers, %d client processes running"):format(#list, running)
+  return ("%d client buffers, %s"):format(buffers, processes(running))
 end
 
 function M.status()
@@ -256,7 +264,7 @@ function M.status()
       end
       parts[#parts + 1] = disagreement(rt or nil)
       parts[#parts + 1] = marker_text(state.marker)
-      parts[#parts + 1] = clients_text(clients())
+      parts[#parts + 1] = clients_text()
       notify(table.concat(parts, " · "))
     end)
   end)
@@ -340,12 +348,12 @@ end
 -- websocket state is not visible from here. Nothing is restarted.
 local function report_clients()
   local running, gone = {}, {}
-  for _, c in ipairs(clients()) do
+  for _, c in ipairs(select(2, clients())) do
     table.insert(c.live and running or gone, c.name)
   end
   table.sort(running)
   table.sort(gone)
-  local text = ("%d client process%s running"):format(#running, #running == 1 and "" or "es")
+  local text = processes(#running)
   if #running > 0 then
     text = text .. ": " .. table.concat(running, ", ")
   end
