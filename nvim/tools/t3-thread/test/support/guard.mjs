@@ -72,27 +72,34 @@ function resolved(abs, depth = 0) {
 }
 const protectedRoots = [...new Set([...forbidden, ...forbidden.map(resolved)])];
 const under = (abs) => protectedRoots.some((f) => abs === f || abs.startsWith(`${f}/`));
+// realpath costs ~20 µs on macOS, and a TUI start alone makes ~3,650 fs calls
+// on ~530 paths: checking each call delayed every child's startup enough to
+// break the startup-timing-bound layout-focus-core Lua suite. So each path's
+// verdict is computed once per process (a directory's resolution is shared by
+// its entries), and the first in-process call that can change the tree
+// (rename, symlink, link, unlink, rm, cp) turns both caches off.
+// Accepted limitation (charter Amendment 8): another process changing the tree
+// during the run (moving a resolved directory, swapping one for a symlink) is
+// not seen. The guard is for accidental access by the code under test.
+let verdicts = new Map(), dirs = new Map();
 const live = (p) => {
   if (p instanceof URL) p = p.protocol === "file:" ? fileURLToPath(p) : null;
   else if (Buffer.isBuffer(p)) p = p.toString();
   if (typeof p !== "string") return false; // file descriptors, handles
-  const abs = path.resolve(p);
-  return under(abs) || under(target(abs));
+  // The target check walks the path as the OS does, so it is never normalized
+  // first: in link/.. the OS follows the link before the "..".
+  const raw = path.isAbsolute(p) ? p : `${process.cwd()}/${p}`;
+  let verdict = verdicts?.get(raw);
+  if (verdict !== undefined) return verdict;
+  verdict = under(path.resolve(raw)) || under(target(raw));
+  verdicts?.set(raw, verdict);
+  return verdict;
 };
-// realpath costs ~20 µs on macOS and module loading alone makes thousands of
-// fs calls, which delayed every child's startup enough to break a timing-bound
-// Lua suite. So a parent directory's resolution is cached per process, keyed
-// by the inode its path reaches now (an lstat each call, ~2 µs): another
-// process swapping that directory or retargeting an ancestor re-resolves it.
-// The leaf is lstat'ed each time, and the first in-process call that can
-// change the tree (rename, symlink, link, unlink, rm, cp) turns the cache off.
-let dirs = new Map();
-function target(abs) {
-  const dir = path.dirname(abs), d = stat(dir);
-  if (!dirs || dir === abs || !d || d.isSymbolicLink() || stat(abs)?.isSymbolicLink()) return resolved(abs);
-  let hit = dirs.get(dir);
-  if (hit?.ino !== d.ino || hit.dev !== d.dev) dirs.set(dir, (hit = { ino: d.ino, dev: d.dev, real: resolved(dir) }));
-  return path.join(hit.real, path.basename(abs));
+function target(raw) {
+  const dir = path.dirname(raw);
+  if (!dirs || dir === raw || stat(raw)?.isSymbolicLink()) return resolved(raw);
+  if (!dirs.has(dir)) dirs.set(dir, resolved(dir));
+  return path.join(dirs.get(dir), path.basename(raw));
 }
 const RESHAPES = /^(rename|symlink|link|unlink|rm|cp)/;
 const TWO_PATHS = /^(rename|copyFile|link|symlink|cp)(Sync)?$/;
@@ -100,9 +107,10 @@ function wrap(api, label) {
   for (const name of Object.keys(api)) {
     const original = api[name];
     if (typeof original !== "function" || /^[A-Z]/.test(name)) continue; // skip classes
+    const reshapes = RESHAPES.test(name), twoPaths = TWO_PATHS.test(name);
     api[name] = function (...args) {
-      if (RESHAPES.test(name)) dirs = null;
-      if (live(args[0]) || (TWO_PATHS.test(name) && live(args[1]))) deny(`${label}.${name} on live T3 data`);
+      if (reshapes) verdicts = dirs = null;
+      if (live(args[0]) || (twoPaths && live(args[1]))) deny(`${label}.${name} on live T3 data`);
       return original.apply(this, args);
     };
   }

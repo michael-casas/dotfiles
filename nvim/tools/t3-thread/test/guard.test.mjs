@@ -90,7 +90,7 @@ out.sibling = fs.readFileSync(path.join(outside, "ordinary"), "utf8");`, (dummy)
   assert.equal(r.status, 1, "alias-only access still fails the run");
 });
 
-test("F11: a dangling alias and a directory swapped into an alias after it was read are denied", (t) => {
+test("F11: a dangling alias, and a directory read, moved in-process and replaced by an alias, are denied", (t) => {
   const r = child(t, `
 const fs = (await import("node:fs")).default;
 const path = (await import("node:path")).default;
@@ -99,10 +99,13 @@ const outside = process.env.ALIAS_DIR;
 const attempt = async (name, op) => { try { await op(); out[name] = "read"; } catch (e) { out[name] = /isolation guard/.test(e.message) ? "blocked" : e.message; } };
 // Read through ordinary directories first, so the guard has resolved (cached) them.
 out.before = [fs.readFileSync(path.join(outside, "swap", "sentinel"), "utf8"), fs.readFileSync(path.join(outside, "anc", "sub", "sentinel"), "utf8")];
-// Another process (no in-process tree change) replaces a directory and an
-// ancestor with aliases into the protected data.
+// The code under test moves both directories away (an in-process tree change
+// drops the guard's cache); aliases into the protected data then take their
+// place (made by a helper process, since this one may not name the target).
+fs.renameSync(path.join(outside, "swap"), path.join(outside, "swap-old"));
+fs.renameSync(path.join(outside, "anc"), path.join(outside, "anc-old"));
 const sh = (cmd) => spawnSync("/bin/sh", ["-c", cmd, "sh", outside, path.dirname(sentinel)]).status;
-out.swapped = sh('mv "$1/swap" "$1/swap-old" && ln -s "$2" "$1/swap" && mv "$1/anc" "$1/anc-old" && ln -s "$2" "$1/anc"');
+out.swapped = sh('ln -s "$2" "$1/swap" && ln -s "$2" "$1/anc"');
 await attempt("swappedDir", () => fs.readFileSync(path.join(outside, "swap", "sentinel")));
 await attempt("swappedAncestor", () => fs.readFileSync(path.join(outside, "anc", "sub", "sentinel")));
 await attempt("danglingWrite", () => fs.writeFileSync(path.join(outside, "dangling"), "x"));
@@ -120,4 +123,30 @@ out.sibling = fs.readFileSync(path.join(outside, "swap-old", "sentinel"), "utf8"
   assert.deepEqual(r.out, { before: ["ok", "ok"], swapped: 0, swappedDir: "blocked", swappedAncestor: "blocked",
     danglingWrite: "blocked", sibling: "ok" }, r.stderr);
   assert.equal(r.status, 1);
+});
+
+test("F11: a symlink followed by .. is checked as the OS traverses it (round 4)", (t) => {
+  const r = child(t, `
+const fs = (await import("node:fs")).default;
+const outside = process.env.ALIAS_DIR;
+const attempt = async (name, op) => { try { await op(); out[name] = "read"; } catch (e) { out[name] = /isolation guard/.test(e.message) ? "blocked" : e.message; } };
+// outside/sub -> <protected>/sub, so outside/sub/../sentinel is <protected>/sentinel to the OS.
+await attempt("read", () => fs.readFileSync(outside + "/sub/../sentinel"));
+await attempt("relative", () => { process.chdir(outside); return fs.readFileSync("sub/../sentinel"); });
+await attempt("promises", () => fs.promises.readFile(outside + "/sub/../sentinel"));
+await attempt("missingWrite", () => fs.writeFileSync(outside + "/sub/../not-yet", "x"));
+await attempt("renameInto", () => fs.renameSync(outside + "/ordinary", outside + "/sub/../moved"));
+out.sibling = fs.readFileSync(outside + "/ordinary", "utf8");
+out.lexicalSibling = fs.readFileSync(outside + "/plain/../ordinary", "utf8");`, (dummy) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-dotdot-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(dummy, ".t3", "sub"));
+    fs.mkdirSync(path.join(outside, "plain"));
+    fs.symlinkSync(path.join(dummy, ".t3", "sub"), path.join(outside, "sub"));
+    fs.writeFileSync(path.join(outside, "ordinary"), "ok");
+    return { ALIAS_DIR: outside };
+  });
+  assert.deepEqual(r.out, { read: "blocked", relative: "blocked", promises: "blocked", missingWrite: "blocked",
+    renameInto: "blocked", sibling: "ok", lexicalSibling: "ok" }, r.stderr);
+  assert.equal(r.status, 1, "a caught denial still fails the run");
 });
