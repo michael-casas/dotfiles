@@ -84,5 +84,31 @@ F.case("an unknown runtime port is not a disagreement", function()
   assert(update("http://127.0.0.1:39999", nil), "no port: the pid check alone applies")
 end)
 
+F.case("B-R2-02 the watch never certifies a backend on another port", function()
+  U.config.start_timeout_ms, U.config.timeout_ms = 2000, 2000
+  F.reset()
+  vim.env.T3_URL = "http://127.0.0.1:39999"
+  F.server(true)
+  F.set_runtime(1000, "1.0.0", { port = 39999 })
+  F.feed.live, F.feed.snapshot = true, { type = "snapshot", projects = {}, threads = {} }
+  F.reply.osascript = { code = 0, stdout = "clicked Check for Updates…" }
+  U.update()
+  F.until_true(function()
+    return U.current() and U.current().timer ~= nil
+  end, 1000, "the watch must start")
+  local run = U.current()
+  F.set_marker(45)
+  F.wait_notice("T3 is updating")
+  F.set_runtime(2000, "1.1.0", { port = 39998 })
+  os.remove(F.marker)
+  vim.wait(300)
+  assert(not F.has("T3 updated") and not F.has("restarted"), "a 200 from the old port is not the new backend")
+  assert(U.current() == run, "keeps watching")
+  F.set_runtime(2000, "1.1.0", { port = 39999 })
+  F.wait_notice("T3 updated: 1%.0%.0 → 1%.1%.0", 1000)
+  assert(F.count("T3 updated") == 1)
+  U.config.start_timeout_ms, U.config.timeout_ms = 200, 1000
+end)
+
 vim.env.T3_URL = "http://127.0.0.1:39999"
 F.done()

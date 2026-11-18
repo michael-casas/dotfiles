@@ -404,7 +404,7 @@ end
 -- that returns after it.
 --
 -- Success: no marker in progress in either marker read, the same new pid,
--- and a reachable server.
+-- its port (when published) equal to the endpoint's, and a reachable server.
 -- Stall (once): both marker reads expired, the readable pid is the baseline
 -- one and the probe failed. Anything else keeps watching.
 local function check(run)
@@ -438,7 +438,7 @@ local function check(run)
       run.busy = false
       local rt = after.runtime
       local now_pid = not after.busy and rt and rt.pid or nil
-      if moved and after.up and now_pid == pid then
+      if moved and after.up and now_pid == pid and not disagreement(rt) then
         succeed(run, rt)
       elseif stalling and not after.up and after.expired and now_pid == run.old.pid then
         run.stalled = true
