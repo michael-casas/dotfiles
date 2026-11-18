@@ -8,6 +8,13 @@
 set -u
 cd "$(dirname "$0")/../../../.." || exit 2
 dir=nvim/tools/t3-thread/test
+# Isolation: node children load the test guard (no live port 3773, no real
+# ~/.t3); T3 data and the default URL are throwaway.
+guard_home=$(mktemp -d "${TMPDIR:-/tmp}/t3-lua-home.XXXXXX")
+trap 'rm -rf "$guard_home"' EXIT
+export T3UPD_GUARD_REAL_HOME="$HOME" T3UPD_GUARD_HOME="$guard_home" T3CODE_HOME="$guard_home/.t3"
+export T3_URL="${T3_URL:-http://127.0.0.1:9}"
+export NODE_OPTIONS="${NODE_OPTIONS:-} --import $PWD/$dir/support/guard.mjs"
 if [ $# -gt 0 ]; then names=("$@"); else
   names=()
   for f in "$dir"/*.lua; do names+=("$(basename "$f" .lua)"); done

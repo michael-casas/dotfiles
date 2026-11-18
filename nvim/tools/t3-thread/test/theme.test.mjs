@@ -1,3 +1,4 @@
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, readFileSync, writeFileSync, renameSync, unlinkSync, rmSync, mkdirSync } from "node:fs";

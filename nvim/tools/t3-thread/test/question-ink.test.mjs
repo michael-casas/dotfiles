@@ -1,4 +1,5 @@
 // Real main.mjs, Ink stdin, PTY and local synthetic websocket boundary.
+import "./support/guard.mjs"; // first: test isolation (temp HOME/T3CODE_HOME, no live T3)
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
