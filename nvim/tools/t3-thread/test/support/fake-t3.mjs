@@ -53,16 +53,25 @@ function* parse(state) {
 /**
  * startFakeT3({ initial }) -> { url, push(values), requests, connected, close() }
  * `initial` is the first Chunk for orchestration.subscribeThread.
+ * `exitThread` answers subscribeThread with an immediate Exit (missing thread /
+ * server not ready); `ticketStatus` overrides the websocket-ticket status.
+ * `http`/`upgrades` count every HTTP request and websocket upgrade.
  */
-export async function startFakeT3({ initial, config = {} }) {
+export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200 }) {
   const sockets = new Set();
   const requests = [];
   const commands = [];
+  const counts = { http: 0, upgrades: 0 };
   let subscriber = null;
   let onSubscribe;
   const connected = new Promise((resolve) => (onSubscribe = resolve));
   const server = http.createServer((req, res) => {
+    counts.http++;
     if (req.method === "POST" && req.url.startsWith("/api/auth/websocket-ticket/rpc")) {
+      if (ticketStatus !== 200) {
+        res.writeHead(ticketStatus);
+        return res.end();
+      }
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ticket: "synthetic-ticket" }));
     }
@@ -74,6 +83,7 @@ export async function startFakeT3({ initial, config = {} }) {
     res.end();
   });
   server.on("upgrade", (req, socket) => {
+    counts.upgrades++;
     const key = req.headers["sec-websocket-key"];
     const accept = crypto.createHash("sha1").update(key + GUID).digest("base64");
     socket.write(
@@ -92,7 +102,9 @@ export async function startFakeT3({ initial, config = {} }) {
         if (m._tag !== "Request") continue;
         requests.push(m.tag);
         if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
-        if (m.tag === "orchestration.subscribeThread") {
+        if (m.tag === "orchestration.subscribeThread" && exitThread) {
+          send({ _tag: "Exit", requestId: m.id, exit: { _tag: "Failure", cause: [] } });
+        } else if (m.tag === "orchestration.subscribeThread") {
           subscriber = send;
           send({ _tag: "Chunk", requestId: m.id, values: initial });
           onSubscribe();
@@ -109,7 +121,11 @@ export async function startFakeT3({ initial, config = {} }) {
     url: `http://127.0.0.1:${server.address().port}`,
     requests,
     commands,
+    counts,
     connected,
+    dropAll() {
+      for (const s of sockets) s.destroy();
+    },
     push(values) {
       assertSubscribed(subscriber);
       subscriber({ _tag: "Chunk", requestId: "1", values });

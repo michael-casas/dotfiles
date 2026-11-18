@@ -454,10 +454,9 @@ export function subscribe(
       onConn?.(`offline: ${e.message}`);
       return later();
     }
+    let healthy = false;
     ws.onopen = () => {
       if (closed) return ws.close();
-      retry = 500;
-      onConn?.("live");
       ws.send(
         JSON.stringify({
           _tag: "Request",
@@ -490,6 +489,13 @@ export function subscribe(
       if (m._tag === "Chunk") {
         ws.send(JSON.stringify({ _tag: "Ack", requestId: m.requestId }));
         if (String(m.requestId) === "1") {
+          // Only a delivered stream proves the server healthy. An open socket
+          // whose subscription exits at once must keep backing off.
+          if (!healthy) {
+            healthy = true;
+            retry = 500;
+            onConn?.("live");
+          }
           for (const v of m.values || []) {
             onValue?.(v);
             state = applyValue(state, v);
@@ -539,7 +545,9 @@ export function subscribe(
   function later() {
     if (closed) return;
     clearTimeout(timer);
-    timer = setTimeout(connect, retry);
+    // Equal jitter: wait between half and all of the current step, so clients
+    // dropped together do not reconnect in lockstep. Steps cap at 10 s.
+    timer = setTimeout(connect, retry / 2 + Math.random() * (retry / 2));
     retry = Math.min(retry * 2, 10_000);
   }
   const close = () => {
