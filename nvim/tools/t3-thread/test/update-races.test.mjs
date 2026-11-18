@@ -401,6 +401,43 @@ function uncaught(t) {
   return seen;
 }
 
+for (const client of ["thread", "feed"])
+test(`F01: a marker published during the ${client} handshake stops it before any RPC`, async (t) => {
+  deadWatch(t);
+  const home = t3home(t);
+  let once = true;
+  const fake = await startFakeT3({ initial: snapshot, shell, beforeUpgrade: () => once && (once = false, home.write()) });
+  t.after(() => fake.close());
+  const t3 = await adapter(t, fake.url, home);
+  const conns = [];
+  if (client === "thread") t.after(t3.subscribe("t", { onConn: (c) => conns.push(c) }));
+  else { const out = feed(t, t3); conns.push = (c) => Array.prototype.push.call(conns, c); setInterval(() => out.length && conns.push(out.at(-1).message ?? out.at(-1).type), 20).unref(); }
+  assert.ok(await until(() => fake.counts.upgrades === 1));
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "released at the subscribe boundary");
+  await sleep(200);
+  assert.deepEqual(fake.requestLog, [], "no RPC after the marker was published");
+  home.remove();
+  assert.ok(await until(() => fake.requestLog.length > 0, 2000), "recovered after the marker cleared");
+});
+
+test("F01: an update cancels a pending command liveness check", async (t) => {
+  const held = [];
+  const fake = await startFakeT3({ initial: snapshot, routes: { "/.well-known/t3/environment": (req, res) => held.push(res) } });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const cli = stub(t, home, { out: "[]" });
+  const t3 = await adapter(t, fake.url, home, { T3_BIN: cli.bin });
+  let outcome = "pending";
+  const listing = t3.list("p").then(() => (outcome = "ran"), (e) => (outcome = e.message));
+  assert.ok(await until(() => held.length === 1));
+  home.write();
+  assert.ok(await until(() => fake.openConnections() === 0, 1500), "liveness request cancelled");
+  assert.ok(await until(() => outcome !== "pending", 200));
+  assert.match(outcome, /T3 is updating/);
+  await listing;
+  assert.deepEqual(cli.spawns(), []);
+});
+
 for (const client of ["thread", "feed"]) for (const stage of ["pending", "established"])
 test(`F02: a WSS ${client} socket (${stage}) is released on the marker without an exception`, async (t) => {
   const errors = uncaught(t);

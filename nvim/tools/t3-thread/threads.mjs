@@ -298,6 +298,7 @@ export function startFeed(options = {}, {
     socket = ws;
     ws.onopen = () => {
       if (stopped || gen !== generation) return ws.close();
+      if (updatingUntil()) return fail(gen, UPDATING); // marker published mid-handshake: hold, no RPC
       ws.send(JSON.stringify({
         _tag: "Request", id: "1", tag: "orchestration.subscribeShell",
         payload: { requestCompletionMarker: true, ...(state ? { afterSequence: state.snapshotSequence } : {}) },

@@ -544,6 +544,7 @@ export function subscribe(
     let healthy = false;
     sock.onopen = () => {
       if (!current()) return;
+      if (updatingUntil()) return holdUpdate(); // marker published mid-handshake: no RPC
       sock.send(
         JSON.stringify({
           _tag: "Request",
@@ -750,9 +751,14 @@ export function stopCommand(threadId, runId, capabilities) {
 // only once the server has answered (any HTTP status proves it is up).
 async function cli(args, input) {
   assertNotUpdating();
-  await request1(`${base()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(5000) }).catch(() => {
-    throw new Error("T3 is not reachable; try again when it is back");
-  });
+  const update = new AbortController(); // an update cancels the check at once
+  const unwatch = onUpdateStart(() => update.abort());
+  await request1(`${base()}/.well-known/t3/environment`, { signal: AbortSignal.any([update.signal, AbortSignal.timeout(5000)]) })
+    .catch(() => {
+      assertNotUpdating();
+      throw new Error("T3 is not reachable; try again when it is back");
+    })
+    .finally(unwatch);
   assertNotUpdating(); // the marker may have appeared during the check
   return new Promise((resolve, reject) => {
     const p = spawn(T3, args, { stdio: ["pipe", "pipe", "pipe"] });
