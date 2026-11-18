@@ -82,7 +82,7 @@ log(`base ${base}`);
 // ── process ownership ────────────────────────────────────────────────────────
 const owned = new Set(); // ChildProcess handles
 const strays = new Set(); // pids we do not parent: PTY runners' TUIs
-let cleaning = false;
+let cleaning; // the cleanup in progress: every exit path awaits the same one
 function own(child) {
   if (cleaning) {
     child.kill("SIGKILL");
@@ -110,9 +110,7 @@ function t3(args) {
     child.once("exit", (code, sig) => (code === 0 ? resolve(out) : reject(new Error(`t3 ${args[0]} ${args[1] || ""} exited ${code ?? sig}`))));
   });
 }
-async function cleanup() {
-  if (cleaning) return;
-  cleaning = true;
+const cleanup = () => (cleaning ??= (async () => {
   for (const c of owned) for (const k of kids(c.pid)) strays.add(k);
   const pids = () => [...[...owned].map((c) => c.pid), ...[...strays].filter(alive)];
   signal(pids(), "SIGCONT");
@@ -121,10 +119,11 @@ async function cleanup() {
   signal(pids(), "SIGKILL");
   for (let i = 0; i < 50 && pids().length; i++) await sleep(100);
   fs.rmSync(base, { recursive: true, force: true });
-}
+})());
 process.once("SIGINT", () => cleanup().then(() => process.exit(130)));
 process.once("SIGTERM", () => cleanup().then(() => process.exit(143)));
 process.on("uncaughtException", (e) => {
+  if (cleaning) return; // teardown noise (closed pipes, killed children)
   process.stdout.write(`${JSON.stringify({ mode, valid: false, error: e.message })}\n`);
   cleanup().then(() => process.exit(1));
 });
@@ -253,6 +252,7 @@ function attach(env, { feeds: nf, tuis: nt, thread, deadThread = 0 }) {
     const id = i < deadThread ? crypto.randomUUID() : thread;
     const child = own(spawn("python3", [path.join(here, "../test/support/pty-run.py"), "40", "120", "--",
       process.execPath, path.join(root, "main.mjs"), id], { env, stdio: ["pipe", "pipe", "ignore"] }));
+    child.stdin.on("error", () => {});
     const c = { kind: "tui", child, seen: {} };
     let buf = "";
     child.stdout.on("data", (d) => {
