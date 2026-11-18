@@ -311,15 +311,22 @@ local function finish(run, text, level)
   end
 end
 
+-- Process liveness only: a running client reconnects by itself, but its
+-- websocket state is not visible from here. Nothing is restarted.
 local function report_clients()
   local running, gone = {}, {}
   for _, c in ipairs(clients()) do
     table.insert(c.live and running or gone, c.name)
   end
+  table.sort(running)
+  table.sort(gone)
   local text = ("%d client process%s running"):format(#running, #running == 1 and "" or "es")
+  if #running > 0 then
+    text = text .. ": " .. table.concat(running, ", ")
+  end
   if #gone > 0 then
     text = text .. "; not running: " .. table.concat(gone, ", ") .. ". :T3Restart restarts one"
-  else
+  elseif #running > 0 then
     text = text .. ". A client that stays stuck: :T3Restart"
   end
   notify(text)
