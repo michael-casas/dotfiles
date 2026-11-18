@@ -516,7 +516,7 @@ export function subscribe(
   }
   // Desktop update: let go of the server and wait, with no attempts and no CLI.
   function holdUpdate() {
-    lingering?.release();
+    lingering?.release?.(); // the platform WebSocket has none
     retire("T3 is updating; command outcome may be unknown (not retried)");
     onConn?.(UPDATING);
     hold ??= holdWhileUpdating(() => {
@@ -658,7 +658,7 @@ export function subscribe(
     closed = true;
     unwatch();
     hold?.();
-    lingering?.release();
+    lingering?.release?.(); // the platform WebSocket has none
     retire("Closed");
   };
   close.rpc = request;

@@ -3,11 +3,11 @@
 // T3 server waits on every open client socket; close() here sends a close frame
 // and releases the socket at once, whatever the peer does.
 // Interface: readyState, send(text), close(), onopen, onmessage({data}), onclose.
+// Used only for plaintext ws:// to a loopback host: the update marker describes
+// the local desktop server. wss:// and remote hosts keep the platform WebSocket
+// (its TLS, SNI and certificate checks).
 import crypto from "node:crypto";
 import http from "node:http";
-import https from "node:https";
-import net from "node:net";
-import tls from "node:tls";
 
 export const OPEN = 1;
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -24,21 +24,35 @@ function frame(opcode, payload) {
   return Buffer.concat([head, mask, body]);
 }
 
+export const ownsTransport = (url) => {
+  const { protocol, hostname } = new URL(url);
+  return protocol === "ws:" && /^(127(\.\d{1,3}){3}|localhost|\[::1\])$/.test(hostname);
+};
+
 export function connectWs(url, { signal } = {}) {
+  if (!ownsTransport(url)) {
+    // Platform WebSocket. close() is graceful underneath but, as below, closed
+    // for the caller at once: onclose fires once, without waiting for the peer.
+    const platform = new WebSocket(url), close = platform.close.bind(platform);
+    let gone = false;
+    platform.addEventListener("close", () => (gone = true));
+    platform.close = () => {
+      const onclose = platform.onclose;
+      platform.onclose = null;
+      close();
+      if (!gone) { gone = true; onclose?.(); }
+    };
+    signal?.addEventListener("abort", platform.close, { once: true });
+    return platform;
+  }
   const ws = { readyState: 0 };
   const key = crypto.randomBytes(16).toString("base64");
-  const target = url.replace(/^ws/, "http");
-  let socket, raw, closing, buffer = Buffer.alloc(0), parts = [], done = false;
-  // WSS runs TLS over our own TCP socket (raw), so a release can reset it.
-  const secure = target.startsWith("https:");
-  const req = (secure ? https : http).request(target, { agent: secure ? undefined : false, headers: {
-    Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": key },
-    ...(secure && { createConnection: (o) => tls.connect({ ...o, socket: (raw = net.connect(o.port, o.hostname || o.host)) }) }) });
-  // A reset (RST) is noticed by a peer that has not read EOF; only TCP can do it.
-  const drop = (s) => {
-    try { (raw ?? s).resetAndDestroy(); } catch {} // TCP reset first (under TLS too) ...
-    s.destroy(); // ... then the outer socket; for plain TCP this is a no-op
-  };
+  let socket, lingering, buffer = Buffer.alloc(0), parts = [], done = false;
+  const req = http.request(url.replace(/^ws/, "http"), { agent: false, headers: {
+    Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": key } });
+  // A reset (RST) is noticed by a peer that has not read EOF; destroy() covers
+  // a socket still connecting (its reset would wait for the connect).
+  const drop = (s) => { s.resetAndDestroy(); s.destroy(); };
   const finish = () => {
     if (done) return;
     done = true;
@@ -62,9 +76,9 @@ export function connectWs(url, { signal } = {}) {
       buffer = buffer.subarray(at + len);
       if (mask) for (let i = 0; i < data.length; i++) data[i] ^= mask[i % 4];
       if (opcode === 8) { // peer-initiated: one masked Close back, then wait (bounded) for its TCP close
-        closing = socket;
+        lingering = socket;
         socket = undefined;
-        closing.write(frame(8, data.subarray(0, 2)));
+        lingering.write(frame(8, data.subarray(0, 2)));
         setTimeout(ws.release, 1000).unref();
         return finish();
       }
@@ -113,7 +127,7 @@ export function connectWs(url, { signal } = {}) {
     }
   };
   // A socket still closing after a peer's Close (see above): release it now.
-  ws.release = () => { if (closing && !closing.destroyed) drop(closing); closing = undefined; };
+  ws.release = () => { if (lingering && !lingering.destroyed) drop(lingering); lingering = undefined; };
   if (signal?.aborted) queueMicrotask(ws.close);
   else signal?.addEventListener("abort", ws.close, { once: true });
   return ws;

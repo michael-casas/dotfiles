@@ -65,9 +65,12 @@ function* parse(state) {
  * `tls: {key, cert}` serves HTTPS/WSS. `beforeUpgrade(req)` runs before the
  * 101 is written; `closeFrames` counts client Close frames (`unmaskedClose`
  * those without a mask); `serverClose()` sends a Close (1000) to every socket.
+ * `servernames` logs the TLS SNI of each HTTPS request and WSS upgrade;
+ * `requireSni` answers an upgrade with another (or no) SNI with 421.
  */
 export async function startFakeT3({ initial, config = {}, exitThread = false, ticketStatus = 200, onTicket, routes = {},
-  withholdClose = false, no101 = false, shell, port = 0, tls, beforeUpgrade }) {
+  withholdClose = false, no101 = false, shell, port = 0, tls, beforeUpgrade, requireSni }) {
+  const servernames = [];
   const tickets = [];
   const requestLog = [];
   const sockets = new Set();
@@ -79,6 +82,7 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
   const connected = new Promise((resolve) => (onSubscribe = resolve));
   const handler = (req, res) => {
     counts.http++;
+    if (tls) servernames.push({ kind: "https", name: req.socket.servername || null });
     const route = routes[req.url.split("?")[0]];
     if (route) return route(req, res);
     if (req.method === "POST" && req.url.startsWith("/api/auth/websocket-ticket/rpc")) {
@@ -106,6 +110,9 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
     if (withholdClose) socket.allowHalfOpen = true;
+    if (tls) servernames.push({ kind: "wss", name: socket.servername || null });
+    if (requireSni && socket.servername !== requireSni)
+      return socket.end("HTTP/1.1 421 Misdirected Request\r\nContent-Length: 0\r\n\r\n");
     if (no101) return;
     beforeUpgrade?.(req);
     const key = req.headers["sec-websocket-key"];
@@ -159,6 +166,7 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
       for (const s of sockets) s.write(Buffer.from([0x88, 0x02, 0x03, 0xe8]));
     },
     requests,
+    servernames,
     commands,
     counts,
     tickets,

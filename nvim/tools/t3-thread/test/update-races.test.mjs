@@ -57,7 +57,7 @@ function stub(t, home, { delay = 0, out = '{"token":"issued-fixture","expiresAt"
 }
 function feed(t, t3, options = {}) {
   const output = [];
-  const f = startFeed(options, { openSocket: (signal) => t3.openShellSocket(signal), write: (l) => output.push(JSON.parse(l)) });
+  const f = startFeed(options, { openSocket: (...args) => t3.openShellSocket(...args), write: (l) => output.push(JSON.parse(l)) });
   t.after(() => f.close());
   return output;
 }
@@ -384,7 +384,7 @@ function tlsFixture(t) {
   if (!certs) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-tls-"));
     execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1",
-      "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", path.join(dir, "key.pem"), "-out", path.join(dir, "cert.pem")], { stdio: "ignore" });
+      "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost", "-keyout", path.join(dir, "key.pem"), "-out", path.join(dir, "cert.pem")], { stdio: "ignore" });
     certs = { key: fs.readFileSync(path.join(dir, "key.pem")), cert: fs.readFileSync(path.join(dir, "cert.pem")) };
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -438,27 +438,48 @@ test("F01: an update cancels a pending command liveness check", async (t) => {
   assert.deepEqual(cli.spawns(), []);
 });
 
-for (const client of ["thread", "feed"]) for (const stage of ["pending", "established"])
-test(`F02: a WSS ${client} socket (${stage}) is released on the marker without an exception`, async (t) => {
+// Amendment 8: WSS (and any non-loopback endpoint) uses the platform WebSocket,
+// with its own TLS, SNI and certificate checks; the owned transport is
+// plaintext loopback ws:// only.
+for (const client of ["thread", "feed"])
+test(`F02/A8: a wss://localhost ${client} sends SNI "localhost" for HTTPS and WSS and goes live`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell, tls: tlsFixture(t), requireSni: "localhost" });
+  t.after(() => fake.close());
+  const t3 = await adapter(t, fake.url.replace("127.0.0.1", "localhost"), t3home(t));
+  if (client === "thread") t.after(t3.subscribe("t", {}));
+  else feed(t, t3);
+  assert.ok(await until(() => fake.requestLog.length > 0, 3000), `subscribed; SNI seen: ${JSON.stringify(fake.servernames)}`);
+  assert.deepEqual([...new Set(fake.servernames.map((s) => `${s.kind}:${s.name}`))].sort(), ["https:localhost", "wss:localhost"]);
+});
+
+for (const client of ["thread", "feed"])
+test(`A8: WSS ${client} smoke: connect, marker, graceful close, hold, release, recover`, async (t) => {
   const errors = uncaught(t);
-  const fake = await startFakeT3({ initial: snapshot, shell, tls: tlsFixture(t), no101: stage === "pending", withholdClose: true });
+  const fake = await startFakeT3({ initial: snapshot, shell, tls: tlsFixture(t) });
   t.after(() => fake.close());
   const home = t3home(t);
   const t3 = await adapter(t, fake.url, home);
   const states = [];
   if (client === "thread") t.after(t3.subscribe("t", { onConn: (c) => states.push(c) }));
   else { const out = feed(t, t3); setInterval(() => states.push(out.at(-1)?.message ?? out.at(-1)?.type), 20).unref(); }
-  assert.ok(await until(() => fake.counts.upgrades === 1 && (stage === "pending" || fake.requestLog.length > 0)));
+  assert.ok(await until(() => fake.requestLog.length > 0));
   home.write();
-  assert.ok(await until(() => fake.openConnections() === 0, 500), "peer sees the connection closed");
+  assert.ok(await until(() => fake.counts.closeFrames === 1, 500), "graceful Close sent on the marker");
+  assert.ok(await until(() => fake.openSockets() === 0, 1000), "the WSS connection is gone");
   assert.ok(await until(() => states.at(-1) === "T3 updating…", 500));
-  assert.deepEqual(errors, []);
   await sleep(300);
-  assert.equal(fake.counts.upgrades, 1, "no retry during the marker");
-  if (stage === "established") {
-    home.remove();
-    assert.ok(await until(() => fake.counts.upgrades === 2, 2000), "one recovery over WSS");
-  }
+  assert.equal(fake.counts.upgrades, 1, "no attempt during the hold");
+  home.remove();
+  assert.ok(await until(() => fake.counts.upgrades === 2 && fake.requestLog.length > 1, 2000), "one recovery over WSS");
+  assert.deepEqual(errors, []);
+});
+
+test("A8: only plaintext loopback ws:// uses the owned transport", async () => {
+  const { ownsTransport } = await import("../ws.mjs");
+  for (const url of ["ws://127.0.0.1:1/ws", "ws://127.9.0.1:1/ws", "ws://localhost:1/ws", "ws://[::1]:1/ws"])
+    assert.equal(ownsTransport(url), true, url);
+  for (const url of ["wss://127.0.0.1:1/ws", "wss://localhost/ws", "ws://192.0.2.1:1/ws", "ws://t3.example.test/ws", "ws://127.0.0.1.example.test/ws"])
+    assert.equal(ownsTransport(url), false, url);
 });
 
 for (const client of ["thread", "feed"])
@@ -495,9 +516,9 @@ test("F14: a close from both sides at once sends a single Close frame and holds"
 });
 
 // ── round 3: peer-first close vs marker; default-port identity ──────────────
-for (const transport of ["ws", "wss"]) for (const client of ["thread", "feed"])
-test(`F15: a ${transport} ${client} socket closing peer-first is still released by the marker`, async (t) => {
-  const fake = await startFakeT3({ initial: snapshot, shell, withholdClose: true, ...(transport === "wss" ? { tls: tlsFixture(t) } : {}) });
+for (const client of ["thread", "feed"])
+test(`F15: a ws ${client} socket closing peer-first is still released by the marker`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell, withholdClose: true });
   t.after(() => fake.close());
   const home = t3home(t);
   const t3 = await adapter(t, fake.url, home);
@@ -536,6 +557,16 @@ test(`F16: restart notice over ${name}`, async (t) => {
     return request.call(this, u, ...rest);
   };
   t.after(() => (https.request = request));
+  // WSS uses the platform WebSocket (Amendment 8): route its default port too.
+  const Platform = globalThis.WebSocket;
+  globalThis.WebSocket = class extends Platform {
+    constructor(target, ...rest) {
+      const u = new URL(target);
+      if (!u.port) u.port = new URL(fake.url).port;
+      super(u, ...rest);
+    }
+  };
+  t.after(() => (globalThis.WebSocket = Platform));
   const home = t3home(t);
   const runtime = (pid) => {
     fs.mkdirSync(path.join(home.home, "userdata"), { recursive: true });
