@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 
 export const UPDATING = "T3 updating…";
+export const RESTARTED = "T3 server restarted";
 const TTL_MS = 60_000; // DESKTOP_UPDATE_IN_PROGRESS_TTL_MS
 const REMOTE_WAIT_MS = TTL_MS + 7_000; // REMOTE_UPDATE_WAIT_MS: the longest any launcher waits
 
@@ -32,6 +33,21 @@ export function updatingUntil(now = Date.now()) {
     if (Number.isFinite(expiresAt)) until = Math.min(expiresAt, mtime + REMOTE_WAIT_MS);
   } catch {}
   return until > now ? until : 0;
+}
+
+/**
+ * Identity of the server listening on `port`, from userdata/server-runtime.json.
+ * Only the non-secret pid, startedAt and serverVersion fields are used.
+ */
+export function serverIdentity(port) {
+  try {
+    const file = path.join(t3Home(), "userdata", "server-runtime.json");
+    const { pid, startedAt, serverVersion, port: owner } = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (Number(owner) !== Number(port)) return null; // another server's record
+    return { key: `${pid}@${startedAt}`, serverVersion: String(serverVersion || "unknown") };
+  } catch {
+    return null;
+  }
 }
 
 export class UpdatingError extends Error {

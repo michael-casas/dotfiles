@@ -13,7 +13,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, updatingUntil } from "./update.mjs";
+import {
+  RESTARTED, UPDATING, UpdatingError, assertNotUpdating, holdWhileUpdating, serverIdentity, updatingUntil,
+} from "./update.mjs";
 
 const run = promisify(execFile);
 export const BASE = process.env.T3_URL || "http://127.0.0.1:3773";
@@ -359,6 +361,7 @@ export function statusLabel(state, conn = "live") {
   // A new thread has no server state until its first prompt starts it.
   if (conn === "new") return ["Not started", "muted"];
   if (conn === UPDATING) return [UPDATING, "warning"];
+  if (conn.startsWith(RESTARTED)) return [conn, "info"];
   if (conn !== "live") return ["Connecting", "info"];
   return {
     working: ["Working", "info"],
@@ -414,6 +417,8 @@ export function subscribe(
     retry = 500,
     timer,
     hold,
+    server, // last seen server process identity
+    notice,
     nextId = 1;
   let capabilities = {};
   const calls = new Map();
@@ -507,7 +512,7 @@ export function subscribe(
           if (!healthy) {
             healthy = true;
             retry = 500;
-            onConn?.("live");
+            announce();
           }
           for (const v of m.values || []) {
             onValue?.(v);
@@ -545,6 +550,7 @@ export function subscribe(
       }
     };
     ws.onclose = () => {
+      clearTimeout(notice);
       rejectCalls(
         "Connection lost; command outcome may be unknown (not retried)",
       );
@@ -554,6 +560,16 @@ export function subscribe(
       }
     };
     ws.onerror = () => {};
+  }
+  // Live again: say once if a different server process now answers (update,
+  // crash, manual restart), then settle on "live".
+  function announce() {
+    const id = serverIdentity(new URL(BASE).port || 80);
+    const restarted = id && server && id.key !== server.key;
+    if (id) server = id;
+    if (!restarted) return onConn?.("live");
+    onConn?.(`${RESTARTED} (${id.serverVersion})`);
+    notice = setTimeout(() => onConn?.("live"), 5000);
   }
   function later() {
     if (closed) return;
@@ -566,6 +582,7 @@ export function subscribe(
   const close = () => {
     closed = true;
     clearTimeout(timer);
+    clearTimeout(notice);
     hold?.();
     rejectCalls("Closed");
     ws?.close();

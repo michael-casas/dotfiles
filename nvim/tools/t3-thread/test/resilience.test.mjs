@@ -231,3 +231,51 @@ test("A3: a live server's 401 still issues a new session token", async (t) => {
   assert.ok(fake.counts.http >= 1, "asked the live server first");
   assert.ok(r.spawns.length >= 1 && r.spawns.every((a) => a.startsWith("auth session issue")), r.spawns.join("; "));
 });
+
+function runtimeFile(home, fields) {
+  fs.mkdirSync(path.join(home.home, "userdata"), { recursive: true });
+  const file = path.join(home.home, "userdata", "server-runtime.json");
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, host: "127.0.0.1", origin: "fixture", ...fields }));
+  fs.renameSync(`${file}.tmp`, file);
+}
+
+test("A4: a reconnect to a different server process is reported once", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot });
+  t.after(() => fake.close());
+  const port = Number(new URL(fake.url).port);
+  const home = t3home(t);
+  runtimeFile(home, { pid: 101, startedAt: "2026-11-17T21:00:00.000Z", serverVersion: "0.1.10-fixture", port });
+  const t3 = await adapter(t, fake.url, { T3CODE_HOME: home.home });
+  const conns = [];
+  const close = t3.subscribe("t", { onConn: (c) => conns.push(c) });
+  t.after(close);
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  const restarted = () => conns.filter((c) => c.startsWith("T3 server restarted"));
+  assert.deepEqual(restarted(), [], "no notice on the first connection");
+
+  // Same server process: an ordinary reconnect says nothing.
+  fake.dropAll();
+  assert.ok(await until(() => fake.counts.upgrades === 2 && conns.at(-1) === "live"));
+  assert.deepEqual(restarted(), []);
+
+  runtimeFile(home, { pid: 202, startedAt: "2026-11-17T21:33:13.552Z", serverVersion: "0.1.11-fixture", port });
+  fake.dropAll();
+  assert.ok(await until(() => restarted().length === 1), conns.join(" | "));
+  assert.deepEqual(restarted(), ["T3 server restarted (0.1.11-fixture)"]);
+  assert.deepEqual(statusLabel(null, restarted()[0]), ["T3 server restarted (0.1.11-fixture)", "info"]);
+
+  // A record for some other server (another port) is never attributed to ours.
+  runtimeFile(home, { pid: 303, startedAt: "2026-11-17T22:00:00.000Z", serverVersion: "0.1.12-fixture", port: port + 1 });
+  fake.dropAll();
+  assert.ok(await until(() => fake.counts.upgrades === 4));
+  await sleep(200);
+  assert.equal(restarted().length, 1, "reported once");
+});
+
+test("A4: the restart notice still counts as connected for interrupt", async () => {
+  const C = await import("../control.mjs");
+  const context = { threadId: "t", conn: "T3 server restarted (0.1.11-fixture)", working: true, busy: false };
+  const opened = C.interrupt(null, "open", context).dialog;
+  assert.equal(C.interrupt(opened, "yes", context).stop, true);
+  assert.equal(C.interrupt(opened, "yes", { ...context, conn: "T3 updating…" }).stop, undefined);
+});
