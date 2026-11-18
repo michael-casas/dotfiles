@@ -54,6 +54,26 @@ local function base_url()
   return ((env and env ~= "") and env or "http://127.0.0.1:3773"):gsub("/+$", "")
 end
 
+-- The endpoint's port (explicit, or the scheme default), ignoring userinfo.
+local function url_port()
+  local scheme, rest = base_url():match("^(%a[%w+.-]*)://(.*)$")
+  if not scheme then
+    return nil
+  end
+  local authority = (rest:match("^[^/?#]*") or ""):gsub("^.*@", "")
+  local port = authority:match("^%[.*%]:(%d+)$") or authority:match("^[^%[:]*:(%d+)$")
+  return tonumber(port) or ({ http = 80, https = 443 })[scheme:lower()]
+end
+
+-- The supported flow is the local desktop: the endpoint and the desktop home
+-- describe one backend. A different runtime port means they do not.
+local function disagreement(rt)
+  local port = url_port()
+  if rt and rt.port and port and rt.port ~= port then
+    return ("endpoint and desktop home disagree (port %d vs %d)"):format(port, rt.port)
+  end
+end
+
 local function decode(text)
   local ok, value = pcall(vim.json.decode, text or "")
   return ok and type(value) == "table" and value or nil
@@ -230,6 +250,7 @@ function M.status()
       else
         parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
       end
+      parts[#parts + 1] = disagreement(rt or nil)
       parts[#parts + 1] = marker_text(state.marker)
       parts[#parts + 1] = clients_text(clients())
       notify(table.concat(parts, " · "))
@@ -507,6 +528,8 @@ local function validate(run, cb)
       local rt = state.runtime
       if not (rt and rt.pid) then
         return refuse(run, "cannot read the server's pid from server-runtime.json; not starting an update")
+      elseif disagreement(rt) then
+        return refuse(run, disagreement(rt) .. "; not starting an update")
       end
       cb(rt)
     end)
