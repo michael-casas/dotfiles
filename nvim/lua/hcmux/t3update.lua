@@ -47,6 +47,8 @@ function M.paths()
   }
 end
 
+-- The probe destination only. Notices never show it: T3_URL may carry
+-- credentials (userinfo, query).
 local function base_url()
   local env = vim.env.T3_URL
   return ((env and env ~= "") and env or "http://127.0.0.1:3773"):gsub("/+$", "")
@@ -219,7 +221,7 @@ end
 function M.status()
   probe(function(up)
     read_state(function(state)
-      local parts = { up and "server up" or ("server unreachable at " .. base_url()) }
+      local parts = { up and "server up" or "server unreachable" }
       local rt = state.runtime
       if rt == nil then
         parts[#parts + 1] = "no server-runtime.json"
@@ -493,7 +495,7 @@ local function validate(run, cb)
           vim.log.levels.WARN
         )
       elseif not up then
-        return refuse(run, "server unreachable at " .. base_url() .. "; not starting an update")
+        return refuse(run, "server unreachable; not starting an update")
       end
       local rt = state.runtime
       if not (rt and rt.pid) then
