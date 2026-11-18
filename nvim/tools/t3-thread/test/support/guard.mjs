@@ -16,7 +16,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const self = fileURLToPath(import.meta.url);
-const { lstatSync: lstat, readlinkSync: readlink } = fs; // captured before fs is wrapped
+const { lstatSync: lstat, readlinkSync: readlink, readdirSync: readdir, statSync: statOf } = fs; // captured before fs is wrapped
 const realpath = fs.realpathSync.native;
 const realHome = process.env.T3UPD_GUARD_REAL_HOME || os.homedir();
 const forbidden = [path.join(realHome, ".t3"), path.join(realHome, ".local/state/envi")];
@@ -59,7 +59,8 @@ net.Socket.prototype.connect = function (...args) {
 
 // The filesystem target, not just the spelling: resolve symlinks, a missing
 // path through its nearest existing parent, and a dangling symlink through
-// its target.
+// its stored target. Raw paths are joined as strings, never normalized: in
+// link/.. the OS follows the link before the "..".
 const stat = (p) => { try { return lstat(p, { throwIfNoEntry: false }); } catch {} }; // ENOTDIR: missing
 function resolved(abs, depth = 0) {
   for (let p = abs, rest = []; ; rest.unshift(path.basename(p)), p = path.dirname(p)) {
@@ -67,7 +68,10 @@ function resolved(abs, depth = 0) {
     if (!st) { if (p === path.dirname(p)) return abs; continue; }
     try { return path.join(realpath(p), ...rest); } catch {}
     if (!st.isSymbolicLink() || depth > 40) return abs;
-    try { return resolved(path.join(path.resolve(path.dirname(p), readlink(p)), ...rest), depth + 1); } catch { return abs; }
+    try {
+      const to = readlink(p); // relative to the link's directory, as stored
+      return resolved([path.isAbsolute(to) ? to : `${path.dirname(p)}/${to}`, ...rest].join("/"), depth + 1);
+    } catch { return abs; }
   }
 }
 const protectedRoots = [...new Set([...forbidden, ...forbidden.map(resolved)])];
@@ -82,13 +86,16 @@ const under = (abs) => protectedRoots.some((f) => abs === f || abs.startsWith(`$
 // during the run (moving a resolved directory, swapping one for a symlink) is
 // not seen. The guard is for accidental access by the code under test.
 let verdicts = new Map(), dirs = new Map();
-const live = (p) => {
+// Absolute but never normalized: the target check walks it as the OS does.
+const rawPath = (p) => {
   if (p instanceof URL) p = p.protocol === "file:" ? fileURLToPath(p) : null;
   else if (Buffer.isBuffer(p)) p = p.toString();
-  if (typeof p !== "string") return false; // file descriptors, handles
-  // The target check walks the path as the OS does, so it is never normalized
-  // first: in link/.. the OS follows the link before the "..".
-  const raw = path.isAbsolute(p) ? p : `${process.cwd()}/${p}`;
+  if (typeof p !== "string") return null; // file descriptors, handles
+  return path.isAbsolute(p) ? p : `${process.cwd()}/${p}`;
+};
+const live = (p) => {
+  const raw = rawPath(p);
+  if (raw === null) return false;
   let verdict = verdicts?.get(raw);
   if (verdict !== undefined) return verdict;
   verdict = under(path.resolve(raw)) || under(target(raw));
@@ -101,16 +108,46 @@ function target(raw) {
   if (!dirs.has(dir)) dirs.set(dir, resolved(dir));
   return path.join(dirs.get(dir), path.basename(raw));
 }
+// Recursive calls act on a whole tree, not just the path they are given (and
+// cpSync works natively, past these wrappers). So the tree is walked first,
+// the way the call walks it. A copy reads and writes every entry: each one is
+// checked at its source and at its destination, and links are followed only
+// under dereference (otherwise a link is copied as a link, never read
+// through). A recursive readdir lists every directory it reaches, through
+// directory links too. A protected directory is never listed, not even here.
+function treeReaches(src, dest, follow) {
+  const seen = new Set();
+  const walk = (s, d) => {
+    const st = stat(s), followed = !!st && (!st.isSymbolicLink() || follow);
+    if (d !== null && (live(d) || (followed && live(s)))) return true;
+    if (!followed) return false;
+    let real, names;
+    try { if (!(st.isDirectory() || statOf(s).isDirectory())) return false; } catch { return false; } // dangling
+    if (live(s)) return true;
+    try { real = realpath(s); names = readdir(s); } catch { return false; } // unreadable: the call fails too
+    if (seen.has(real)) return false;
+    seen.add(real);
+    return names.some((name) => walk(`${s}/${name}`, d === null ? null : `${d}/${name}`));
+  };
+  const s = rawPath(src), d = dest === undefined ? null : rawPath(dest);
+  return s !== null && (dest === undefined || d !== null) && walk(s, d);
+}
+const opt = (o, key) => typeof o === "object" && o?.[key] === true;
+const TREE = new Map([
+  ["cp", (src, dest, o) => treeReaches(src, dest, opt(o, "dereference"))],
+  ["readdir", (dir, o) => opt(o, "recursive") && treeReaches(dir, undefined, true)],
+]);
 const RESHAPES = /^(rename|symlink|link|unlink|rm|cp)/;
 const TWO_PATHS = /^(rename|copyFile|link|symlink|cp)(Sync)?$/;
 function wrap(api, label) {
   for (const name of Object.keys(api)) {
     const original = api[name];
     if (typeof original !== "function" || /^[A-Z]/.test(name)) continue; // skip classes
-    const reshapes = RESHAPES.test(name), twoPaths = TWO_PATHS.test(name);
+    const reshapes = RESHAPES.test(name), twoPaths = TWO_PATHS.test(name), tree = TREE.get(name.replace(/Sync$/, ""));
     api[name] = function (...args) {
       if (reshapes) verdicts = dirs = null;
-      if (live(args[0]) || (twoPaths && live(args[1]))) deny(`${label}.${name} on live T3 data`);
+      if (live(args[0]) || (twoPaths && live(args[1])) || tree?.(...args))
+        deny(`${label}.${name} on live T3 data`);
       return original.apply(this, args);
     };
   }

@@ -150,3 +150,87 @@ out.lexicalSibling = fs.readFileSync(outside + "/plain/../ordinary", "utf8");`, 
     renameInto: "blocked", sibling: "ok", lexicalSibling: "ok" }, r.stderr);
   assert.equal(r.status, 1, "a caught denial still fails the run");
 });
+
+test("F11: a dangling link's stored target is walked as the OS does (round 5)", (t) => {
+  let prot;
+  const r = child(t, `
+const fs = (await import("node:fs")).default;
+const outside = process.env.ALIAS_DIR;
+const attempt = async (name, op) => { try { await op(); out[name] = "written"; } catch (e) { out[name] = /isolation guard/.test(e.message) ? "blocked" : e.message; } };
+await attempt("relativeTarget", () => fs.writeFileSync(outside + "/dangling", "x"));
+await attempt("absoluteTarget", () => fs.writeFileSync(outside + "/dangling-abs", "x"));
+await attempt("promises", () => fs.promises.writeFile(outside + "/dangling", "x"));
+await attempt("ordinaryTarget", () => fs.writeFileSync(outside + "/plain-dangling", "x"));
+out.made = fs.readFileSync(outside + "/made", "utf8");`, (dummy) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-dangling-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(dummy, ".t3", "sub"));
+    fs.mkdirSync(path.join(outside, "plain"));
+    fs.symlinkSync(path.join(dummy, ".t3", "sub"), path.join(outside, "link"));
+    // Stored, unnormalized targets: link/.. is the protected root to the OS.
+    fs.symlinkSync("link/../new-file", path.join(outside, "dangling"));
+    fs.symlinkSync(`${outside}/link/../new-abs`, path.join(outside, "dangling-abs"));
+    fs.symlinkSync("plain/../made", path.join(outside, "plain-dangling"));
+    prot = path.join(dummy, ".t3");
+    return { ALIAS_DIR: outside };
+  });
+  assert.deepEqual(r.out, { relativeTarget: "blocked", absoluteTarget: "blocked", promises: "blocked",
+    ordinaryTarget: "written", made: "x" }, r.stderr);
+  assert.deepEqual(fs.readdirSync(prot).sort(), ["sentinel", "sub"], "nothing was created in the protected data");
+  assert.equal(r.status, 1, "a caught denial still fails the run");
+});
+
+test("F11: recursive copies and listings are checked entry by entry, the way they walk the tree (round 5)", (t) => {
+  let outside, prot;
+  const r = child(t, `
+const fs = (await import("node:fs")).default;
+const fsp = await import("node:fs/promises");
+const outside = process.env.ALIAS_DIR;
+const deref = { recursive: true, dereference: true };
+const attempt = async (name, op) => { try { await op(); out[name] = "copied"; } catch (e) { out[name] = /isolation guard/.test(e.message) ? "blocked" : e.message; } };
+// tree/alias -> the protected sentinel; tree/dir/inner -> the protected directory.
+await attempt("sync", () => fs.cpSync(outside + "/tree", outside + "/c-sync", deref));
+await attempt("callback", () => new Promise((ok, no) => fs.cp(outside + "/tree", outside + "/c-cb", deref, (e) => (e ? no(e) : ok()))));
+await attempt("promises", () => fs.promises.cp(outside + "/tree", outside + "/c-p", deref));
+await attempt("fsPromisesModule", () => fsp.cp(outside + "/tree", outside + "/c-m", deref));
+await attempt("nestedDir", () => fs.cpSync(outside + "/tree2", outside + "/c-dir", deref));
+await attempt("relative", () => { process.chdir(outside); return fs.cpSync("tree", "c-rel", deref); });
+// The destination side: dest/sub is an alias into the protected data.
+await attempt("intoAliasedDest", () => fs.cpSync(outside + "/src", outside + "/dest", { recursive: true }));
+// A recursive listing descends through directory links: tree2/dir/inner lists the protected directory.
+const list = (name, op) => attempt(name, async () => { out[name + "Names"] = (await op()).sort(); });
+await list("readdir", () => fs.readdirSync(outside + "/tree2", { recursive: true }));
+await list("readdirCallback", () => new Promise((ok, no) => fs.readdir(outside + "/tree2", { recursive: true }, (e, v) => (e ? no(e) : ok(v)))));
+await list("readdirPromises", () => fs.promises.readdir(outside + "/tree2", { recursive: true }));
+// Controls: an ordinary tree (with an in-tree alias) copies; without dereference a link is copied as a link;
+// a listing names a link to a protected file without reading through it.
+await attempt("ordinary", () => fs.cpSync(outside + "/plain", outside + "/c-plain", deref));
+await attempt("linkAsLink", () => fs.cpSync(outside + "/tree", outside + "/c-link", { recursive: true }));
+await list("listsLinkName", () => fs.readdirSync(outside + "/tree", { recursive: true }));
+out.plain = fs.readFileSync(outside + "/c-plain/via", "utf8");`, (dummy) => {
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-copy-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    prot = path.join(dummy, ".t3");
+    fs.mkdirSync(path.join(prot, "sub"));
+    for (const d of ["tree", "tree2/dir", "src/sub", "dest", "plain"]) fs.mkdirSync(path.join(outside, d), { recursive: true });
+    fs.writeFileSync(path.join(outside, "tree", "file"), "ok");
+    fs.symlinkSync(path.join(prot, "sentinel"), path.join(outside, "tree", "alias"));
+    fs.symlinkSync(prot, path.join(outside, "tree2", "dir", "inner"));
+    fs.writeFileSync(path.join(outside, "src", "sub", "planted"), "x");
+    fs.symlinkSync(path.join(prot, "sub"), path.join(outside, "dest", "sub"));
+    fs.writeFileSync(path.join(outside, "plain", "file"), "ok");
+    fs.symlinkSync("file", path.join(outside, "plain", "via"));
+    return { ALIAS_DIR: outside };
+  });
+  assert.deepEqual(r.out, { sync: "blocked", callback: "blocked", promises: "blocked", fsPromisesModule: "blocked",
+    nestedDir: "blocked", relative: "blocked", intoAliasedDest: "blocked", readdir: "blocked", readdirCallback: "blocked",
+    readdirPromises: "blocked", ordinary: "copied", linkAsLink: "copied", listsLinkName: "copied",
+    listsLinkNameNames: ["alias", "file"], plain: "ok" }, r.stderr);
+  assert.ok(fs.lstatSync(path.join(outside, "c-link", "alias")).isSymbolicLink(), "copied as a link, not read through");
+  // Checked from here, outside the guarded child: no protected byte was copied out, nothing was written in.
+  const copies = ["c-sync", "c-cb", "c-p", "c-m", "c-rel", "c-dir"].flatMap((d) => fs.existsSync(path.join(outside, d))
+    ? fs.readdirSync(path.join(outside, d), { recursive: true }).map((f) => `${d}/${f}`) : []);
+  assert.deepEqual(copies.filter((f) => /alias|inner/.test(f)), [], "no protected entry was copied");
+  assert.deepEqual(fs.readdirSync(path.join(prot, "sub")), [], "nothing was written into the protected data");
+  assert.equal(r.status, 1, "a caught denial still fails the run");
+});
