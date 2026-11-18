@@ -294,10 +294,15 @@ test("A2: marker contract table (absent, valid, expired, malformed, unreadable)"
   assert.equal(updatingUntil(now), now + 3_600_000, "valid JSON is trusted as written");
   home.write({ startedAt: now - 70_000, expiresAt: now - 1 });
   assert.equal(updatingUntil(now), 0, "expired = absent");
-  for (const body of ["{not json", JSON.stringify({ startedAt: now })]) {
+  // F04: valid means numeric startedAt and expiresAt (desktop schema); any other
+  // shape is malformed, even with an expired or future expiresAt.
+  for (const body of ["{not json", JSON.stringify({ startedAt: now }), JSON.stringify({ expiresAt: now - 1 }),
+    JSON.stringify({ expiresAt: now + 3_600_000 }), JSON.stringify({ startedAt: "x", expiresAt: now - 1 }),
+    JSON.stringify({ startedAt: String(now), expiresAt: now + 60_000 }), "null", "[]"]) {
     home.write(body);
     const mtime = fs.statSync(home.marker).mtimeMs;
     assert.equal(updatingUntil(now), mtime + 60_000, `malformed: ${body}`);
+    assert.equal(updatingUntil(mtime + 59_999), mtime + 60_000, `malformed still holds just before the deadline: ${body}`);
     assert.equal(updatingUntil(mtime + 60_000), 0, "absent once mtime + 60 s passes");
   }
   home.remove();

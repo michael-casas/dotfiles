@@ -19,8 +19,9 @@ const markerPath = () => path.join(runtimeDir(), "desktop-update-in-progress");
 
 /**
  * Epoch ms until which an update is in progress, or 0 when none is. Shared
- * contract: absent or expired = no update; valid JSON = until expiresAt;
- * malformed or unreadable = until 60 s after its mtime.
+ * contract: absent or expired = no update; valid = until expiresAt; malformed
+ * or unreadable = until 60 s after its mtime. Valid means the desktop's schema:
+ * numeric startedAt and expiresAt.
  */
 export function updatingUntil(now = Date.now()) {
   let mtime, until;
@@ -31,8 +32,8 @@ export function updatingUntil(now = Date.now()) {
   }
   until = mtime + TTL_MS; // malformed: present until 60 s after its mtime
   try {
-    const { expiresAt } = JSON.parse(fs.readFileSync(markerPath(), "utf8"));
-    if (Number.isFinite(expiresAt)) until = expiresAt;
+    const { startedAt, expiresAt } = JSON.parse(fs.readFileSync(markerPath(), "utf8"));
+    if (Number.isFinite(startedAt) && Number.isFinite(expiresAt)) until = expiresAt;
   } catch {}
   return until > now ? until : 0;
 }
