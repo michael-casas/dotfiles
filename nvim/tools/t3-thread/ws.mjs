@@ -6,6 +6,8 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
+import net from "node:net";
+import tls from "node:tls";
 
 export const OPEN = 1;
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -26,9 +28,17 @@ export function connectWs(url, { signal } = {}) {
   const ws = { readyState: 0 };
   const key = crypto.randomBytes(16).toString("base64");
   const target = url.replace(/^ws/, "http");
-  let socket, buffer = Buffer.alloc(0), parts = [], done = false;
-  const req = (target.startsWith("https:") ? https : http).request(target, { agent: false, headers: {
-    Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": key } });
+  let socket, raw, closing, buffer = Buffer.alloc(0), parts = [], done = false;
+  // WSS runs TLS over our own TCP socket (raw), so a release can reset it.
+  const secure = target.startsWith("https:");
+  const req = (secure ? https : http).request(target, { agent: secure ? undefined : false, headers: {
+    Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": key },
+    ...(secure && { createConnection: (o) => tls.connect({ ...o, socket: (raw = net.connect(o.port, o.hostname || o.host)) }) }) });
+  // A reset (RST) is noticed by a peer that has not read EOF; only TCP can do it.
+  const drop = (s) => {
+    try { (raw ?? s).resetAndDestroy(); } catch {} // TCP reset first (under TLS too) ...
+    s.destroy(); // ... then the outer socket; for plain TCP this is a no-op
+  };
   const finish = () => {
     if (done) return;
     done = true;
@@ -51,11 +61,11 @@ export function connectWs(url, { signal } = {}) {
       const data = Buffer.from(buffer.subarray(at, at + len));
       buffer = buffer.subarray(at + len);
       if (mask) for (let i = 0; i < data.length; i++) data[i] ^= mask[i % 4];
-      if (opcode === 8) { // peer-initiated: one masked Close back, FIN, bounded wait for its EOF
-        const s = socket;
+      if (opcode === 8) { // peer-initiated: one masked Close back, then wait (bounded) for its TCP close
+        closing = socket;
         socket = undefined;
-        s.end(frame(8, data.subarray(0, 2)));
-        setTimeout(() => s.destroy(), 1000).unref();
+        closing.write(frame(8, data.subarray(0, 2)));
+        setTimeout(ws.release, 1000).unref();
         return finish();
       }
       if (opcode === 9) socket.write(frame(10, data));
@@ -93,17 +103,17 @@ export function connectWs(url, { signal } = {}) {
     if (done) return;
     const s = socket ?? req.socket;
     socket = undefined;
-    // resetAndDestroy() needs a TCP handle; a TLS socket (WSS) is destroyed instead.
-    const drop = () => { try { s.resetAndDestroy(); } catch { s.destroy(); } };
     try {
       if (ws.readyState === OPEN) {
         s.write(frame(8, Buffer.from([0x03, 0xe8])));
-        setTimeout(() => s.destroyed || drop(), 100).unref();
-      } else if (s && !s.destroyed) drop();
+        setTimeout(() => s.destroyed || drop(s), 100).unref();
+      } else if (s && !s.destroyed) drop(s);
     } finally {
       finish(); // retired whatever the teardown did
     }
   };
+  // A socket still closing after a peer's Close (see above): release it now.
+  ws.release = () => { if (closing && !closing.destroyed) drop(closing); closing = undefined; };
   if (signal?.aborted) queueMicrotask(ws.close);
   else signal?.addEventListener("abort", ws.close, { once: true });
   return ws;

@@ -470,7 +470,8 @@ export function subscribe(
     notice,
     nextId = 1,
     generation = 0, // the current connection attempt; older ones are retired
-    attempt; // its AbortController: ticket HTTP, auth retry and websocket
+    attempt, // its AbortController: ticket HTTP, auth retry and websocket
+    lingering; // a lost socket still finishing a peer-first close
   let capabilities = {};
   const calls = new Map();
   function rejectCalls(message) {
@@ -515,6 +516,7 @@ export function subscribe(
   }
   // Desktop update: let go of the server and wait, with no attempts and no CLI.
   function holdUpdate() {
+    lingering?.release();
     retire("T3 is updating; command outcome may be unknown (not retried)");
     onConn?.(UPDATING);
     hold ??= holdWhileUpdating(() => {
@@ -622,6 +624,7 @@ export function subscribe(
     };
     sock.onclose = () => {
       if (!current()) return;
+      lingering = sock;
       if (updatingUntil()) return holdUpdate(); // no reconnect attempts
       retire("Connection lost; command outcome may be unknown (not retried)");
       onConn?.("reconnecting");
@@ -654,6 +657,7 @@ export function subscribe(
     closed = true;
     unwatch();
     hold?.();
+    lingering?.release();
     retire("Closed");
   };
   close.rpc = request;

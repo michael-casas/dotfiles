@@ -98,12 +98,14 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
     res.writeHead(404);
     res.end();
   };
-  const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
+  // withholdClose keeps the peer half-open after the client's EOF (TLS too).
+  const server = tls ? https.createServer({ ...tls, allowHalfOpen: withholdClose }, handler) : http.createServer(handler);
   server.on("upgrade", (req, socket) => {
     counts.upgrades++;
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
+    if (withholdClose) socket.allowHalfOpen = true;
     if (no101) return;
     beforeUpgrade?.(req);
     const key = req.headers["sec-websocket-key"];

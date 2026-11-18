@@ -493,3 +493,29 @@ test("F14: a close from both sides at once sends a single Close frame and holds"
   assert.equal(fake.counts.closeFrames <= 1, true, `close frames: ${fake.counts.closeFrames}`);
   assert.equal(fake.counts.upgrades, 1, "no reconnect during the marker");
 });
+
+// ── round 3: peer-first close vs marker; default-port identity ──────────────
+for (const transport of ["ws", "wss"]) for (const client of ["thread", "feed"])
+test(`F15: a ${transport} ${client} socket closing peer-first is still released by the marker`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, shell, withholdClose: true, ...(transport === "wss" ? { tls: tlsFixture(t) } : {}) });
+  t.after(() => fake.close());
+  const home = t3home(t);
+  const t3 = await adapter(t, fake.url, home);
+  const states = [];
+  if (client === "thread") t.after(t3.subscribe("t", { onConn: (c) => states.push(c) }));
+  else { const out = feed(t, t3); setInterval(() => { const m = out.at(-1)?.message; if (m && states.at(-1) !== m) states.push(m); }, 5).unref(); }
+  assert.ok(await until(() => fake.requestLog.length > 0));
+  fake.serverClose();
+  assert.ok(await until(() => fake.counts.closeFrames === 1, 500), "acknowledged");
+  home.write(); // the peer withholds its TCP close: only our release can end it
+  assert.ok(await until(() => fake.openConnections() === 0, 500), "peer end sees the connection gone");
+  assert.ok(await until(() => states.at(-1) === "T3 updating…", 500));
+  assert.equal(fake.counts.closeFrames, 1, "one acknowledgement");
+  assert.equal(fake.counts.unmaskedClose, 0);
+  assert.ok(states.filter((s) => /reconnecting/.test(s)).length <= 1, `one loss transition: ${states.join(" | ")}`);
+  await sleep(300);
+  assert.equal(fake.counts.upgrades, 1, "no upgrade during the hold");
+  home.remove();
+  assert.ok(await until(() => fake.counts.upgrades === 2, 2000), "one eligible recovery");
+});
+
