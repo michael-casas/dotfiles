@@ -98,4 +98,25 @@ end)
 vim.fn.getcharstr = function()
   return "y"
 end
+F.case("a marker appearing during the final preflight read refuses (no question)", function()
+  fresh()
+  local inserted = F.race_marker(1)
+  U.update()
+  F.until_true(inserted, 1000, "race")
+  refused("update already in progress")
+  assert(U.current() == nil)
+end)
+
+F.case("a marker appearing during the final read after y refuses", function()
+  fresh(working)
+  vim.fn.getcharstr = function()
+    return "y"
+  end
+  local inserted = F.race_marker(2)
+  U.update()
+  F.until_true(inserted, 1000, "race")
+  refused("update already in progress")
+  assert(#F.of("curl") == 2, "validated twice")
+end)
+
 F.done()

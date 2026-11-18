@@ -51,6 +51,7 @@ vim.system = function(argv, opts, cb)
   end, 5)
   return {}
 end
+F.system = vim.system
 function F.server(up)
   F.reply.curl = { code = up and 0 or 7, stdout = up and "200" or "000" }
 end
@@ -147,7 +148,7 @@ function F.stop(U)
   local run = U.current()
   if run then
     U.run = nil
-    for _, handle in pairs({ run.timer, run.fs }) do
+    for _, handle in pairs({ run.timer, run.fs, run.deadline }) do
       if not handle:is_closing() then
         handle:stop()
         handle:close()
@@ -156,10 +157,48 @@ function F.stop(U)
   end
   vim.wait(20)
 end
+-- The race a decision must survive (the critic's probe): the first marker
+-- stat taken after the `curls`-th probe truthfully reports ENOENT, then an
+-- active marker is written while a runtime read of that round is held open.
+-- Returns a function telling whether the marker was inserted.
+local uv_stat, uv_open = vim.uv.fs_stat, vim.uv.fs_open
+function F.race_marker(curls)
+  local armed, inserted = true, false
+  vim.uv.fs_stat = function(path, cb)
+    if path ~= F.marker or type(cb) ~= "function" or not armed or #F.of("curl") ~= curls then
+      return uv_stat(path, cb)
+    end
+    armed = false
+    return uv_stat(path, function(err, stat)
+      assert(not stat, "the raced stat must see no marker")
+      cb(err, stat)
+      vim.schedule(function()
+        F.set_marker(45)
+        inserted = true
+      end)
+    end)
+  end
+  vim.uv.fs_open = function(path, flags, mode, cb)
+    if path == F.runtime and type(cb) == "function" and #F.of("curl") == curls and not inserted then
+      local t = vim.uv.new_timer()
+      t:start(90, 0, function()
+        t:close()
+        uv_open(path, flags, mode, cb)
+      end)
+      return
+    end
+    return uv_open(path, flags, mode, cb)
+  end
+  return function()
+    return inserted
+  end
+end
+
 function F.reset()
   if F.U then
     F.stop(F.U)
   end
+  vim.uv.fs_stat, vim.uv.fs_open, vim.system = uv_stat, uv_open, F.system
   F.calls, F.notices = {}, {}
   F.reply = {}
   F.core.terms = {}

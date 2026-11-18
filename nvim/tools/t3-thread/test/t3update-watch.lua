@@ -161,4 +161,51 @@ F.case("B-R1-02 a stall needs the probe to fail on the re-read state", function(
   U.config.timeout_ms = 300
 end)
 
+F.case("B-R1-01 a reply after the deadline and before the next poll never wins", function()
+  U.config.poll_ms, U.config.timeout_ms = 200, 300
+  local run, before = start()
+  local reply_at
+  vim.system = function(argv, opts, cb)
+    if argv[1] ~= "curl" then
+      return F.system(argv, opts, cb)
+    end
+    F.calls[#F.calls + 1] = { argv = argv, opts = opts }
+    vim.defer_fn(function()
+      reply_at = vim.uv.now() - run.started
+      cb({ code = 0, stdout = "200", stderr = "", signal = 0 })
+    end, 140)
+    return {}
+  end
+  F.set_runtime(2000, "1.1.0")
+  F.until_true(function()
+    return U.current() == nil
+  end, 1500, "the deadline must end the run")
+  vim.wait(250)
+  assert(reply_at and reply_at >= 300, "the reply came after the deadline: " .. tostring(reply_at))
+  assert(F.count("timed out") == 1, "one timeout")
+  assert(not F.has("T3 updated") and not F.has("restarted"), "a late reply must not win")
+  for _, h in ipairs({ run.timer, run.fs, run.deadline }) do
+    assert(h:is_closing(), "handle left open")
+  end
+  assert(watch_probes(before) == 1, "one probe")
+  U.config.poll_ms, U.config.timeout_ms = 50, 300
+end)
+
+F.case("B-R1-02 a marker appearing during the post-probe read blocks success", function()
+  U.config.timeout_ms = 2000
+  local run = start()
+  local inserted = F.race_marker(#F.of("curl") + 1)
+  F.set_runtime(2000, "1.1.0")
+  F.until_true(inserted, 1000, "race")
+  vim.wait(250)
+  assert(vim.uv.fs_stat(F.marker), "marker present")
+  assert(not F.has("T3 updated") and not F.has("stalled"), "no decision on a stale marker sample")
+  assert(U.current() == run, "the watch continues")
+  os.remove(F.marker)
+  F.wait_notice("T3 updated: 1%.0%.0 → 1%.1%.0", 1500)
+  assert(F.count("T3 updated") == 1)
+  assert(run.timer:is_closing() and run.fs:is_closing() and run.deadline:is_closing())
+  U.config.timeout_ms = 300
+end)
+
 F.done()

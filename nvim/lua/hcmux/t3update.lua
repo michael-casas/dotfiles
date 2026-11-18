@@ -109,8 +109,8 @@ local function read_file(path, cb)
 end
 
 -- Only the non-secret fields; nil when absent, false when unreadable.
-local function read_runtime(cb)
-  read_file(M.paths().server, function(text, err)
+local function read_runtime(path, cb)
+  read_file(path, function(text, err)
     if missing(err) then
       return cb(nil)
     end
@@ -132,8 +132,9 @@ end
 -- unreadable is in progress until mtime + 60 s; expired counts as absent.
 -- cb(nil) absent, cb({ left_ms }) in progress, cb({ ago_ms }) expired.
 local TTL_MS = 60000
-local function read_marker(cb)
-  local path = M.paths().marker
+-- Paths are resolved on the main loop by the caller (vim.env is not
+-- available in libuv callbacks).
+local function read_marker(path, cb)
   vim.uv.fs_stat(path, function(serr, stat)
     if not stat then
       return cb(nil) -- absent (or not even stat-able: nothing to honour)
@@ -152,27 +153,6 @@ local function read_marker(cb)
       local left = deadline - now_ms()
       cb(left > 0 and { left_ms = left } or { ago_ms = -left })
     end)
-  end)
-end
-
--- cb({ marker, runtime }) on the main loop, after both async reads.
-local function read_state(cb)
-  local state, pending = {}, 2
-  local function done()
-    pending = pending - 1
-    if pending == 0 then
-      vim.schedule(function()
-        cb(state)
-      end)
-    end
-  end
-  read_marker(function(m)
-    state.marker = m
-    done()
-  end)
-  read_runtime(function(rt)
-    state.runtime = rt
-    done()
   end)
 end
 
@@ -204,6 +184,51 @@ local function probe(cb)
       cb(false)
     end)
   end
+end
+
+-- One observation to decide on: [probe] -> marker -> runtime -> marker. The
+-- marker is read last, and also before the runtime, so a marker that appears
+-- while the runtime is read is seen: `busy` is the in-progress marker either
+-- read saw. Every async stage returns through live(), so once the run ended
+-- or its deadline passed nothing further runs or prints. cb runs on the main
+-- loop with { up, runtime, marker, busy, expired }.
+local function observe(run, with_probe, cb)
+  local obs, paths = {}, M.paths()
+  local function live()
+    return run == nil or (M.run == run and not (run.deadline_at and vim.uv.now() >= run.deadline_at))
+  end
+  local function sample()
+    read_marker(paths.marker, function(first)
+      if not live() then
+        return
+      end
+      read_runtime(paths.server, function(rt)
+        if not live() then
+          return
+        end
+        read_marker(paths.marker, function(last)
+          vim.schedule(function()
+            if not live() then
+              return
+            end
+            obs.runtime, obs.marker = rt, last
+            obs.busy = (in_progress(last) and last) or (in_progress(first) and first) or nil
+            obs.expired = first ~= nil and first.ago_ms ~= nil and last ~= nil and last.ago_ms ~= nil
+            cb(obs)
+          end)
+        end)
+      end)
+    end)
+  end
+  if not with_probe then
+    return sample()
+  end
+  probe(function(up)
+    if live() then
+      obs.up = up
+      sample()
+    end
+  end)
 end
 
 -- envi T3 client buffers (t3.lua marks them), and the core client processes
@@ -251,22 +276,20 @@ local function clients_text()
 end
 
 function M.status()
-  probe(function(up)
-    read_state(function(state)
-      local parts = { up and "server up" or "server unreachable" }
-      local rt = state.runtime
-      if rt == nil then
-        parts[#parts + 1] = "no server-runtime.json"
-      elseif rt == false then
-        parts[#parts + 1] = "server-runtime.json unreadable"
-      else
-        parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
-      end
-      parts[#parts + 1] = disagreement(rt or nil)
-      parts[#parts + 1] = marker_text(state.marker)
-      parts[#parts + 1] = clients_text()
-      notify(table.concat(parts, " · "))
-    end)
+  observe(nil, true, function(state)
+    local parts = { state.up and "server up" or "server unreachable" }
+    local rt = state.runtime
+    if rt == nil then
+      parts[#parts + 1] = "no server-runtime.json"
+    elseif rt == false then
+      parts[#parts + 1] = "server-runtime.json unreadable"
+    else
+      parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
+    end
+    parts[#parts + 1] = disagreement(rt or nil)
+    parts[#parts + 1] = marker_text(state.busy or state.marker)
+    parts[#parts + 1] = clients_text()
+    notify(table.concat(parts, " · "))
   end)
 end
 
@@ -333,7 +356,7 @@ local function finish(run, text, level)
     return
   end
   M.run = nil
-  for _, handle in ipairs({ run.timer, run.fs }) do
+  for _, handle in pairs({ run.timer, run.fs, run.deadline }) do
     if not handle:is_closing() then
       handle:stop()
       handle:close()
@@ -374,40 +397,30 @@ local function succeed(run, rt)
   report_clients()
 end
 
--- One watch step. At most one async read/probe is in flight (run.busy), at
--- most one probe starts per poll_ms, and the deadline ends the run on every
--- path, including while a probe is in flight (its late result is dropped).
+-- One watch step: sample without a probe; when the runtime moved (or the
+-- marker expired over the baseline pid), probe at most once per poll_ms and
+-- decide only from that second, probed observation. One step runs at a time
+-- (run.busy). The deadline timer is authoritative; observe() drops any stage
+-- that returns after it.
 --
--- Success: marker absent or expired, a pid other than the baseline, and a
--- reachable server, all re-read after the probe answers. Stall (once): the
--- marker expired (after it was seen), the readable pid is the baseline one
--- and the probe failed. Anything else, contradictory or unknown, keeps
--- watching until the deadline.
+-- Success: no marker in progress in either marker read, the same new pid,
+-- and a reachable server.
+-- Stall (once): both marker reads expired, the readable pid is the baseline
+-- one and the probe failed. Anything else keeps watching.
 local function check(run)
-  if M.run ~= run then
-    return
-  end
-  local now = vim.uv.now()
-  if now >= run.started + M.config.timeout_ms then
-    return finish(run, "update watch timed out; :T3Status shows the current state", vim.log.levels.WARN)
-  end
-  if run.busy then
+  if M.run ~= run or run.busy then
     return
   end
   run.busy = true
-  read_state(function(state)
+  observe(run, false, function(obs)
     run.busy = false
-    if M.run ~= run then
-      return
-    end
-    local m, rt = state.marker, state.runtime
-    if in_progress(m) and not run.saw then
+    if obs.busy and not run.saw then
       run.saw = true
       notify("T3 is updating…")
     end
-    local pid = not in_progress(m) and rt and rt.pid or nil
+    local pid = not obs.busy and obs.runtime and obs.runtime.pid or nil
     local moved = pid ~= nil and pid ~= run.old.pid
-    local stalling = run.saw and not run.stalled and m and m.ago_ms and pid == run.old.pid
+    local stalling = run.saw and not run.stalled and obs.expired and pid == run.old.pid
     if not (moved or stalling) then
       if not run.saw and vim.uv.now() >= run.started + M.config.start_timeout_ms then
         finish(
@@ -416,38 +429,41 @@ local function check(run)
         )
       end
       return
-    end
-    if vim.uv.now() < run.next_probe then
+    elseif vim.uv.now() < run.next_probe then
       return -- rate limit: the timer comes back within poll_ms
     end
     run.next_probe = vim.uv.now() + M.config.poll_ms
     run.busy = true
-    probe(function(up)
-      read_state(function(after)
-        run.busy = false
-        if M.run ~= run then
-          return
-        end
-        local m2, rt2 = after.marker, after.runtime
-        local pid2 = not in_progress(m2) and rt2 and rt2.pid or nil
-        if moved and up and pid2 ~= nil and pid2 ~= run.old.pid and pid2 == pid then
-          succeed(run, rt2)
-        elseif stalling and not up and m2 and m2.ago_ms and pid2 == run.old.pid then
-          run.stalled = true
-          notify(
-            ("update stalled: the marker expired, the server is still pid %d and unreachable; still watching"):format(
-              run.old.pid
-            ),
-            vim.log.levels.WARN
-          )
-        end
-      end)
+    observe(run, true, function(after)
+      run.busy = false
+      local rt = after.runtime
+      local now_pid = not after.busy and rt and rt.pid or nil
+      if moved and after.up and now_pid == pid then
+        succeed(run, rt)
+      elseif stalling and not after.up and after.expired and now_pid == run.old.pid then
+        run.stalled = true
+        notify(
+          ("update stalled: the marker expired, the server is still pid %d and unreachable; still watching"):format(
+            run.old.pid
+          ),
+          vim.log.levels.WARN
+        )
+      end
     end)
   end)
 end
 
 local function watch(run)
   run.started, run.next_probe = vim.uv.now(), 0
+  run.deadline_at = run.started + M.config.timeout_ms
+  run.deadline = vim.uv.new_timer()
+  run.deadline:start(
+    M.config.timeout_ms,
+    0,
+    vim.schedule_wrap(function()
+      finish(run, "update watch timed out; :T3Status shows the current state", vim.log.levels.WARN)
+    end)
+  )
   run.timer = vim.uv.new_timer()
   run.timer:start(
     M.config.poll_ms,
@@ -528,23 +544,18 @@ end
 -- the server answers and its pid is known; otherwise the run is refused.
 -- Admission between processes stays with the desktop.
 local function validate(run, cb)
-  probe(function(up)
-    read_state(function(state)
-      if M.run ~= run then
-        return
-      elseif in_progress(state.marker) then
-        return refuse(run, busy_text(state.marker), vim.log.levels.WARN)
-      elseif not up then
-        return refuse(run, "server unreachable; not starting an update")
-      end
-      local rt = state.runtime
-      if not (rt and rt.pid) then
-        return refuse(run, "cannot read the server's pid from server-runtime.json; not starting an update")
-      elseif disagreement(rt) then
-        return refuse(run, disagreement(rt) .. "; not starting an update")
-      end
-      cb(rt)
-    end)
+  observe(run, true, function(obs)
+    local rt = obs.runtime
+    if obs.busy then
+      return refuse(run, busy_text(obs.busy), vim.log.levels.WARN)
+    elseif not obs.up then
+      return refuse(run, "server unreachable; not starting an update")
+    elseif not (rt and rt.pid) then
+      return refuse(run, "cannot read the server's pid from server-runtime.json; not starting an update")
+    elseif disagreement(rt) then
+      return refuse(run, disagreement(rt) .. "; not starting an update")
+    end
+    cb(rt)
   end)
 end
 
@@ -554,29 +565,32 @@ function M.update()
   end
   local run = {}
   M.run = run
-  read_state(function(first)
-    if M.run ~= run then
-      return
-    elseif in_progress(first.marker) then
-      return refuse(run, busy_text(first.marker), vim.log.levels.WARN)
-    end
-    validate(run, function(rt)
-      local n = working()
-      local question = n == nil and "running threads unknown (sidebar feed not running)."
-        or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
-      if not question then
-        run.old = rt
-        return trigger(run)
-      elseif not confirm(question) then
-        return refuse(run, "update cancelled", vim.log.levels.INFO)
+  read_marker(
+    M.paths().marker,
+    vim.schedule_wrap(function(first)
+      if M.run ~= run then
+        return
+      elseif in_progress(first) then
+        return refuse(run, busy_text(first), vim.log.levels.WARN)
       end
-      -- The answer may come much later: validate again and take that baseline.
-      validate(run, function(fresh)
-        run.old = fresh
-        trigger(run)
+      validate(run, function(rt)
+        local n = working()
+        local question = n == nil and "running threads unknown (sidebar feed not running)."
+          or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
+        if not question then
+          run.old = rt
+          return trigger(run)
+        elseif not confirm(question) then
+          return refuse(run, "update cancelled", vim.log.levels.INFO)
+        end
+        -- The answer may come much later: validate again and take that baseline.
+        validate(run, function(fresh)
+          run.old = fresh
+          trigger(run)
+        end)
       end)
     end)
-  end)
+  )
 end
 
 function M.current()
