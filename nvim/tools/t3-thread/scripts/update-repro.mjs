@@ -169,9 +169,10 @@ async function serve(port) {
   }
   throw new Error(`successor not ready: ${JSON.stringify(seen)}`);
 }
-async function terminate(server, deadlineMs, deadlineKind) {
+async function terminate(server, deadlineMs, deadlineKind, afterTerm) {
   const termAt = Date.now();
   server.child.kill("SIGTERM");
+  afterTerm?.();
   const graceful = await exited(server.child, deadlineMs);
   if (!graceful) server.child.kill("SIGKILL");
   await exited(server.child, 5000);
@@ -182,7 +183,7 @@ function writeMarker() {
   const body = JSON.stringify({ startedAt: at, expiresAt: at + 60_000 });
   fs.writeFileSync(`${marker}.tmp`, body);
   fs.renameSync(`${marker}.tmp`, marker);
-  return { at, body };
+  return { at, publishedAt: Date.now(), body };
 }
 // Like desktop releaseUpdateMarker: remove only the marker contents we wrote.
 function release(written) {
@@ -400,9 +401,12 @@ async function update(ctx) {
   };
 }
 
-// Marker, then at exactly `lead` ms freeze the server and every client so the
-// count is the state at that instant; thaw the clients (unless frozen) and
-// SIGTERM the server.
+// Marker, then at `lead` ms freeze the server and every client, sample each
+// client's ESTABLISHED sockets, and send TERM while everything is still
+// stopped: no process runs between the sample and TERM, so the count is the
+// state at TERM. Then thaw the clients (not in the frozen variant) and the
+// server. Timestamps: marker publication (after the rename), freeze, sample,
+// TERM and thaw are reported separately.
 async function markerLead(ctx, runs) {
   const clients = attach(ctx.env, { feeds: N, tuis: N, thread: ctx.threadId });
   const pids = await clientPids(clients);
@@ -419,20 +423,25 @@ async function markerLead(ctx, runs) {
     signal([server.child.pid], "SIGSTOP");
     const freezeAt = Date.now();
     signal(pids, "SIGSTOP");
-    const sampleStart = Date.now();
+    const sampleAt = Date.now();
     const perClient = sockets(ctx.port, pids);
-    const sampleMs = Date.now() - sampleStart;
+    const sampledAt = Date.now();
     const frozenClients = stopped(pids);
-    if (!frozen) signal(pids, "SIGCONT");
-    const deadline = frozen ? [OBSERVATION_DEADLINE, "frozen-observation"] : [DESKTOP_STOP_GRACE, "desktop-stop-grace"];
-    const termPromise = terminate(server, ...deadline);
-    signal([server.child.pid], "SIGCONT");
-    const stop = await termPromise;
-    const counts = Object.values(perClient);
-    results.push({ leadMs: lead, frozen, actualLeadMs: freezeAt - written.at, sampleMs, before,
-      establishedAtTerm: counts.reduce((a, b) => a + b, 0), clientsHoldingSockets: counts.filter((n) => n > 0).length,
-      clientsFrozenAtSample: frozenClients, clientsAlive: pids.filter(alive).length, ...stop });
     if (frozenClients !== pids.length || pids.some((p) => !alive(p))) throw new Error("a client was missing or not frozen at the sample");
+    const deadline = frozen ? [OBSERVATION_DEADLINE, "frozen-observation"] : [DESKTOP_STOP_GRACE, "desktop-stop-grace"];
+    let thawAt;
+    const stop = await terminate(server, ...deadline, () => {
+      if (!frozen) signal(pids, "SIGCONT");
+      signal([server.child.pid], "SIGCONT");
+      thawAt = Date.now();
+    });
+    const counts = Object.values(perClient);
+    results.push({ leadMs: lead, frozen, before,
+      establishedAtTerm: counts.reduce((a, b) => a + b, 0), clientsHoldingSockets: counts.filter((n) => n > 0).length,
+      clientsFrozenAtTerm: frozenClients, clientsAlive: pids.filter(alive).length,
+      clock: { publishedAt: written.publishedAt, freezeLeadMs: freezeAt - written.publishedAt, sampleMs: sampledAt - sampleAt,
+        termLeadMs: stop.termAt - written.publishedAt, freezeToTermMs: stop.termAt - freezeAt, thawAfterTermMs: thawAt - stop.termAt },
+      ...stop });
     signal(pids, "SIGCONT");
     release(written);
     server = await serve(ctx.port);
@@ -440,10 +449,13 @@ async function markerLead(ctx, runs) {
   await stopClients(clients);
   const summary = cases.map(([lead, frozen]) => {
     const rs = results.filter((r) => r.leadMs === lead && r.frozen === frozen);
-    return { leadMs: lead, frozen, medianActualLeadMs: median(rs.map((r) => r.actualLeadMs)), medianExitMs: median(rs.map((r) => r.exitMs)),
+    return { leadMs: lead, frozen, medianFreezeLeadMs: median(rs.map((r) => r.clock.freezeLeadMs)),
+      medianTermLeadMs: median(rs.map((r) => r.clock.termLeadMs)), medianExitMs: median(rs.map((r) => r.exitMs)),
       killed: rs.filter((r) => r.killed).length, established: rs.map((r) => `${r.establishedAtTerm}/${r.before}`), deadline: rs[0].deadline };
   });
-  return { mode, valid: true, clients: { feeds: N, tuis: N }, summary, runs: results };
+  return { mode, valid: true, clients: { feeds: N, tuis: N },
+    tolerance: "Server and clients are stopped from the freeze until TERM is sent (freezeToTermMs, mostly the sample); no process runs in between, so each count is the state at TERM. Wall-clock marker→TERM is termLeadMs.",
+    summary, runs: results };
 }
 
 async function e1(ctx, runs) {

@@ -33,7 +33,7 @@ test("update: every client recovers; head makes no marker-window load or CLI spa
   assert.equal(head.report.markerWindow.clientRequests, 0);
   assert.equal(head.report.markerWindow.downtimeConnectAttempts, 0);
   assert.equal(head.report.cliSpawns.markerWindow, 0);
-  assert.ok(head.report.recovery.maxMs < 2000, `head recovery ${head.report.recovery.maxMs} ms`);
+  assert.ok(head.report.recovery.maxMs < 1000, `head recovery ${head.report.recovery.maxMs} ms`);
   assert.ok(old.report.markerWindow.clientRequests + old.report.markerWindow.downtimeConnectAttempts > 0, "old clients load the server");
 });
 
@@ -41,7 +41,7 @@ test("marker-lead: head holds no socket 200 ms after the marker, and frozen clie
   const { report } = await repro("--mode", "marker-lead", "--runs", "1", "--label", "head");
   assert.equal(report.valid, true, JSON.stringify(report));
   for (const r of report.runs) {
-    assert.equal(r.clientsFrozenAtSample, 6);
+    assert.equal(r.clientsFrozenAtTerm, 6);
     // At 0/50 ms the release may still be in flight (reported, not gated).
     if (r.leadMs === 200) assert.equal(r.establishedAtTerm, 0, JSON.stringify(r));
   }
