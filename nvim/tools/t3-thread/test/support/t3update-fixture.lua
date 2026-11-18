@@ -66,10 +66,17 @@ end
 
 F.core = { terms = {} }
 package.loaded["hcmux.core"] = F.core
-F.feed = { snapshot = { projects = {}, threads = {} } }
+-- `live`: a valid frame arrived from the current feed job (t3side.feed_state).
+F.feed = { snapshot = { projects = {}, threads = {} }, live = false }
 package.loaded["hcmux.t3side"] = {
   snapshot = function()
     return vim.deepcopy(F.feed.snapshot), F.feed.message
+  end,
+  feed_state = function()
+    if F.feed.live then
+      return { live = true, snapshot = vim.deepcopy(F.feed.snapshot) }
+    end
+    return { live = false }
   end,
 }
 
@@ -80,6 +87,11 @@ function F.client(addr, state)
   vim.b[buf].hcmux_addr = addr
   F.core.terms[addr] = { address = addr, name = addr, state = state }
   return buf
+end
+
+-- The y/n confirm never waits for a real key; suites may override this.
+vim.fn.getcharstr = function()
+  return "y"
 end
 
 F.notices = {}
@@ -112,7 +124,42 @@ function F.wait_notice(pattern, ms)
     )
   )
 end
+function F.has(text)
+  for _, n in ipairs(F.notices) do
+    if n.text:find(text, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+function F.count(text)
+  local n = 0
+  for _, notice in ipairs(F.notices) do
+    n = n + (notice.text:find(text, 1, true) and 1 or 0)
+  end
+  return n
+end
+function F.until_true(pred, ms, what)
+  assert(vim.wait(ms or 1000, pred, 5), what or "condition did not arrive")
+end
+-- Ends a run a failed case left behind, so cases never leak into each other.
+function F.stop(U)
+  local run = U.current()
+  if run then
+    U.run = nil
+    for _, handle in pairs({ run.timer, run.fs }) do
+      if not handle:is_closing() then
+        handle:stop()
+        handle:close()
+      end
+    end
+  end
+  vim.wait(20)
+end
 function F.reset()
+  if F.U then
+    F.stop(F.U)
+  end
   F.calls, F.notices = {}, {}
   F.reply = {}
   F.core.terms = {}
@@ -121,7 +168,7 @@ function F.reset()
       vim.api.nvim_buf_delete(buf, { force = true })
     end
   end
-  F.feed.snapshot, F.feed.message = { projects = {}, threads = {} }, nil
+  F.feed.snapshot, F.feed.message, F.feed.live = { projects = {}, threads = {} }, nil, false
   F.clear()
 end
 
@@ -139,5 +186,8 @@ function F.done()
     error(table.concat(failures, "\n"), 0)
   end
 end
+
+-- Loaded after every stub above is in place.
+F.U = require("hcmux.t3update")
 
 return F

@@ -34,8 +34,8 @@ end
 -- ── state readers (never write) ───────────────────────────────────────────
 
 local function home()
-  local env = vim.env.T3CODE_HOME
-  return (env and env ~= "") and env or vim.fs.joinpath(vim.uv.os_homedir(), ".t3")
+  local env = vim.trim(vim.env.T3CODE_HOME or "")
+  return env ~= "" and env or vim.fs.joinpath(vim.uv.os_homedir(), ".t3")
 end
 
 function M.paths()
@@ -52,49 +52,106 @@ local function base_url()
   return ((env and env ~= "") and env or "http://127.0.0.1:3773"):gsub("/+$", "")
 end
 
-local function read(path)
-  local f = io.open(path, "r")
-  if not f then
-    return nil
-  end
-  local text = f:read("*a")
-  f:close()
-  return text
-end
-
 local function decode(text)
   local ok, value = pcall(vim.json.decode, text or "")
   return ok and type(value) == "table" and value or nil
 end
 
+local function now_ms()
+  local sec, usec = vim.uv.gettimeofday()
+  return sec * 1000 + math.floor(usec / 1000)
+end
+
+local function missing(err)
+  return type(err) == "string" and err:match("^ENOENT") ~= nil
+end
+
+-- Bounded async read: cb(text, err) on the event loop (fast context). The
+-- state records are small; anything larger fails to decode as unreadable.
+local MAX_READ = 65536
+local function read_file(path, cb)
+  local uv = vim.uv
+  uv.fs_open(path, "r", 420, function(err, fd)
+    if not fd then
+      return cb(nil, err or "open failed")
+    end
+    uv.fs_read(fd, MAX_READ, 0, function(rerr, data)
+      uv.fs_close(fd, function() end)
+      cb(rerr == nil and data or nil, rerr)
+    end)
+  end)
+end
+
 -- Only the non-secret fields; nil when absent, false when unreadable.
-local function runtime()
-  local text = read(M.paths().server)
-  if not text then
-    return nil
-  end
-  local value = decode(text)
-  if not value then
-    return false
-  end
-  return { pid = tonumber(value.pid), version = value.serverVersion, started = value.startedAt }
+local function read_runtime(cb)
+  read_file(M.paths().server, function(text, err)
+    if missing(err) then
+      return cb(nil)
+    end
+    local value = decode(text)
+    if not value then
+      return cb(false)
+    end
+    cb({
+      pid = type(value.pid) == "number" and value.pid or nil,
+      port = type(value.port) == "number" and value.port or nil,
+      version = type(value.serverVersion) == "string" and value.serverVersion or nil,
+      started = type(value.startedAt) == "string" and value.startedAt or nil,
+    })
+  end)
 end
 
 -- The desktop's marker contract (its own waiters use the same TTL):
--- valid {startedAt, expiresAt} is in progress until expiresAt; malformed or
+-- numeric {startedAt, expiresAt} is in progress until expiresAt; malformed or
 -- unreadable is in progress until mtime + 60 s; expired counts as absent.
--- Returns nil (absent), { left = s } (in progress) or { ago = s } (expired).
-local TTL = 60
-local function marker()
+-- cb(nil) absent, cb({ left_ms }) in progress, cb({ ago_ms }) expired.
+local TTL_MS = 60000
+local function read_marker(cb)
   local path = M.paths().marker
-  local stat = vim.uv.fs_stat(path)
-  if not stat then
-    return nil
+  vim.uv.fs_stat(path, function(serr, stat)
+    if not stat then
+      return cb(nil) -- absent (or not even stat-able: nothing to honour)
+    end
+    read_file(path, function(text, err)
+      if missing(err) then
+        return cb(nil) -- removed between stat and read
+      end
+      local value = decode(text)
+      local deadline
+      if value and type(value.startedAt) == "number" and type(value.expiresAt) == "number" then
+        deadline = value.expiresAt
+      else
+        deadline = stat.mtime.sec * 1000 + math.floor(stat.mtime.nsec / 1e6) + TTL_MS
+      end
+      local left = deadline - now_ms()
+      cb(left > 0 and { left_ms = left } or { ago_ms = -left })
+    end)
+  end)
+end
+
+-- cb({ marker, runtime }) on the main loop, after both async reads.
+local function read_state(cb)
+  local state, pending = {}, 2
+  local function done()
+    pending = pending - 1
+    if pending == 0 then
+      vim.schedule(function()
+        cb(state)
+      end)
+    end
   end
-  local value = decode(read(path))
-  local expires = value and tonumber(value.expiresAt)
-  local left = expires and math.floor((expires - os.time() * 1000) / 1000) or (stat.mtime.sec + TTL - os.time())
-  return left > 0 and { left = left } or { ago = -left }
+  read_marker(function(m)
+    state.marker = m
+    done()
+  end)
+  read_runtime(function(rt)
+    state.runtime = rt
+    done()
+  end)
+end
+
+local function in_progress(m)
+  return m ~= nil and m.left_ms ~= nil
 end
 
 -- cb(up): the server answers its environment endpoint within the timeout.
@@ -143,10 +200,10 @@ end
 local function marker_text(m)
   if not m then
     return "no update in progress"
-  elseif m.ago then
-    return ("no update in progress (marker expired %d s ago)"):format(m.ago)
+  elseif m.ago_ms then
+    return ("no update in progress (marker expired %d s ago)"):format(math.floor(m.ago_ms / 1000))
   end
-  return ("update in progress (%d s left)"):format(m.left)
+  return ("update in progress (%d s left)"):format(math.ceil(m.left_ms / 1000))
 end
 
 -- Process liveness only (the herdr-core terminal); websocket state is not
@@ -161,18 +218,20 @@ end
 
 function M.status()
   probe(function(up)
-    local parts = { up and "server up" or ("server unreachable at " .. base_url()) }
-    local rt = runtime()
-    if rt == nil then
-      parts[#parts + 1] = "no server-runtime.json"
-    elseif rt == false then
-      parts[#parts + 1] = "server-runtime.json unreadable"
-    else
-      parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
-    end
-    parts[#parts + 1] = marker_text(marker())
-    parts[#parts + 1] = clients_text(clients())
-    notify(table.concat(parts, " · "))
+    read_state(function(state)
+      local parts = { up and "server up" or ("server unreachable at " .. base_url()) }
+      local rt = state.runtime
+      if rt == nil then
+        parts[#parts + 1] = "no server-runtime.json"
+      elseif rt == false then
+        parts[#parts + 1] = "server-runtime.json unreadable"
+      else
+        parts[#parts + 1] = ("v%s pid %s since %s"):format(rt.version or "?", rt.pid or "?", rt.started or "?")
+      end
+      parts[#parts + 1] = marker_text(state.marker)
+      parts[#parts + 1] = clients_text(clients())
+      notify(table.concat(parts, " · "))
+    end)
   end)
 end
 
@@ -273,20 +332,31 @@ local function succeed(run, rt)
   report_clients()
 end
 
+local observe
 local function check(run)
   if M.run ~= run or run.probing then
     return
   end
+  run.probing = true
+  read_state(function(state)
+    run.probing = false
+    if M.run == run then
+      observe(run, state)
+    end
+  end)
+end
+
+function observe(run, state)
   local elapsed = vim.uv.now() - run.started
-  local m = marker()
-  local updating = m ~= nil and m.left ~= nil
+  local m = state.marker
+  local updating = in_progress(m)
   if updating and not run.saw then
     run.saw = true
     notify("T3 is updating…")
   end
-  local rt = not updating and runtime()
+  local rt = not updating and state.runtime
   local moved = rt and rt.pid and rt.pid ~= run.old.pid
-  if moved or (run.saw and m and m.ago and not run.stalled) then
+  if moved or (run.saw and m and m.ago_ms and not run.stalled) then
     -- Removed or expired: success needs a new pid and a reachable server;
     -- an expired marker over the old, unreachable server is a stall.
     run.probing = true
@@ -388,41 +458,52 @@ local function confirm(question)
   return ok and key == "y"
 end
 
+local preflight
 function M.update()
   if M.run then
     return notify("T3Update already running", vim.log.levels.WARN)
   end
-  local m = marker()
-  if m and m.left then
-    return notify(("update already in progress (%d s left)"):format(m.left), vim.log.levels.WARN)
-  end
   local run = {}
   M.run = run
-  probe(function(up)
+  read_state(function(first)
     if M.run ~= run then
       return
-    elseif not up then
-      M.run = nil
-      return notify("server unreachable at " .. base_url() .. "; not starting an update", vim.log.levels.ERROR)
-    end
-    local rt = runtime()
-    if not (rt and rt.pid) then
+    elseif in_progress(first.marker) then
       M.run = nil
       return notify(
-        "cannot read the server's pid from server-runtime.json; not starting an update",
-        vim.log.levels.ERROR
+        ("update already in progress (%d s left)"):format(math.ceil(first.marker.left_ms / 1000)),
+        vim.log.levels.WARN
       )
     end
-    run.old = rt
-    local n = working()
-    local question = n == nil and "running threads unknown (sidebar feed not running)."
-      or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
-    if question and not confirm(question) then
-      M.run = nil
-      return notify("update cancelled")
-    end
-    trigger(run)
+    probe(function(up)
+      read_state(function(state)
+        preflight(run, up, state)
+      end)
+    end)
   end)
+end
+
+function preflight(run, up, state)
+  if M.run ~= run then
+    return
+  elseif not up then
+    M.run = nil
+    return notify("server unreachable at " .. base_url() .. "; not starting an update", vim.log.levels.ERROR)
+  end
+  local rt = state.runtime
+  if not (rt and rt.pid) then
+    M.run = nil
+    return notify("cannot read the server's pid from server-runtime.json; not starting an update", vim.log.levels.ERROR)
+  end
+  run.old = rt
+  local n = working()
+  local question = n == nil and "running threads unknown (sidebar feed not running)."
+    or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
+  if question and not confirm(question) then
+    M.run = nil
+    return notify("update cancelled")
+  end
+  trigger(run)
 end
 
 function M.current()
