@@ -408,12 +408,18 @@ names a port that differs from the endpoint's, `:T3Status` says `endpoint and de
 It probes `/.well-known/t3/environment` (2 s), reads only `serverVersion`, `pid`, `startedAt` and `port` from
 `$T3CODE_HOME/userdata/server-runtime.json`, and reports the desktop's update marker
 `$T3CODE_HOME/runtime/desktop-update-in-progress`. Files are read with bounded async libuv reads, never on the UI
-loop. Notices never print the endpoint URL, which may carry credentials. "Running" means the client's herdr-core
+loop. Notices never print the endpoint URL, which may carry credentials. Buffers are counted per buffer, processes
+once per core address (the popover and the main pane can view one client). "Running" means the client's herdr-core
 process is alive, not that its websocket is connected.
+
+**One observation order** serves status, preflight and the watch: [probe] → marker → runtime → marker. The marker is
+read last, and also before the runtime, so a marker that appears while the runtime is read is seen; a decision is
+made only in the callback of that last read.
 
 **Marker contract** (shared with the desktop's own waiters): numeric `{startedAt, expiresAt}` is in progress until
 `expiresAt`, compared in wall-clock milliseconds; anything else (malformed, partial, unreadable) is in progress until
-mtime + 60 s; an expired marker counts as absent, and so does one removed while it is being read.
+mtime + 60 s, including a record larger than the 64 KiB read limit (never a decoded prefix); an expired marker
+counts as absent, and so does one removed while it is being read.
 
 `:T3Update` starts the **desktop's own** update flow and never stands in for it: envi never writes or removes the
 update markers, never stops or restarts the server and never runs `t3 update` (that is for the CLI/service
@@ -428,13 +434,14 @@ install).
 2. **Trigger:** `osascript` activates T3 Code and clicks its app menu's `Check for Updates…` through System
    Events. App, process, menu and item prefix live in `M.config.app`. The user answers the desktop's dialogs
    (Download / Restart / Later).
-3. **Watch:** an fs watcher on `runtime/` plus a 2 s timer. One deadline (10 min) ends the run on every path, also
-   while a probe is in flight; at most one probe starts per 2 s and one async step runs at a time. Success is
-   decided on state re-read after the probe answers: the marker removed or expired, the same new pid in
-   `server-runtime.json`, and a reachable server: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`.
+3. **Watch:** an fs watcher on `runtime/` plus a 2 s timer. A dedicated deadline timer (10 min) ends the run
+   regardless of poll cadence; every async stage that returns after it stops without output. At most one probe
+   starts per 2 s and one async step runs at a time. Success is decided on the probed observation: no marker in
+   progress, the same new pid in `server-runtime.json`, its port (when published) equal to the endpoint's, and a
+   reachable server: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`.
    An expired marker over a readable baseline pid with a failed probe is reported once as `update stalled`, and
    the watch continues. Unknown or contradictory state keeps watching. No marker within 3 min reports
-   `no update started`. Every end closes both handles; late results are dropped.
+   `no update started`. Every end closes all three handles; late results are dropped.
 4. **After:** a notice names the client processes still running and those that are not, with `:T3Restart` for a
    stuck one. Nothing is restarted automatically.
 
