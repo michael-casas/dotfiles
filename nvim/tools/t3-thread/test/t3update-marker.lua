@@ -175,4 +175,18 @@ F.case("T3CODE_HOME is trimmed like the desktop does", function()
   assert(ok, err)
 end)
 
+F.case("an oversized marker is unreadable, never a decoded prefix", function()
+  fresh()
+  local now = os.time() * 1000
+  local prefix = vim.json.encode({ startedAt = now - 65000, expiresAt = now - 5000 })
+  F.write(F.marker, prefix .. string.rep(" ", 65536 - #prefix) .. "malformed trailing bytes")
+  local left = tonumber(status_text():match("update in progress %((%d+) s left%)"))
+  assert(left and left >= 59, "mtime fallback while fresh: " .. F.last())
+  assert(not admitted(), "a fresh oversized marker refuses")
+  local old = os.time() - 61
+  vim.uv.fs_utime(F.marker, old, old)
+  assert(status_text():find("no update in progress %(marker expired"), F.last())
+  assert(admitted(), "after mtime + 60 s it is absent")
+end)
+
 F.done()

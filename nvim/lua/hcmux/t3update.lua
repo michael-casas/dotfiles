@@ -89,7 +89,8 @@ local function missing(err)
 end
 
 -- Bounded async read: cb(text, err) on the event loop (fast context). The
--- state records are small; anything larger fails to decode as unreadable.
+-- state records are small: a file larger than MAX_READ is unreadable, never
+-- a decoded prefix.
 local MAX_READ = 65536
 local function read_file(path, cb)
   local uv = vim.uv
@@ -97,8 +98,11 @@ local function read_file(path, cb)
     if not fd then
       return cb(nil, err or "open failed")
     end
-    uv.fs_read(fd, MAX_READ, 0, function(rerr, data)
+    uv.fs_read(fd, MAX_READ + 1, 0, function(rerr, data)
       uv.fs_close(fd, function() end)
+      if data and #data > MAX_READ then
+        return cb(nil, "EFBIG: larger than a state record")
+      end
       cb(rerr == nil and data or nil, rerr)
     end)
   end)
