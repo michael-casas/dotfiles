@@ -473,7 +473,39 @@ local function confirm(question)
   return ok and key == "y"
 end
 
-local preflight
+local function refuse(run, text, level)
+  if M.run == run then
+    M.run = nil
+  end
+  notify(text, level or vim.log.levels.ERROR)
+end
+
+-- cb(rt) only when, re-read after a fresh probe, no update is in progress,
+-- the server answers and its pid is known; otherwise the run is refused.
+-- Admission between processes stays with the desktop.
+local function validate(run, cb)
+  probe(function(up)
+    read_state(function(state)
+      if M.run ~= run then
+        return
+      elseif in_progress(state.marker) then
+        return refuse(
+          run,
+          ("update already in progress (%d s left)"):format(math.ceil(state.marker.left_ms / 1000)),
+          vim.log.levels.WARN
+        )
+      elseif not up then
+        return refuse(run, "server unreachable at " .. base_url() .. "; not starting an update")
+      end
+      local rt = state.runtime
+      if not (rt and rt.pid) then
+        return refuse(run, "cannot read the server's pid from server-runtime.json; not starting an update")
+      end
+      cb(rt)
+    end)
+  end)
+end
+
 function M.update()
   if M.run then
     return notify("T3Update already running", vim.log.levels.WARN)
@@ -484,41 +516,29 @@ function M.update()
     if M.run ~= run then
       return
     elseif in_progress(first.marker) then
-      M.run = nil
-      return notify(
+      return refuse(
+        run,
         ("update already in progress (%d s left)"):format(math.ceil(first.marker.left_ms / 1000)),
         vim.log.levels.WARN
       )
     end
-    probe(function(up)
-      read_state(function(state)
-        preflight(run, up, state)
+    validate(run, function(rt)
+      local n = working()
+      local question = n == nil and "running threads unknown (sidebar feed not running)."
+        or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
+      if not question then
+        run.old = rt
+        return trigger(run)
+      elseif not confirm(question) then
+        return refuse(run, "update cancelled", vim.log.levels.INFO)
+      end
+      -- The answer may come much later: validate again and take that baseline.
+      validate(run, function(fresh)
+        run.old = fresh
+        trigger(run)
       end)
     end)
   end)
-end
-
-function preflight(run, up, state)
-  if M.run ~= run then
-    return
-  elseif not up then
-    M.run = nil
-    return notify("server unreachable at " .. base_url() .. "; not starting an update", vim.log.levels.ERROR)
-  end
-  local rt = state.runtime
-  if not (rt and rt.pid) then
-    M.run = nil
-    return notify("cannot read the server's pid from server-runtime.json; not starting an update", vim.log.levels.ERROR)
-  end
-  run.old = rt
-  local n = working()
-  local question = n == nil and "running threads unknown (sidebar feed not running)."
-    or n > 0 and ("%d running thread(s) will be interrupted."):format(n)
-  if question and not confirm(question) then
-    M.run = nil
-    return notify("update cancelled")
-  end
-  trigger(run)
 end
 
 function M.current()
