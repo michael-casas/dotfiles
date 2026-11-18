@@ -395,6 +395,38 @@ restart boundaries, before any further attach. `viewer-pen.lua` runs the real
 viewer command with `hc` swapped for `support/fake-hc-attach.sh` (hc's captured opening sequence) and checks that
 no history cell is black, in the T3 popover and in an ordinary terminal split.
 
+### T3 status and update (`t3update.lua`)
+
+`:T3Status` prints one asynchronous notice, e.g.
+`T3: server up · v0.1.11 pid 4242 since 2026-11-18T02:33:13Z · no update in progress · 7 client buffers, 7 client processes running`.
+It probes `<T3_URL or http://127.0.0.1:3773>/.well-known/t3/environment` (2 s), reads only `serverVersion`, `pid`
+and `startedAt` from `$T3CODE_HOME/userdata/server-runtime.json` (default `~/.t3`), and reports the desktop's
+update marker `$T3CODE_HOME/runtime/desktop-update-in-progress`. "Running" means the client's herdr-core process
+is alive, not that its websocket is connected.
+
+`:T3Update` starts the **desktop's own** update flow and never stands in for it: envi never writes or removes the
+update markers, never stops or restarts the server and never runs `t3 update` (that is for the CLI/service
+install).
+
+1. **Preflight** refuses when an update is already in progress, the server is unreachable or its pid is
+   unknown. With running threads in the sidebar feed it asks `N running thread(s) will be interrupted … y/n`;
+   without the feed it says `running threads unknown (sidebar feed not running)` and still asks.
+2. **Trigger:** `osascript` activates T3 Code and clicks its app menu's `Check for Updates…` through System
+   Events. App, process, menu and item prefix live in `M.config.app`. The user answers the desktop's dialogs
+   (Download / Restart / Later).
+3. **Watch:** an fs watcher on `runtime/` plus a 2 s timer, bounded at 10 min. Marker contract: valid
+   `{startedAt, expiresAt}` is in progress until `expiresAt`; malformed is in progress until mtime + 60 s; expired
+   counts as absent. Success is the marker removed or expired, a new pid in `server-runtime.json` and a reachable
+   server: `T3 updated: <old> → <new>` or `T3 restarted (same version …)`. An expired marker over the old,
+   unreachable server is reported once as `update stalled` and the watch continues. No marker within 3 min reports
+   `no update started`.
+4. **After:** a notice lists the client processes still running and those that are not, with `:T3Restart` for a
+   stuck one. Nothing is restarted automatically.
+
+A System Events failure gives one message naming the missing permission (Accessibility, or Automation for System
+Events) and is not retried. Tests: `t3update-status.lua` and `t3update-flow.lua` stub `vim.system` and use a
+temporary `T3CODE_HOME`.
+
 ## AGENT mode (`hcmux.agent`)
 
 `<leader>a` opens a centred, approximately 90% × 85% popover; the next key
