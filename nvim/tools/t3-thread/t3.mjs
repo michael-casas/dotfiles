@@ -31,7 +31,10 @@ export function debug(...a) {
 }
 
 // ── auth ────────────────────────────────────────────────────────────────────
+// The t3 CLI runs only after a live server rejected our token (HTTP 401), and
+// never during a desktop update: it execs the app bundle the update swaps.
 async function issueToken() {
+  assertNotUpdating();
   const { stdout } = await run(T3, [
     "auth",
     "session",
@@ -53,7 +56,8 @@ async function issueToken() {
   return JSON.parse(stdout);
 }
 
-async function token() {
+// A missing or stale token is sent as is: the server's 401 decides.
+function token() {
   if (process.env.T3_SESSION_TOKEN !== undefined)
     return process.env.T3_SESSION_TOKEN;
   try {
@@ -61,22 +65,21 @@ async function token() {
     if (s.token && Date.parse(s.expiresAt) - Date.now() > 5 * 60_000)
       return s.token;
   } catch {}
-  return (await issueToken()).token;
+  return "";
+}
+
+async function authFetch(url, init = {}) {
+  assertNotUpdating();
+  const go = (tok) =>
+    fetch(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${tok}` } });
+  const r = await go(token());
+  // An explicit T3_SESSION_TOKEN is never replaced (tests, isolated servers).
+  if (r.status !== 401 || process.env.T3_SESSION_TOKEN !== undefined) return r;
+  return go((await issueToken()).token);
 }
 
 async function ticket() {
-  let tok = await token();
-  let r = await fetch(`${BASE}/api/auth/websocket-ticket/rpc`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${tok}` },
-  });
-  if (r.status === 401) {
-    tok = (await issueToken()).token;
-    r = await fetch(`${BASE}/api/auth/websocket-ticket/rpc`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${tok}` },
-    });
-  }
+  const r = await authFetch(`${BASE}/api/auth/websocket-ticket/rpc`, { method: "POST" });
   if (!r.ok) throw new Error(`websocket ticket: HTTP ${r.status}`);
   return (await r.json()).ticket;
 }
@@ -95,12 +98,8 @@ let projectCache;
 export async function projects() {
   projectCache ??= (async () => {
     try {
-      const tok = await token();
-      const response = await fetch(`${BASE}/api/orchestration/shell`, {
-        headers: {
-          authorization: `Bearer ${tok}`,
-          "x-t3-orchestration-protocol": "2",
-        },
+      const response = await authFetch(`${BASE}/api/orchestration/shell`, {
+        headers: { "x-t3-orchestration-protocol": "2" },
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) {

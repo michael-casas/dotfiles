@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { startFakeT3 } from "./support/fake-t3.mjs";
 import { startFeed } from "../threads.mjs";
 import { statusLabel } from "../t3.mjs";
@@ -172,4 +173,61 @@ test("A2: the sidebar feed holds while the marker is present and resumes on remo
   assert.equal(await once.feed.done, 1);
   assert.equal(once.sockets.length, 0);
   assert.deepEqual(once.output, [{ type: "error", message: "T3 updating…" }]);
+});
+
+// A3 runs the client in a child process whose HOME is a temp directory, so the
+// session-token file it may read or write is a throwaway, and T3_BIN is a fake
+// that only logs that it was spawned.
+const driver = `
+const t3 = await import(process.env.T3_MODULE);
+const out = { conns: [] };
+const close = t3.subscribe("t", { onConn: (c) => out.conns.push(c) });
+if (process.env.TRY_CLI) {
+  try { await t3.list("p"); out.cli = "ran"; } catch (e) { out.cli = e.message; }
+}
+await new Promise((r) => setTimeout(r, Number(process.env.WAIT_MS)));
+close();
+console.log(JSON.stringify(out));
+process.exit(0);
+`;
+async function isolatedClient(t, url, { marker = false, cli = false, ms = 1500 } = {}) {
+  const home = t3home(t);
+  if (marker) home.write();
+  const log = path.join(home.home, "t3-spawns.log");
+  const bin = path.join(home.home, "fake-t3");
+  fs.writeFileSync(bin, `#!/bin/sh\necho "$@" >> '${log}'\necho '{"token":"issued-fixture","expiresAt":"2099-01-01T00:00:00Z"}'\n`, { mode: 0o755 });
+  const env = { ...process.env, HOME: home.home, T3CODE_HOME: home.home, T3_BIN: bin, T3_URL: url,
+    T3_MODULE: new URL("../t3.mjs", import.meta.url).href, WAIT_MS: String(ms), TRY_CLI: cli ? "1" : "", T3_THREAD_DEBUG: "" };
+  delete env.T3_SESSION_TOKEN;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", driver], { env });
+  let stdout = "";
+  child.stdout.on("data", (d) => (stdout += d));
+  child.stderr.resume();
+  await new Promise((resolve) => child.on("close", resolve));
+  const spawns = fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];
+  return { ...JSON.parse(stdout), spawns };
+}
+
+test("A3: a refused connection never runs the t3 CLI", async (t) => {
+  const r = await isolatedClient(t, "http://127.0.0.1:1");
+  assert.deepEqual(r.spawns, [], "no CLI while the server is unreachable");
+  assert.ok(r.conns.some((c) => c.startsWith("offline")));
+});
+
+test("A3: during the update marker no t3 CLI runs, even for commands or a 401", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, ticketStatus: 401 });
+  t.after(() => fake.close());
+  const r = await isolatedClient(t, fake.url, { marker: true, cli: true });
+  assert.deepEqual(r.spawns, []);
+  assert.match(r.cli, /T3 is updating/);
+  assert.equal(fake.counts.http + fake.counts.upgrades, 0);
+  assert.equal(r.conns.at(-1), "T3 updating…");
+});
+
+test("A3: a live server's 401 still issues a new session token", async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, ticketStatus: 401 });
+  t.after(() => fake.close());
+  const r = await isolatedClient(t, fake.url, { ms: 400 });
+  assert.ok(fake.counts.http >= 1, "asked the live server first");
+  assert.ok(r.spawns.length >= 1 && r.spawns.every((a) => a.startsWith("auth session issue")), r.spawns.join("; "));
 });
