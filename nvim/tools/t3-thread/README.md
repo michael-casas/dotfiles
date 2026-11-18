@@ -215,6 +215,49 @@ logs auth tokens, or forwards raw server error bodies. Pure tests in
 `test/threads.test.mjs` cover status/filter/fixture/reducer behavior, throttle,
 reconnect/backoff, safe errors, bootstrap timeout, resume and `--once`.
 
+## T3 updates and restarts
+
+`update.mjs` follows the desktop's update protocol. While
+`$T3CODE_HOME/runtime/desktop-update-in-progress` (default `T3CODE_HOME` is
+`~/.t3`) holds valid JSON with `now < expiresAt`, or is malformed or unreadable and
+less than 60 s old, an update is in progress. An expired marker counts as absent.
+
+- When the marker appears, the thread client and the sidebar feed close their
+  websocket at once. A stopping T3 server waits on every open client socket, so
+  envi must not be one of them.
+- While the marker is present, they make no connection attempts and never run the
+  `t3` CLI, which execs the app bundle being swapped. Commands fail fast with
+  "T3 is updating", and the status line shows `T3 updating…` (the sidebar shows it
+  as a feed error).
+- They resume within milliseconds of the marker going: an `fs.watch` on
+  `runtime/`, with a timer at its expiry as the fallback. Only a local file is
+  checked; the server is never polled.
+- The thread client resets its backoff only after the stream delivers its first
+  chunk. A subscription that exits at once (missing thread, server not ready)
+  backs off, with equal jitter, up to 10 s.
+- After a reconnect to a different server process (`pid`/`startedAt` in
+  `userdata/server-runtime.json` for our port; only those fields and
+  `serverVersion` are read), the status shows `T3 server restarted (<version>)`
+  for 5 s.
+- The `t3 auth session issue` CLI runs only after a live server answered 401 and
+  never during an update. The session file is replaced atomically (temp file and
+  rename, mode 0600). Ticket and shell reads use one HTTP connection per request,
+  so no keep-alive socket is left open.
+
+`scripts/update-repro.mjs` reproduces an update against an **isolated** `t3 serve`
+in a temp directory. It never touches the live server, `~/.t3` or the envi token
+file, and never prints the server log, which contains a pairing QR code. It prints
+a JSON report. `--client-root DIR` runs another checkout's clients, for example
+an extracted older commit. Modes:
+
+- `update` (default): marker, SIGTERM, downtime, restart and release, with request
+  counts in the marker window and recovery times.
+- `marker-lead`: marker, then 0/50/200 ms, then SIGTERM (also with all clients
+  SIGSTOPped), with exit times and client sockets still ESTABLISHED.
+- `e1` / `e2`: frozen clients; old clients spinning on a missing thread.
+
+`T3UPD_REAL=1 node --test test/update-repro.test.mjs` runs it as an opt-in test.
+
 ## Theme hub
 
 The TUI and Neovim float read the repository's
@@ -485,6 +528,10 @@ history row and its separators, with no redundant automatic notification after
 a solicited rebuild. Scenario 6a (real Neovim buffer replacement/replay) is owned
 by H2 under REP's amendment; the old client-only clear assertion was removed.
 The private-core clear/read/attach evidence remains in H1's report.
+
+`test/resilience.test.mjs` covers the update/restart behaviour above against
+`test/support/fake-t3.mjs`, temp `T3CODE_HOME`s and, for the CLI rules, child
+processes with a temp `HOME` and a stub `T3_BIN`.
 
 `test/replay.test.mjs` folds all 29 frames of the secret-checked
 `test/fixtures/turn.jsonl` capture. It checks the folded prompt/timer/final answer,

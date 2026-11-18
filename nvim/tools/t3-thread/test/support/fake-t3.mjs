@@ -99,6 +99,7 @@ export async function startFakeT3({ initial, config = {}, exitThread = false, ti
         if (opcode === 8) return socket.end();
         if (opcode !== 1) continue;
         const m = JSON.parse(text);
+        if (m._tag === "Ack") counts.acks = (counts.acks || 0) + 1;
         if (m._tag !== "Request") continue;
         requests.push(m.tag);
         if (m.tag === "orchestration.dispatchCommand") commands.push(m.payload);
