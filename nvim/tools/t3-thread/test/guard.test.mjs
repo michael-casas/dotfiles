@@ -89,3 +89,35 @@ out.sibling = fs.readFileSync(path.join(outside, "ordinary"), "utf8");`, (dummy)
     stream: "blocked", missingUnderAlias: "blocked", renameIntoAlias: "blocked", sibling: "ok" });
   assert.equal(r.status, 1, "alias-only access still fails the run");
 });
+
+test("F11: a dangling alias and a directory swapped into an alias after it was read are denied", (t) => {
+  const r = child(t, `
+const fs = (await import("node:fs")).default;
+const path = (await import("node:path")).default;
+const { spawnSync } = await import("node:child_process");
+const outside = process.env.ALIAS_DIR;
+const attempt = async (name, op) => { try { await op(); out[name] = "read"; } catch (e) { out[name] = /isolation guard/.test(e.message) ? "blocked" : e.message; } };
+// Read through ordinary directories first, so the guard has resolved (cached) them.
+out.before = [fs.readFileSync(path.join(outside, "swap", "sentinel"), "utf8"), fs.readFileSync(path.join(outside, "anc", "sub", "sentinel"), "utf8")];
+// Another process (no in-process tree change) replaces a directory and an
+// ancestor with aliases into the protected data.
+const sh = (cmd) => spawnSync("/bin/sh", ["-c", cmd, "sh", outside, path.dirname(sentinel)]).status;
+out.swapped = sh('mv "$1/swap" "$1/swap-old" && ln -s "$2" "$1/swap" && mv "$1/anc" "$1/anc-old" && ln -s "$2" "$1/anc"');
+await attempt("swappedDir", () => fs.readFileSync(path.join(outside, "swap", "sentinel")));
+await attempt("swappedAncestor", () => fs.readFileSync(path.join(outside, "anc", "sub", "sentinel")));
+await attempt("danglingWrite", () => fs.writeFileSync(path.join(outside, "dangling"), "x"));
+out.sibling = fs.readFileSync(path.join(outside, "swap-old", "sentinel"), "utf8");`, (dummy) => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "t3upd-alias-"));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    for (const d of [path.join(outside, "swap"), path.join(outside, "anc", "sub"), path.join(dummy, ".t3", "sub")]) {
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "sentinel"), "ok");
+    }
+    // A dangling alias: its target does not exist yet, inside the protected data.
+    fs.symlinkSync(path.join(dummy, ".t3", "not-yet"), path.join(outside, "dangling"));
+    return { ALIAS_DIR: outside };
+  });
+  assert.deepEqual(r.out, { before: ["ok", "ok"], swapped: 0, swappedDir: "blocked", swappedAncestor: "blocked",
+    danglingWrite: "blocked", sibling: "ok" }, r.stderr);
+  assert.equal(r.status, 1);
+});
