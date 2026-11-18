@@ -447,18 +447,16 @@ local function trigger(run)
   end
 end
 
--- nil when the sidebar feed has not delivered a snapshot.
+-- nil unless the sidebar's current feed job delivered a valid snapshot
+-- (t3side.feed_state); a render seed or a failed feed is unknown.
 local function working()
-  local side = package.loaded["hcmux.t3side"] or select(2, pcall(require, "hcmux.t3side"))
-  if type(side) ~= "table" or not side.snapshot then
-    return nil
-  end
-  local snap, err = side.snapshot()
-  if err or snap.type ~= "snapshot" then
+  local side = package.loaded["hcmux.t3side"]
+  local state = side and side.feed_state and side.feed_state()
+  if not (state and state.live) then
     return nil
   end
   local n = 0
-  for _, t in ipairs(snap.threads or {}) do
+  for _, t in ipairs(state.snapshot.threads or {}) do
     n = n + (t.status == "working" and 1 or 0)
   end
   return n

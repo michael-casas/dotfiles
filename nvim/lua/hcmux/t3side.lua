@@ -10,6 +10,7 @@ local group = vim.api.nvim_create_augroup("envi.t3side", { clear = true })
 local stopping = false
 local collapsed, settled_open = {}, false
 local subscribers = {}
+local fed -- { job, value }: the current feed job's last valid snapshot frame
 
 local function highlights()
   local colors = { working = "#81a1c1", attention = "#bf616a", done = "#a3be8c", idle = "#9aa3b5", error = "#bf616a" }
@@ -420,6 +421,15 @@ function M.snapshot()
   return vim.deepcopy(snapshot), message
 end
 
+--- Whether the shown snapshot is a valid frame from the current feed job.
+--- A render seed, an error, a restart or an exited job is { live = false }.
+function M.feed_state()
+  if job and fed and fed.job == job and rawequal(fed.value, snapshot) and not message then
+    return { live = true, snapshot = vim.deepcopy(snapshot) }
+  end
+  return { live = false }
+end
+
 --- Subscribe immediately; returns an unsubscribe function. Closing a consumer
 --- never stops the shared job (which lives until VimLeavePre).
 function M.subscribe(callback)
@@ -634,6 +644,7 @@ function M.start(refresh)
     vim.fn.jobstop(old)
   end
   stopping = false
+  fed = nil
   local partial = ""
   local id
   id = vim.fn.jobstart({ "node", root .. "/tools/t3-thread/threads.mjs" }, {
@@ -647,7 +658,9 @@ function M.start(refresh)
       for _, line in ipairs(data) do
         if line ~= "" then
           local ok, value = pcall(vim.json.decode, line)
-          M.update(ok and type(value) == "table" and value or { type = "error", message = "invalid feed data" })
+          value = ok and type(value) == "table" and value or { type = "error", message = "invalid feed data" }
+          fed = { job = id, value = value }
+          M.update(value)
         end
       end
     end,
@@ -655,7 +668,7 @@ function M.start(refresh)
       if stopping or job ~= id then
         return
       end
-      job = nil
+      job, fed = nil, nil
       M.update({ type = "error", message = "thread feed exited (" .. code .. "); R to retry" })
     end,
   })

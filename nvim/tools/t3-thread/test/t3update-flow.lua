@@ -39,6 +39,8 @@ local function fresh(opts)
   end
   F.feed.snapshot = opts.feed
     or { type = "snapshot", projects = {}, threads = { { id = "a", status = "idle" }, { id = "b", status = "done" } } }
+  -- A typed snapshot stands for a valid frame of the current feed job.
+  F.feed.live = F.feed.snapshot.type == "snapshot"
   F.reply.osascript = opts.osascript or { code = 0, stdout = "clicked Check for Updates…\n" }
 end
 
