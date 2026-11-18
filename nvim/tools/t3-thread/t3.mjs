@@ -386,14 +386,15 @@ export function status(state) {
 }
 
 export function statusLabel(state, conn = "live") {
+  // Update and restart notices outrank a pending request (it returns after).
+  if (conn === UPDATING) return [UPDATING, "warning"];
+  if (conn.startsWith(RESTARTED)) return [conn, "info"];
   const pending = pendingRequests(state);
   if (pending.some((r) => r.kind !== "user_input"))
     return ["Pending Approval", "warning"];
   if (pending.length) return ["Awaiting Input", "attention"];
   // A new thread has no server state until its first prompt starts it.
   if (conn === "new") return ["Not started", "muted"];
-  if (conn === UPDATING) return [UPDATING, "warning"];
-  if (conn.startsWith(RESTARTED)) return [conn, "info"];
   if (conn !== "live") return ["Connecting", "info"];
   return {
     working: ["Working", "info"],
