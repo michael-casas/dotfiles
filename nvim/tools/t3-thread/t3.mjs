@@ -634,7 +634,8 @@ export function subscribe(
   // Live again: say once if a different server process now answers (update,
   // crash, manual restart), then settle on "live".
   function announce() {
-    const id = serverIdentity(new URL(base()).port || 80);
+    const url = new URL(base());
+    const id = serverIdentity(url.port || (url.protocol === "https:" ? 443 : 80));
     const restarted = id && server && id.key !== server.key;
     if (id) server = id;
     if (!restarted) return onConn?.("live");

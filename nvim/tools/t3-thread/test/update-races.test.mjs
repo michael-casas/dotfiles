@@ -519,3 +519,37 @@ test(`F15: a ${transport} ${client} socket closing peer-first is still released 
   assert.ok(await until(() => fake.counts.upgrades === 2, 2000), "one eligible recovery");
 });
 
+for (const [name, url, runtimePort, notices] of [
+  ["default https", "https://127.0.0.1", 443, 1],
+  ["literal :443", "https://127.0.0.1:443", 443, 1],
+  ["wrong-port record", "https://127.0.0.1", 8443, 0],
+])
+test(`F16: restart notice over ${name}`, async (t) => {
+  const fake = await startFakeT3({ initial: snapshot, tls: tlsFixture(t) });
+  t.after(() => fake.close());
+  const https = (await import("node:https")).default;
+  const request = https.request;
+  // Route the default-port request to the fixture; the logical port stays 443.
+  https.request = function (target, ...rest) {
+    const u = new URL(target);
+    if (!u.port) u.port = new URL(fake.url).port;
+    return request.call(this, u, ...rest);
+  };
+  t.after(() => (https.request = request));
+  const home = t3home(t);
+  const runtime = (pid) => {
+    fs.mkdirSync(path.join(home.home, "userdata"), { recursive: true });
+    fs.writeFileSync(path.join(home.home, "userdata", "server-runtime.json"),
+      JSON.stringify({ pid, startedAt: `s${pid}`, serverVersion: `v${pid}`, port: runtimePort }));
+  };
+  runtime(1);
+  const t3 = await adapter(t, url, home);
+  const conns = [];
+  t.after(t3.subscribe("t", { onConn: (c) => conns.push(c) }));
+  assert.ok(await until(() => conns.at(-1) === "live"));
+  runtime(2);
+  fake.dropAll();
+  assert.ok(await until(() => fake.counts.upgrades === 2 && conns.at(-1) !== "connecting", 3000));
+  await sleep(100);
+  assert.equal(conns.filter((c) => c.startsWith("T3 server restarted")).length, notices, conns.join(" | "));
+});
