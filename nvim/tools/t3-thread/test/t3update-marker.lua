@@ -189,4 +189,44 @@ F.case("an oversized marker is unreadable, never a decoded prefix", function()
   assert(admitted(), "after mtime + 60 s it is absent")
 end)
 
+-- B-R5-01: JSON numbers that overflow decode to ±inf, which is not the
+-- desktop's schema. Each is malformed: in progress while its mtime is inside
+-- the 60 s window (no trigger), absent once aged past it (normal admission on
+-- a healthy paired server). `fresh_json` and `aged_json` differ only for the
+-- nonfinite start, so each phase tells the fallback apart from acceptance.
+local function nonfinite(fresh_json, aged_json)
+  fresh()
+  F.set_runtime(1000, "1.0.0", { port = 39999 })
+  F.write(F.marker, fresh_json)
+  local text = status_text()
+  local left = tonumber(text:match("update in progress %((%d+) s left%)"))
+  assert(left and left >= 59 and left <= 60, "fresh: mtime fallback, " .. text)
+  assert(not admitted(), "fresh: refused as in progress")
+  assert(#F.of("osascript") == 0, "fresh: zero trigger calls")
+  F.write(F.marker, aged_json or fresh_json)
+  local old = os.time() - 61
+  assert(vim.uv.fs_utime(F.marker, old, old))
+  text = status_text()
+  local ago = tonumber(text:match("no update in progress %(marker expired (%d+) s ago%)"))
+  assert(ago and ago >= 1 and ago <= 3, "aged: expired at mtime + 60 s, " .. text)
+  assert(admitted(), "aged: normal admission")
+  assert(#F.of("osascript") == 1, "aged: one trigger call")
+end
+
+F.case("B-R5-01 a +1e400 expiry is malformed", function()
+  nonfinite('{"startedAt":1,"expiresAt":1e400}')
+end)
+
+F.case("B-R5-01 a -1e400 expiry is malformed", function()
+  nonfinite('{"startedAt":1,"expiresAt":-1e400}')
+end)
+
+F.case("B-R5-01 a nonfinite startedAt is malformed", function()
+  local now = os.time() * 1000
+  nonfinite(
+    ('{"startedAt":1e400,"expiresAt":%d}'):format(now - 5000),
+    ('{"startedAt":-1e400,"expiresAt":%d}'):format(now + 30000)
+  )
+end)
+
 F.done()

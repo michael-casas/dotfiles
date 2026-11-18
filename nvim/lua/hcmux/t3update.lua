@@ -128,10 +128,16 @@ local function read_runtime(path, cb)
 end
 
 -- The desktop's marker contract (its own waiters use the same TTL):
--- numeric {startedAt, expiresAt} is in progress until expiresAt; malformed or
+-- finite numeric {startedAt, expiresAt} is in progress until expiresAt; malformed or
 -- unreadable is in progress until mtime + 60 s; expired counts as absent.
 -- cb(nil) absent, cb({ left_ms }) in progress, cb({ ago_ms }) expired.
 local TTL_MS = 60000
+-- A JSON number that overflows decodes to ±inf; NaN is not even equal to
+-- itself. Neither is the desktop's schema.
+local function finite(n)
+  return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge
+end
+
 -- Paths are resolved on the main loop by the caller (vim.env is not
 -- available in libuv callbacks).
 local function read_marker(path, cb)
@@ -145,7 +151,7 @@ local function read_marker(path, cb)
       end
       local value = decode(text)
       local deadline
-      if value and type(value.startedAt) == "number" and type(value.expiresAt) == "number" then
+      if value and finite(value.startedAt) and finite(value.expiresAt) then
         deadline = value.expiresAt
       else
         deadline = stat.mtime.sec * 1000 + math.floor(stat.mtime.nsec / 1e6) + TTL_MS
