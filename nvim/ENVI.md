@@ -43,7 +43,7 @@ ENVI_SESSION=e2e-x envi-dev        # another session: dev-e2e-x
 
 | Part | Where |
 |---|---|
-| nvim profile | `NVIM_APPNAME=envi-dev/<slot>`, one per worktree. `<slot>` is `slot<N>` (its Treehouse slot) or its folder name, reduced to `a-z 0-9 -` (12 characters at most), plus the CRC of its exact path in 8 hex digits, e.g. `slot3-1a2b3c4d`; it is printed at start. Two worktrees never share one, and `envi-dev ls` and `prune` accept exactly these names |
+| nvim profile | `NVIM_APPNAME=envi-dev/<slot>`, one per worktree. `<slot>` is `slot<N>` (its Treehouse slot) or its folder name, reduced to `a-z 0-9 -` (12 characters at most), plus the CRC of its exact path in 8 hex digits, e.g. `slot3-1a2b3c4d`; it is printed at start. Two worktrees never share one. A worktree path containing a control character (tab, newline, any byte 0x01-0x1F or 0x7F) is refused at launch; spaces and non-ASCII names work |
 | Config | `~/.config/envi-dev/<slot>` points to `<worktree>/nvim`. An existing link to another worktree is never repointed |
 | State | `~/.local/state/envi-dev/<slot>` (its own shada, undo, swap), and `~/.cache/envi-dev/<slot>`. Every dev folder and each of its ancestors up to `$HOME` (the XDG homes included) must be a real folder, never inside a production profile, with no link inside the state and cache folders: anything that could route writes into production is refused before nvim starts |
 | Plugins | shared on purpose: `~/.local/share/envi-dev/<slot>` points to `~/.local/share/nvim` (a link anywhere else is refused) |
@@ -53,14 +53,22 @@ ENVI_SESSION=e2e-x envi-dev        # another session: dev-e2e-x
 `envi-dev sessions` and `envi-dev kill <name>` manage dev sessions (inside a
 worktree). Hot reload in a dev nvim follows the worktree's own commits.
 
-**Cleanup.** A dev profile outlives its worktree. `envi-dev ls` lists the
-profiles and marks those whose worktree is gone as `stale`;
-`envi-dev prune --dry-run --stale` shows what would go, `envi-dev prune --stale`
-removes their links, state and cache (a link is removed, never followed; prune
-refuses outright if any `envi-dev/` folder or one of its ancestors up to
-`$HOME` is a link). `envi-dev prune <slot>` removes one (it
-refuses while its worktree exists unless `ENVI_DEV_PRUNE_LIVE=1`). End a dev
-session with `envi-dev kill dev-<slot>`. Plugins are never removed.
+**Cleanup, by hand.** A dev profile outlives its worktree, and there is no
+command to remove it. List every profile path (read-only):
+
+```sh
+find "${XDG_CONFIG_HOME:-$HOME/.config}/envi-dev" "${XDG_DATA_HOME:-$HOME/.local/share}/envi-dev" \
+  "${XDG_STATE_HOME:-$HOME/.local/state}/envi-dev" "${XDG_CACHE_HOME:-$HOME/.cache}/envi-dev" \
+  -mindepth 1 -maxdepth 1 -exec ls -ld {} +
+```
+
+The config entries are links to their worktrees (`… -> <worktree>/nvim`); a
+link whose worktree is gone marks a stale profile. For that `<slot>`, remove
+the config link `$XDG_CONFIG_HOME/envi-dev/<slot>`, the data link
+`$XDG_DATA_HOME/envi-dev/<slot>` (a link to the shared plugins: remove the
+link, never what it points to), and the folders
+`$XDG_STATE_HOME/envi-dev/<slot>` and `$XDG_CACHE_HOME/envi-dev/<slot>`. End
+its session with `envi-dev kill dev-<slot>` inside any worktree.
 
 **Tests.** `nvim/bin/test/run.sh` proves the launcher, the dev profile and the
 cutover in a throwaway `HOME` (a fake `hc`; nothing real is touched).
@@ -155,7 +163,9 @@ Every helper's failure fails the command, and `APPLIED`/`ROLLED_BACK` are
 written only after every step succeeded. The backup
 (`~/.backups/envi-migrate-<time>-<id>/`, manifest `format=2`) is complete
 before any change: it is built as `<backup>.init` and renamed, and a leftover
-`.init` (a run killed right at the start) is removed by the next run.
+`.init` of exactly this tool's form (`envi-migrate-<time>-<id>.init`, holding at
+most its manifest; a run killed right at the start) is removed by the next
+run. Other folders in `~/.backups` are never touched.
 `--dry-run` shows the plan; running it again changes nothing.
 
 **Accepted limitation:** another process changing these files *during* the
@@ -191,15 +201,17 @@ closed.
    the thread again to move one onto production code.
 
 **Rollback:** close every nvim, then `~/.dotfiles/nvim/bin/envi-migrate rollback`
-(the newest backup, or pass one). It moves the current `~/.local/state/nvim`,
+(pass a backup, or none: it then takes the only backup not yet rolled back,
+and refuses, naming them, if there are several or one it cannot validate). It moves the current `~/.local/state/nvim`,
 post-cutover edits and all, to `<backup>/rollback-displaced/nvim` (never over
 an earlier one), moves `<backup>/state-nvim` back, and restores the links
 exactly (`~/.config/envi` → slot 2, `~/.local/bin/envi` through it, no
 `envi-dev`). If a link path now holds a real file or folder, rollback fails,
 leaves it alone, and can be run again once it is moved aside. An interrupted
 cutover or rollback is finished the same way: run `envi-migrate rollback`
-again; a new cutover refuses until then. `envi-migrate backups` lists every backup; rollback refuses one
-without a manifest or with another format and leaves its markers alone.
+again; a new cutover refuses until then. Rollback refuses, without touching
+markers or state, a backup without a manifest, with another format, with a
+missing or corrupt field, or with a linked or foreign path inside it.
 `envi` is then slot 2's envi on its
 untouched `envi` profile. Sessions live in herdr-core and are the same either way.
 
