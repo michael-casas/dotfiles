@@ -13,6 +13,7 @@
 #
 # ENVI_DEV=<worktree> envi (or envi-dev) runs that worktree's nvim/ instead,
 # under the profile envi-dev/<slot> and a dev-<slot> session: never production.
+# envi-dev-protocol: 2
 set -euo pipefail
 
 self="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -51,17 +52,50 @@ own_link() {
   ln -s "$target" "$link"
 }
 
+# A dev profile folder is its own: a real folder (or absent) under a real
+# envi-dev/ folder, with no link inside that could route writes elsewhere.
+own_dir() {
+  local dir="$1" base
+  base="$(dirname "$dir")"
+  if [ -L "$base" ] || { [ -e "$base" ] && [ ! -d "$base" ]; }; then
+    die "$base is not a real folder; refusing to run a dev profile through it."
+  fi
+  if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+    die "$dir is not a real folder; refusing (envi-dev prune $(basename "$dir") removes it)."
+  fi
+  if [ -d "$dir" ] && [ -n "$(find "$dir" -maxdepth 2 -type l -print 2>/dev/null | head -n 1)" ]; then
+    die "$dir contains a link; refusing to write a dev profile through it."
+  fi
+}
+
 if [ -n "${ENVI_DEV:-}" ]; then
   dev_root="$(cd "$ENVI_DEV" 2>/dev/null && pwd -P)" || die "ENVI_DEV: no such folder: $ENVI_DEV"
   [ -f "$dev_root/nvim/init.lua" ] || die "ENVI_DEV: $dev_root has no nvim/init.lua"
+  # envi-dev-protocol: 2. Its hcmux.session must keep dev sessions apart.
+  grep -q 'envi-dev-protocol: 2' "$dev_root/nvim/lua/hcmux/session.lua" 2>/dev/null ||
+    die "$dev_root predates the dev profile (its hcmux/session.lua has no dev namespace); rebase it onto main."
   slot="$(dev_slot "$dev_root")"
   config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
   data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  own_dir "${XDG_STATE_HOME:-$HOME/.local/state}/envi-dev/$slot"
+  own_dir "${XDG_CACHE_HOME:-$HOME/.cache}/envi-dev/$slot"
+  for base in "$config_home/envi-dev" "$data_home/envi-dev"; do
+    if [ -L "$base" ] || { [ -e "$base" ] && [ ! -d "$base" ]; }; then
+      die "$base is not a real folder; refusing to run a dev profile through it."
+    fi
+  done
+  # Plugins are the one thing shared with production: a link to its data, or
+  # the profile's own real folder.
+  data="$data_home/envi-dev/$slot"
+  if [ -L "$data" ]; then
+    [ "$(readlink "$data")" = "$data_home/nvim" ] || die "$data points to $(readlink "$data"), not $data_home/nvim; refusing."
+  elif [ -e "$data" ]; then
+    own_dir "$data"
+  fi
   own_link "$config_home/envi-dev/$slot" "$dev_root/nvim"
-  # Plugins are shared with the production profile (a real folder there is kept).
-  if [ ! -e "$data_home/envi-dev/$slot" ] && [ ! -L "$data_home/envi-dev/$slot" ]; then
+  if [ ! -e "$data" ] && [ ! -L "$data" ]; then
     mkdir -p "$data_home/envi-dev"
-    ln -s "$data_home/nvim" "$data_home/envi-dev/$slot"
+    ln -s "$data_home/nvim" "$data"
   fi
   export ENVI_DEV="$dev_root" NVIM_APPNAME="envi-dev/$slot"
   session_dir="$dev_root"
@@ -78,7 +112,7 @@ fi
 
 case "${1:-}" in
   ls | list | kill | rm) exec "$here/nvim-session" "$@" ;;
-  -h | --help | help) sed -n '2,15p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h | --help | help) sed -n '2,16p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 # A session start runs in the session's folder; `envi <file>` keeps the caller's cwd, like nvim.
@@ -97,6 +131,8 @@ if [ -n "$session" ]; then
     case "$session" in dev-*) ;; *) session="dev-$session" ;; esac
   fi
   export HCMUX_SESSION="$session"
+else
+  unset HCMUX_SESSION # `envi <file>`: no session, even one inherited from a parent nvim
 fi
 unset ENVI_RELOAD_SESSION
 

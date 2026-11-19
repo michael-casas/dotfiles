@@ -10,12 +10,12 @@
 #
 # Each worktree gets its own profile, NVIM_APPNAME=envi-dev/<slot> (config
 # link, state; plugins shared with production), and its own herdr-core
-# session, dev-<slot>. Sessions there and their index (nvs-dev-index) never
-# touch production ones. `ENVI_DEV=<worktree> envi` is the same thing.
+# session, dev-<slot>, kept in its own core namespace (nvsdev.<name>,
+# nvsdev-index, herdr.nvsdev labels), apart from every production session.
+# `ENVI_DEV=<worktree> envi` is the same thing.
 set -euo pipefail
 
 self="$(readlink -f "${BASH_SOURCE[0]}")"
-here="$(dirname "$self")"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
@@ -40,15 +40,22 @@ profiles() {
   done | sort -u
 }
 
+# Remove one profile's folders. Each must sit in a real envi-dev/ folder; a
+# link is removed as a link, never followed.
 prune_one() {
-  local slot="$1" dry="$2" path
-  case "$slot" in '' | */* | . | ..) die "bad slot: $slot" ;; esac
-  for path in "$config_home/envi-dev/$slot" "$data_home/envi-dev/$slot" "$state_home/envi-dev/$slot" \
-    "${XDG_CACHE_HOME:-$HOME/.cache}/envi-dev/$slot"; do
+  local slot="$1" dry="$2" home path base
+  [[ "$slot" =~ ^[a-z0-9-]+-[0-9a-f]{8}$ ]] || die "not a dev profile slot: $slot"
+  for home in "$config_home" "$data_home" "$state_home" "${XDG_CACHE_HOME:-$HOME/.cache}"; do
+    base="$home/envi-dev"
+    path="$base/$slot"
     [ -e "$path" ] || [ -L "$path" ] || continue
+    if [ -L "$base" ] || [ ! -d "$base" ]; then
+      echo "envi-dev: $base is not a real folder; leaving $path" >&2
+      continue
+    fi
     if [ "$dry" = 1 ]; then
       echo "would remove $path"
-    elif [ -L "$path" ]; then
+    elif [ -L "$path" ] || [ ! -d "$path" ]; then
       rm -f -- "$path" && echo "removed $path"
     else
       rm -rf -- "$path" && echo "removed $path"
@@ -59,7 +66,7 @@ prune_one() {
 
 case "${1:-}" in
   -h | --help | help)
-    sed -n '2,14p' "$self" | sed 's/^# \{0,1\}//'
+    sed -n '2,15p' "$self" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   ls | list)
@@ -106,9 +113,10 @@ fi
 worktree="$(cd "$worktree" && pwd -P)"
 
 # Run the worktree's own launcher, so launcher changes are developed there too.
-# One from before the dev profile existed would ignore ENVI_DEV; use ours then.
-launcher="$worktree/nvim/bin/envi"
-if ! grep -q 'ENVI_DEV' "$launcher" 2>/dev/null; then
-  launcher="$here/envi"
-fi
-ENVI_DEV="$worktree" exec "$launcher" "$@"
+# A worktree from before the dev profile (envi-dev-protocol 2) could reach
+# production sessions: refuse it before anything starts.
+for file in "$worktree/nvim/bin/envi" "$worktree/nvim/lua/hcmux/session.lua"; do
+  grep -q 'envi-dev-protocol: 2' "$file" 2>/dev/null ||
+    die "$worktree predates the dev profile (${file#"$worktree"/} has no dev mode); rebase it onto main."
+done
+ENVI_DEV="$worktree" exec "$worktree/nvim/bin/envi" "$@"

@@ -84,9 +84,10 @@ check ":reload: same dev session after the restart" test "$(field session)" = de
 
 # Production was never written by any of that.
 check "dev runs: no production state folder" test ! -e "$XDG_STATE_HOME/nvim"
-check "dev runs: no production session document" lacks "$HC_LOG" "^doc\.[a-z]* nvs\.[^d]"
+check "dev runs: no production session document" lacks "$HC_LOG" "^doc\.[a-z]* nvs\."
 check "dev runs: production index never read or written" lacks "$HC_LOG" "^doc\.[a-z]* nvs-index$"
-check "dev runs: the dev index was used" has "$HC_LOG" "^doc.set nvs-dev-index$"
+check "dev runs: the dev index was used" has "$HC_LOG" "^doc.set nvsdev-index$"
+check "dev runs: dev documents in their own namespace" has "$HC_LOG" "^doc.set nvsdev.dev-dotfiles$"
 check "dev runs: production config link unchanged" test "$(readlink "$XDG_CONFIG_HOME/nvim")" = "$HOME/.dotfiles/nvim"
 
 # ── production, real nvim ────────────────────────────────────────────────
@@ -135,6 +136,72 @@ check "envi-dev: ENVI_SESSION gets the dev- prefix" test \
 check "envi from inside a dev nvim (inherited NVIM_APPNAME) is production" test \
   "$(fakerun env NVIM_APPNAME="$app_a" envi 2>/dev/null | cut -d' ' -f1-2)" = "appname=<unset> session=dotfiles"
 
+# ── r1: namespace collision, legacy worktrees, aliases, nested launches ──
+
+# A production session whose name starts with dev- is out of a dev profile's reach.
+: >"$HC_LOG"
+ENVI_SESSION=dev-existing-production envi --headless +qa 2>/dev/null
+check "production may name a session dev-*" has "$HC_LOG" "^doc.set nvs.dev-existing-production$"
+cp "$HC_DOCS" "$sandbox/docs-before"
+: >"$HC_LOG"
+(cd "$wt_a" && envi-dev kill dev-existing-production -f >/dev/null 2>&1) || :
+check "envi-dev kill never touches the production dev-* document" lacks "$HC_LOG" "nvs\.dev-existing-production"
+check "  ... which is unchanged" python3 -I -c '
+import json, sys
+a, b = (json.load(open(f)) for f in sys.argv[1:])
+sys.exit(a["nvs.dev-existing-production"] != b["nvs.dev-existing-production"])' "$sandbox/docs-before" "$HC_DOCS"
+
+# A worktree from before the dev profile is refused before anything runs.
+for file in nvim/bin/envi nvim/lua/hcmux/session.lua; do
+  legacy="$sandbox/legacy-$(basename "$file")"
+  make_config "$legacy"
+  git -C "$repo" show "0fc1e3f:$file" >"$legacy/$file"
+  : >"$HC_LOG"
+  : >"$PROBE_OUT"
+  if ENVI_SESSION=legacy envi-dev "$legacy" --headless +qa 2>"$sandbox/err-legacy"; then
+    bad "legacy $file: refused"
+  else
+    ok "legacy $file: refused"
+  fi
+  check "  ... before nvim or the core ran" test ! -s "$PROBE_OUT" -a ! -s "$HC_LOG"
+  check "  ... telling the owner to rebase" has "$sandbox/err-legacy" "rebase it onto main"
+done
+if ENVI_DEV="$sandbox/legacy-session.lua" ENVI_SESSION=legacy envi --headless +qa 2>/dev/null; then
+  bad "ENVI_DEV=<legacy> envi: refused (old hcmux.session)"
+else ok "ENVI_DEV=<legacy> envi: refused (old hcmux.session)"; fi
+
+# A dev profile folder that links into production is refused, never written through.
+prod_state() { find "$XDG_STATE_HOME/nvim" -type f -exec cksum {} + 2>/dev/null | sort; }
+alias_check() { # <name> <path to replace with a link> <link target>
+  local before
+  before="$(prod_state)"
+  mv "$2" "$sandbox/aside"
+  ln -s "$3" "$2"
+  : >"$PROBE_OUT"
+  if ENVI_SESSION=aliased envi-dev "$wt_a" --headless +qa 2>/dev/null; then bad "$1: refused"; else ok "$1: refused"; fi
+  check "  ... before nvim ran" test ! -s "$PROBE_OUT"
+  check "  ... production state untouched" test "$(prod_state)" = "$before"
+  rm "$2"
+  mv "$sandbox/aside" "$2"
+}
+ENVI_SESSION=aliased envi-dev "$wt_a" --headless +qa 2>/dev/null
+alias_check "state folder linked to production state" "$XDG_STATE_HOME/$app_a" "$XDG_STATE_HOME/nvim"
+mkdir -p "$XDG_STATE_HOME/$app_a/shada"
+alias_check "a link inside the state folder" "$XDG_STATE_HOME/$app_a/shada" "$XDG_STATE_HOME/nvim/shada"
+alias_check "envi-dev/ state parent linked to production" "$XDG_STATE_HOME/envi-dev" "$XDG_STATE_HOME/nvim"
+mkdir -p "$sandbox/other-data"
+alias_check "plugin link pointing anywhere but production data" "$XDG_DATA_HOME/$app_a" "$sandbox/other-data"
+ENVI_SESSION=aliased envi-dev "$wt_a" --headless +qa 2>/dev/null
+check "after the checks the dev profile runs again" test "$(field appname)" = "$app_a"
+
+# `envi <file>` inside a dev nvim: production, no session (not the inherited one).
+PATH="$sandbox/fake:$PATH" HCMUX_SESSION=dev-inherited NVIM_APPNAME="$app_a" envi notes.txt 2>/dev/null
+check "envi <file> drops an inherited HCMUX_SESSION" test "$(tail -n 1 "$FAKE_LOG" | cut -d' ' -f1-2)" = "appname=<unset> session=<unset>"
+PATH="$sandbox/fake:$PATH" HCMUX_SESSION=dev-inherited ENVI_SESSION=named envi notes.txt 2>/dev/null
+check "  ... but ENVI_SESSION still picks one" test "$(tail -n 1 "$FAKE_LOG" | cut -d' ' -f2)" = "session=named"
+PATH="$sandbox/fake:$PATH" HCMUX_SESSION=dev-inherited envi 2>/dev/null
+check "  ... and envi with no arguments is still the dotfiles session" test "$(tail -n 1 "$FAKE_LOG" | cut -d' ' -f2)" = "session=dotfiles"
+
 # ── stale profiles ───────────────────────────────────────────────────────
 
 envi-dev ls >"$sandbox/dev-ls"
@@ -151,5 +218,14 @@ check "prune --stale keeps shared plugins" test -d "$XDG_DATA_HOME/nvim"
 check "prune --stale keeps live profiles" test -L "$XDG_CONFIG_HOME/$app_a" -a -L "$XDG_CONFIG_HOME/$app_b"
 if envi-dev prune "$slot_a" 2>/dev/null; then bad "prune refuses a live profile"; else ok "prune refuses a live profile"; fi
 check "  ... and keeps it" test -L "$XDG_CONFIG_HOME/$app_a"
+if envi-dev prune ../nvim 2>/dev/null; then bad "prune refuses a name that is not a slot"; else ok "prune refuses a name that is not a slot"; fi
+# A stale profile behind a linked envi-dev/ parent: the link's target is never deleted.
+mkdir -p "$sandbox/prod-like/${app_b#envi-dev/}"
+echo keep >"$sandbox/prod-like/${app_b#envi-dev/}/file"
+mkdir -p "$XDG_CACHE_HOME"
+mv "$XDG_CACHE_HOME/envi-dev" "$sandbox/cache-aside" 2>/dev/null || :
+ln -s "$sandbox/prod-like" "$XDG_CACHE_HOME/envi-dev"
+ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_b#envi-dev/}" >/dev/null 2>&1
+check "prune never deletes through a linked envi-dev/ folder" test -f "$sandbox/prod-like/${app_b#envi-dev/}/file"
 
 finish

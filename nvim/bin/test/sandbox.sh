@@ -7,7 +7,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 sandbox="$(mktemp -d "${TMPDIR:-/tmp}/envi-prod-sandbox.XXXXXX")"
 sandbox="$(cd "$sandbox" && pwd -P)"
-trap 'rm -rf "$sandbox"' EXIT
+trap 'rm -rf "$sandbox" 2>/dev/null || { sleep 1; rm -rf "$sandbox"; } || true' EXIT
 
 export HOME="$sandbox/home"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
@@ -78,6 +78,13 @@ make_config() { # <dir>: <dir>/nvim
 local s = require("hcmux.session")
 if vim.env.HCMUX_SESSION then
   s.attach(vim.env.HCMUX_SESSION)
+  -- Let attach's scheduled save finish: no core call may outlive this nvim.
+  vim.wait(100, function()
+    return false
+  end)
+  vim.wait(5000, function()
+    return not s.saving
+  end, 10)
   s.save({ sync = true, force = true, release = true })
 end
 vim.cmd("wshada")
