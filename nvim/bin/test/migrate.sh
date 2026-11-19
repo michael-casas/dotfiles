@@ -459,6 +459,10 @@ check "  ... and the doubtful one, with its error" has "$sandbox/out" "^  $doubt
 migrate rollback "$b" >/dev/null 2>&1 || bad "  ... an explicit path still rolls back"
 check "  ... and restores the state" test ! -e "$b/state-nvim" -a -f "$b/ROLLED_BACK"
 
+world minimal # launchers that source and exec nothing need nothing more
+for f in envi envi-dev; do printf '#!/bin/sh\n# ENVI_DEV\n' >"$HOME/.dotfiles/nvim/bin/$f"; done
+migrate --dry-run cutover >"$sandbox/out" 2>&1 || bad "launchers with no helpers: the preflight passes"
+
 # ── r4: rollback binds the link destinations recorded at apply ──────────
 
 world destinations

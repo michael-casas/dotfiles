@@ -220,7 +220,7 @@ plan() { # refuses before any write; sets do_state, do_links, olds, news
   dep="$(sed -n -e 's|^\. "[^"]*/\([^"/]*\)"$|r \1|p' -e 's|.*exec "[$]here/\([^"/]*\)".*|x \1|p' "$bin/envi" "$bin/envi-dev")" ||
     die "cannot read the launchers"
   while read -r i p; do
-    { [ -f "$bin/$p" ] && [ ! -L "$bin/$p" ] && [ -r "$bin/$p" ] && { [ "$i" = r ] || [ -x "$bin/$p" ]; }; } ||
+    [ -z "$p" ] || { [ -f "$bin/$p" ] && [ ! -L "$bin/$p" ] && [ -r "$bin/$p" ] && { [ "$i" = r ] || [ -x "$bin/$p" ]; }; } ||
       die "$bin/$p (used by the launchers) is missing, a link or not $([ "$i" = r ] && echo readable || echo executable); refusing"
   done <<<"$dep"
   news=("$dotfiles/nvim" "$bin/envi" "$bin/envi-dev" "")
