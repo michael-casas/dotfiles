@@ -46,12 +46,12 @@ tmp=
 
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# git in the checkout. fd 9 holds the lock: read-only calls and the fetch
-# (whose helpers can outlive it) don't inherit it; the merge does (gm), so the
-# lock stays held while it runs even if this shell is killed. No daemon may
-# inherit it: no fsmonitor, auto gc or maintenance.
+# git in the checkout. fd 9 holds the lock. Read-only calls don't inherit it
+# (g); calls that write repository state, the fetch and the merge, do (gw), so
+# the lock stays held while they run even if this shell is killed. No daemon
+# may inherit it: no fsmonitor, auto gc or maintenance.
 g() { git -C "$repo" "$@" 9>&-; }
-gm() { git -C "$repo" -c core.fsmonitor=false -c gc.auto=0 -c maintenance.auto=false "$@"; }
+gw() { git -C "$repo" -c core.fsmonitor=false -c gc.auto=0 -c maintenance.auto=false "$@"; }
 
 cap() { # rotate a file that grew past $max (keeps one old copy)
   if [ -f "$1" ] && [ "$(wc -c <"$1" | tr -d ' ')" -gt "$max" ]; then
@@ -193,14 +193,37 @@ oneline() { # git's message as one log line
   tr '\n' ' ' <"$1" | sed -e 's/  */ /g' -e 's/ $//' | cut -c1-400
 }
 
+# wrongbranch <ref>: the checkout was switched just as the merge started (out
+# of scope), so git advanced <ref> instead. Name it, and the way back to its
+# own previous tip, read from its reflog entry for this merge. Commands are
+# shell-quoted, so they paste verbatim. Without a verified previous tip, only
+# a command to inspect the reflog.
+wrongbranch() {
+  name="${1#refs/heads/}"
+  entry="$(g log -g -1 --format='%H %gs' "$1" 2>/dev/null)"
+  prev="$(g rev-parse --verify --quiet "$1@{1}")"
+  case "$entry" in
+    "$remote_sha merge "*) ;;
+    *) prev= ;;
+  esac
+  if [ -z "$prev" ]; then
+    finish wrongbranch 1 "the merge advanced $name (not $branch) to $remote_sha; its previous tip could not be verified from the reflog, so no reset is suggested; inspect: $(printf '%q ' git -C "$repo" reflog show "$name" | sed 's/ $//')"
+  fi
+  keep="$(printf '%q ' git -C "$repo" reset --keep "$prev" | sed 's/ $//')"
+  force="$(printf '%q ' git -C "$repo" branch -f "$name" "$prev" | sed 's/ $//')"
+  if [ "$name" = HEAD ]; then
+    finish wrongbranch 1 "the merge advanced a detached HEAD (not $branch) from $prev to $remote_sha; recover: $keep (while it is checked out)"
+  fi
+  finish wrongbranch 1 "the merge advanced $name (not $branch) from $prev to $remote_sha; recover: $keep (while it is checked out), or $force"
+}
+
 sync_once() {
   verify
   start_sha="$(g rev-parse --verify --quiet HEAD)" || finish error 1 "$repo has no commit on $branch"
 
   err="$tmp/git.err"
   # Light on purpose: it runs every minute. No tags, no submodules, no auto gc.
-  if ! GIT_TERMINAL_PROMPT=0 g -c gc.auto=0 -c maintenance.auto=false \
-    fetch --quiet --no-tags --recurse-submodules=no "$remote" \
+  if ! GIT_TERMINAL_PROMPT=0 gw fetch --quiet --no-tags --recurse-submodules=no "$remote" \
     "+refs/heads/$branch:refs/remotes/$remote/$branch" 2>"$err"; then
     finish error 1 "fetch $remote $branch failed: $(oneline "$err")"
   fi
@@ -229,15 +252,12 @@ sync_once() {
   # --no-autostash: never stash, whatever the config says. --no-overwrite-ignore:
   # git refuses too if an ignored file appeared in the way after the check above.
   verify "$start_sha"
-  if ! gm merge --ff-only --no-autostash --no-overwrite-ignore --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
+  if ! gw merge --ff-only --no-autostash --no-overwrite-ignore --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
     finish refused 1 "fast-forward ${start_sha:0:7}..${remote_sha:0:7} refused: $(oneline "$err")"
   fi
-  # The checkout was switched just as the merge started (out of scope), so git
-  # advanced that branch instead: name it and the way back.
   ref="$(g symbolic-ref --quiet HEAD)"
   if [ "$ref" != "refs/heads/$branch" ]; then
-    moved="${ref#refs/heads/}"
-    finish wrongbranch 1 "the merge advanced ${moved:-a detached HEAD} (not $branch) from $start_sha to $remote_sha; recover: git -C $repo reset --keep $start_sha (while it is checked out), or git -C $repo branch -f ${moved:-<branch>} $start_sha"
+    wrongbranch "${ref:-HEAD}"
   fi
   if [ "$(g rev-parse "refs/heads/$branch")" != "$remote_sha" ]; then
     finish error 1 "$branch is not at ${remote_sha:0:7} after the merge; check $repo by hand"

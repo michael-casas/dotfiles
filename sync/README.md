@@ -21,8 +21,9 @@ watches the checkout and reloads, or shows a toast.
      `now` share it even when their state paths differ.
    - A periodic run skips quietly (exit 3) while another sync holds it; `now`
      waits up to 60 s.
-   - The merge inherits the lock, so it stays held while the merge runs, even
-     if the sync shell was killed.
+   - The fetch and the merge, the calls that write repository state, inherit
+     the lock. It stays held while either runs, even if the sync shell was
+     killed.
    - The kernel releases it once all holders have exited or been killed, so
      there is never a stale lock to clean up.
 3. **State check:** skips (exit 3) unless HEAD is `refs/heads/main` and no merge,
@@ -55,17 +56,26 @@ local change, and the next run catches up.
 checkout is switched to another branch at the exact moment the merge starts,
 git advances *that* branch. The production checkout stays on `main`; branches
 belong in worktrees. The sync checks the result afterwards. If that happened,
-it records `wrongbranch`, naming the branch, the old and new SHAs, and the way
-back. `:EnviHotReload status` shows it as "sync moved the wrong branch: …".
+it records `wrongbranch`, and `:EnviHotReload status` shows it as "sync moved
+the wrong branch: …".
+
+The record names the branch and that branch's **own** previous tip. The sync
+reads the tip from the branch's reflog entry for this merge, and checks that
+the entry's new value is the incoming commit. The recovery commands are
+shell-quoted, so you can paste them verbatim, even with spaces in the path:
 
 ```sh
-git -C ~/.dotfiles reset --keep <old-sha>          # while that branch is checked out
-git -C ~/.dotfiles branch -f <branch> <old-sha>    # once it is not checked out
+git -C ~/.dotfiles reset --keep <its-previous-tip>          # while that branch is checked out
+git -C ~/.dotfiles branch -f <branch> <its-previous-tip>    # once it is not checked out
 ```
 
 `git branch -f` refuses a branch that is checked out, which is why the first
 command comes first. `reset --keep` keeps your local changes, and refuses if
 they would be lost.
+
+If the previous tip can't be verified, for example because the reflog is off,
+the record says so and gives only `git -C ~/.dotfiles reflog show <branch>`,
+never a guessed reset.
 
 **State:** `${XDG_STATE_HOME:-~/.local/state}/dotfiles-sync/`:
 - `last` holds the latest result, one line: `<UTC time> <result> <detail>`.

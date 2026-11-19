@@ -244,6 +244,25 @@ for _ in $(seq 100); do kill -0 "$child" 2>/dev/null || break; sleep 0.05; done
 rc=$?
 check "after the merge finished: the next run succeeds" [ "$rc" -eq 0 ]
 check "after the merge finished: at origin/main" [ "$(head_of)" = "$(git -C "$dev" rev-parse HEAD)" ]
+# The same with the fetch: it writes refs, so it holds the lock too.
+push nvim/lua/killed-fetch.lua 'return 6'
+before="$(head_of)"
+rm -f "$root/hook.count" "$marks/go" "$marks/merge.pid"
+PATH="$hooks:$PATH" HOOK_AT=fetch HOOK_WHEN=before HOOK_DO="echo \$\$ >'$marks/merge.pid'; while [ ! -e '$marks/go' ]; do sleep 0.05; done" "$sync" now >/dev/null 2>&1 &
+shell=$!
+for _ in $(seq 100); do [ -s "$marks/merge.pid" ] && break; sleep 0.05; done
+kill -KILL "$shell"
+wait "$shell" 2>/dev/null
+child="$(cat "$marks/merge.pid")"
+check "killed shell: its fetch child is still alive" kill -0 "$child"
+"$sync"
+rc=$?
+check "killed shell, live fetch: next run is busy (3)" [ "$rc" -eq 3 ]
+check "killed shell, live fetch: HEAD unchanged" [ "$(head_of)" = "$before" ]
+touch "$marks/go"
+for _ in $(seq 100); do kill -0 "$child" 2>/dev/null || break; sleep 0.05; done
+"$sync"
+check "after the fetch finished: the next run syncs" [ "$(head_of)" = "$(git -C "$dev" rev-parse HEAD)" ]
 # Split state: a run with another log directory still shares the lock.
 hold_lock 30
 push nvim/lua/split.lua 'return 7'
@@ -344,8 +363,10 @@ rm "$prod/late.local"
 "$sync"
 
 # 15b. Switched at the very moment the merge starts (out of scope): git
-# advances that branch. The result names it and the recovery, which works.
-git -C "$prod" branch side-at-entry
+# advances that branch. The result names it and its own previous tip (from its
+# reflog), and the emitted recovery command, run verbatim, restores it.
+git -C "$prod" branch side-at-entry HEAD~1 # behind main: its tip is not main's
+side_old="$(git -C "$prod" rev-parse side-at-entry)"
 push nvim/lua/entry.lua 'return 10'
 before="$(head_of)"
 incoming="$(git -C "$dev" rev-parse HEAD)"
@@ -353,12 +374,27 @@ rm -f "$root/hook.count"
 PATH="$hooks:$PATH" HOOK_AT=merge HOOK_WHEN=before HOOK_DO="$real_git -C '$prod' switch -q side-at-entry" "$sync"
 rc=$?
 check "switched at merge entry: error (1)" [ "$rc" -eq 1 ]
-check "switched at merge entry: wrongbranch names the branch" grep -q " wrongbranch the merge advanced side-at-entry (not main) from $before to $incoming; " "$state/last"
-check "switched at merge entry: gives both recovery commands" grep -q "recover: git -C $prod reset --keep $before (while it is checked out), or git -C $prod branch -f side-at-entry $before$" "$state/last"
+check "switched at merge entry: names the branch and its own previous tip" grep -q " wrongbranch the merge advanced side-at-entry (not main) from $side_old to $incoming; " "$state/last"
+alt="$(printf '%q ' git -C "$prod" branch -f side-at-entry "$side_old" | sed 's/ $//')"
+check "switched at merge entry: the alternative is shell-quoted" grep -qF ", or $alt" "$state/last"
 check "switched at merge entry: main untouched" [ "$(git -C "$prod" rev-parse main)" = "$before" ]
-git -C "$prod" reset -q --keep "$before"
-check "the recovery command restores the branch" [ "$(git -C "$prod" rev-parse side-at-entry)" = "$before" ] && [ -z "$(git -C "$prod" status --porcelain -- nvim/lua/entry.lua)" ]
+recovery="$(sed -E 's/^.*; recover: (.*) \(while it is checked out\), or .*$/\1/' "$state/last")"
+/bin/bash -c "$recovery"
+check "the emitted recovery, run verbatim, restores the branch's own tip" [ "$(git -C "$prod" rev-parse side-at-entry)" = "$side_old" ]
 git -C "$prod" switch -q main
+# No reflog to verify the previous tip: say so; only an inspect command.
+git -C "$prod" config core.logAllRefUpdates false
+git -C "$prod" branch noreflog HEAD
+rm -f "$prod/.git/logs/refs/heads/noreflog"
+push nvim/lua/entry2.lua 'return 11'
+before="$(head_of)"
+rm -f "$root/hook.count"
+PATH="$hooks:$PATH" HOOK_AT=merge HOOK_WHEN=before HOOK_DO="$real_git -C '$prod' switch -q noreflog" "$sync"
+check "unverified previous tip: says so" grep -q " wrongbranch the merge advanced noreflog (not main) to .*; its previous tip could not be verified from the reflog, so no reset is suggested; inspect: git -C $prod reflog show noreflog$" "$state/last"
+check "unverified previous tip: no reset or branch -f" sh -c "! grep -qe 'reset --keep' -e 'branch -f' '$state/last'"
+git -C "$prod" reset -q --keep "$before"
+git -C "$prod" switch -q main
+git -C "$prod" config --unset core.logAllRefUpdates
 "$sync"
 
 # 16. Only the main checkout: not a linked worktree, not a subdirectory.
