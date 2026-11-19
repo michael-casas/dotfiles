@@ -43,7 +43,7 @@ ENVI_SESSION=e2e-x envi-dev        # another session: dev-e2e-x
 
 | Part | Where |
 |---|---|
-| nvim profile | `NVIM_APPNAME=envi-dev/<slot>`, one per worktree. `<slot>` is `slot<N>` (its Treehouse slot) or its folder name, reduced to `a-z 0-9 -` (12 characters at most), plus the CRC of its exact path in 8 hex digits, e.g. `slot3-1a2b3c4d`; it is printed at start. Two worktrees never share one. A worktree path containing a control character (tab, newline, any byte 0x01-0x1F or 0x7F) is refused at launch; spaces and non-ASCII names work |
+| nvim profile | `NVIM_APPNAME=envi-dev/<slot>`, one per worktree. `<slot>` is `slot<N>` (its Treehouse slot) or its folder name, reduced to `a-z 0-9 -` (12 characters at most), plus the CRC of its exact path in 8 hex digits, e.g. `slot3-1a2b3c4d`; it is printed at start. Two worktrees never share one. A worktree path containing a control character (tab, newline, any byte 0x01-0x1F or 0x7F) is refused at launch; spaces and non-ASCII names work. A relative path is taken from the current folder (`CDPATH` is ignored) |
 | Config | `~/.config/envi-dev/<slot>` points to `<worktree>/nvim`. An existing link to another worktree is never repointed |
 | State | `~/.local/state/envi-dev/<slot>` (its own shada, undo, swap), and `~/.cache/envi-dev/<slot>`. Every dev folder and each of its ancestors up to `$HOME` (the XDG homes included) must be a real folder, never inside a production profile, with no link inside the state and cache folders: anything that could route writes into production is refused before nvim starts |
 | Plugins | shared on purpose: `~/.local/share/envi-dev/<slot>` points to `~/.local/share/nvim` (a link anywhere else is refused) |
@@ -156,7 +156,8 @@ state and link steps. Before its first write it checks:
 - every path it touches (state, staging, backup, `~/.config`, `~/.local/bin`,
   `~/.dotfiles/nvim`) and each ancestor up to `$HOME` is a real folder, outside
   the envi state;
-- the production launchers are executable and the production config exists;
+- the production launchers, and every helper they exec (`nvim-session`), are
+  executable, what they source is readable, and the production config exists;
 - both device ids can be read and match, so the state swap is a rename.
 
 Every helper's failure fails the command, and `APPLIED`/`ROLLED_BACK` are
@@ -168,8 +169,8 @@ most its manifest; a run killed right at the start) is removed by the next
 run. Other folders in `~/.backups` are never touched.
 `--dry-run` shows the plan; running it again changes nothing.
 
-**Accepted limitation:** another process changing these files *during* the
-run is out of scope. Run it once, with the owner present and every editor
+**Accepted limitations:** another process changing these files *during* the
+run, and hand-edited contents of a backup this tool wrote, are out of scope. Run it once, with the owner present and every editor
 closed.
 
 1. **Before.** This branch is merged and `~/.dotfiles` is fast-forwarded to
@@ -202,7 +203,11 @@ closed.
 
 **Rollback:** close every nvim, then `~/.dotfiles/nvim/bin/envi-migrate rollback`
 (pass a backup, or none: it then takes the only backup not yet rolled back,
-and refuses, naming them, if there are several or one it cannot validate). It moves the current `~/.local/state/nvim`,
+and refuses if there are several or one it cannot validate, naming every
+candidate and each one's error; an unreadable `~/.backups` also refuses, never
+"no backup"). Run it with the cutover's `HOME`, `XDG_STATE_HOME` and
+`XDG_CONFIG_HOME`: the manifest records the state and link paths, and rollback
+refuses, before any change, a backup made for other ones. It moves the current `~/.local/state/nvim`,
 post-cutover edits and all, to `<backup>/rollback-displaced/nvim` (never over
 an earlier one), moves `<backup>/state-nvim` back, and restores the links
 exactly (`~/.config/envi` → slot 2, `~/.local/bin/envi` through it, no
