@@ -165,9 +165,11 @@ explicit way to leave a session from anywhere.
 - **Names:** default names are the folder's basename. A second folder with
   the same basename (another worktree, say) gets `name-xxxx`.
 - **Dev profiles** (`NVIM_APPNAME=envi-dev/<slot>`, started by `envi-dev`) keep
-  their sessions apart: every name starts with `dev-` (added if missing), the
-  index is `nvs-dev-index`, and a production name is refused before any core
-  call. A dev nvim never reads or writes `nvs-index` or a production `nvs.<name>`.
+  their sessions in a namespace of their own: documents `nvsdev.<name>`, index
+  `nvsdev-index`, terminal label `herdr.nvsdev`. Names start with `dev-` (added
+  if missing). A dev nvim never reads or writes a production document or label,
+  even for a production session named `dev-…`; neither side adopts the other's
+  terminals.
 
 `session-bridge.lua` is what makes layouts bring terminals back: it teaches
 nvim the `hc://` buffer scheme (`BufReadCmd`), so a saved layout's terminal
@@ -200,7 +202,7 @@ Terminals started from nvim carry these labels:
 
 - `herdr.nvim=1`
 - `herdr.nvim.cwd=<nvim's cwd>`
-- `herdr.nvs=<session>`: the session it belongs to
+- `herdr.nvs=<session>`: the session it belongs to (`herdr.nvsdev` in a dev profile)
 - `herdr.nvim.title`
 - for agents: `herdr.nvim.tool` and `herdr.nvim.session`
 
