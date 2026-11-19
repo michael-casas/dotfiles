@@ -181,7 +181,8 @@ fast-forwards `~/.dotfiles` (a LaunchAgent runs it every 60 s; run
 See `sync/README.md`.
 
 - **Ignored:** new commits that only touch `*.md`, or only files outside the
-  config dir. No reload and no toast.
+  config dir. No reload and no toast. If git can't list a commit's files, that
+  is not taken as a config change: the next check tries again.
 - **Started by `envi`:** it reloads itself (`:reload`) once that's safe: normal
   mode, no unsaved buffers, and no key pressed for 3 s. While you type (INSERT, or
   a T3 popover in TERMINAL) it waits silently. With unsaved buffers it shows the
@@ -192,8 +193,11 @@ See `sync/README.md`.
   toast once per commit and nothing else. There, `:Reload` says to close and
   reopen nvim (or use envi).
 - **The toast:** "Your configuration has changed since the last time you
-  reloaded, run :Reload". It appears top right (snacks.notifier) and stays 4 s in
-  total, at most once per new commit per nvim.
+  reloaded, run :Reload". It appears top right (snacks.notifier), at most once
+  per new commit per nvim. It stays 4 s in total, counted from the moment it is
+  actually on screen. A newer commit's toast replaces an older one still
+  showing, after a 0.1 s gap, and gets its own 4 s. Other notifications keep
+  their own lifetimes.
 - **Robustness:** every watch event re-arms the watch, so a replaced
   `logs/HEAD` (a new inode) keeps working. A check on `FocusGained` and a cheap
   one every 60 s (`recheck_ms`) re-arm it and catch anything missed, for example

@@ -44,16 +44,38 @@ package.loaded["hcmux.session"] = {
     return reloadable
   end,
 }
-local toasts, hides = {}, 0
+-- A snacks.notifier stand-in: a notification shows `display_ms` after it's
+-- asked for (snacks waits for room on screen), history reports `shown`.
+local toasts, display_ms = {}, 30
+local function realtime()
+  local t = vim.uv.clock_gettime("realtime")
+  return t.sec + t.nsec / 1e9
+end
+local function by_id(id)
+  for i = #toasts, 1, -1 do
+    if toasts[i].id == id then
+      return toasts[i]
+    end
+  end
+end
 _G.Snacks = {
   notifier = {
     notify = function(msg, level, opts)
-      toasts[#toasts + 1] = { msg = msg, level = level, opts = opts, at = vim.uv.now() }
+      local n = { id = opts.id, msg = msg, level = level, opts = opts, at = vim.uv.now() }
+      toasts[#toasts + 1] = n
+      vim.defer_fn(function()
+        if not n.hidden then
+          n.shown, n.shown_ms = realtime(), vim.uv.now()
+        end
+      end, display_ms)
     end,
     hide = function(id)
-      hides = hides + 1
-      toasts[#toasts].hidden = vim.uv.now()
-      assert(id == toasts[#toasts].opts.id, "hides its own toast")
+      local n = by_id(id)
+      assert(n, "hides a toast it showed: " .. tostring(id))
+      n.hidden = n.hidden or vim.uv.now()
+    end,
+    get_history = function()
+      return toasts
     end,
   },
 }
@@ -192,6 +214,7 @@ assert(hot.state.watching and hot.state.watching:match("logs/HEAD$"), "periodic 
 
 -- Off switch, and catching up when it's back on.
 hot.state.held, hot.state.pending = {}, nil
+sleep(200) -- let the held commit's toast (shown after a 100 ms gap) land first
 vim.cmd("EnviHotReload off")
 commit("nvim/lua/h.lua", "return 9")
 quiet(500, "off")
@@ -222,14 +245,86 @@ until_(3000, function()
   return #toasts == before + 2
 end, "plain nvim: a new commit toasts again")
 
--- The toast itself.
+-- The toast itself: exact text, one id per commit, 4 s (here 200 ms) from the
+-- moment snacks shows it.
 local t = toasts[#toasts]
 assert(t.msg == hot.TOAST, "exact text: " .. t.msg)
-assert(t.opts.timeout == 200 and t.opts.id == "envi.hotreload", "timeout and id")
+assert(t.opts.timeout == 200 and t.opts.id == "envi.hotreload." .. hot.state.pending.to, "timeout and id")
 until_(1000, function()
   return t.hidden ~= nil
 end, "hidden after toast_ms")
-assert(t.hidden - t.at >= 190 and t.hidden - t.at <= 400, "hidden after ~toast_ms: " .. (t.hidden - t.at))
+local function lasted(n)
+  return n.hidden - n.shown_ms
+end
+assert(lasted(t) >= 190 and lasted(t) <= 260, "on screen ~toast_ms: " .. lasted(t))
+
+-- Shown late (snacks had no room): the budget starts when it's on screen.
+display_ms = 300
+local nk = #toasts
+commit("nvim/lua/k.lua", "return 12")
+until_(3000, function()
+  return #toasts == nk + 1 and toasts[#toasts].hidden ~= nil
+end, "late toast hidden")
+t = toasts[#toasts]
+assert(t.shown_ms - t.at >= 290, "shown late: " .. (t.shown_ms - t.at))
+assert(lasted(t) >= 190 and lasted(t) <= 260, "late toast still gets toast_ms on screen: " .. lasted(t))
+display_ms = 30
+
+-- Two commits close together: the newer toast replaces the older and keeps its
+-- own full lifetime (the older one's timer can't close it). An unrelated
+-- notification keeps its own lifetime too.
+Snacks.notifier.notify("unrelated", vim.log.levels.INFO, { id = "unrelated", timeout = 3000 })
+local n0 = #toasts
+commit("nvim/lua/l.lua", "return 13")
+until_(3000, function()
+  return #toasts == n0 + 1 and toasts[#toasts].shown_ms
+end, "first of two toasts shown")
+local first = toasts[#toasts]
+sleep(120)
+commit("nvim/lua/m.lua", "return 14")
+until_(3000, function()
+  return #toasts == n0 + 2 and toasts[#toasts].shown_ms
+end, "second toast shown")
+local second = toasts[#toasts]
+assert(first.hidden and first.hidden <= second.at + 5, "the older toast closes when the newer one comes")
+assert(second.shown_ms - first.hidden >= 90, "a visible gap between the two: " .. (second.shown_ms - first.hidden))
+until_(2000, function()
+  return second.hidden ~= nil
+end, "second toast hidden")
+assert(lasted(second) >= 190 and lasted(second) <= 260, "second toast keeps its own lifetime: " .. lasted(second))
+assert(by_id("unrelated").hidden == nil, "an unrelated notification is never hidden by hot reload")
+
+-- A failed `git diff` is no verdict: no toast, `seen` stays, the next check
+-- (here FocusGained) classifies the commit properly.
+local system, failed, seen_after = vim.system, false, nil
+vim.system = function(cmd, opts, cb)
+  if cmd[4] == "diff" and not failed then
+    failed = true
+    vim.schedule(function()
+      cb({ code = 128, stdout = "", stderr = "transient" })
+      seen_after = hot.state.seen -- right after hot reload handled the failure
+    end)
+    return {}
+  end
+  return system(cmd, opts, cb)
+end
+local n1, seen1, pending1 = #toasts, hot.state.seen, hot.state.pending.to
+local docs2 = commit("nvim/doc.md", "more docs")
+until_(3000, function()
+  return seen_after ~= nil
+end, "the diff failed once")
+assert(seen_after == seen1, "failed diff: seen stays")
+assert(#toasts == n1, "failed diff: no toast")
+vim.api.nvim_exec_autocmds("FocusGained", {})
+until_(3000, function()
+  return hot.state.seen == docs2
+end, "the next check classifies the commit")
+vim.system = system
+sleep(200)
+assert(#toasts == n1 and hot.state.pending.to == pending1, "docs-only after the retry: no toast, pending unchanged")
+-- A non-ASCII docs file is still docs (paths read with -z, unquoted).
+commit("nvim/café.md", "docs")
+quiet(500, "non-ASCII *.md")
 
 -- :Reload in a plain nvim: one line saying what to do. (session.lua defines
 -- :Reload when sessions are on; here they're stubbed, so hotreload's own runs.)

@@ -63,9 +63,70 @@ local function reloadable()
   return require("hcmux.session").reloadable()
 end
 
+local toast_id, toast_at -- the toast on screen (one id per commit) and when it was asked for
+
+-- snacks' clock (notif.shown is in these seconds).
+local function realtime()
+  local t = uv.clock_gettime and uv.clock_gettime("realtime")
+  if t then
+    return t.sec + t.nsec / 1e9
+  end
+  local sec, usec = uv.gettimeofday()
+  return sec + usec / 1e6
+end
+
+-- When snacks actually showed notification `id` (its own clock), if it has.
+-- `known` is false when this snacks can't tell.
+local function shown_at(snacks, id)
+  local ok, history = pcall(snacks.notifier.get_history)
+  if not ok or type(history) ~= "table" then
+    return nil, false
+  end
+  for _, n in ipairs(history) do
+    if n.id == id then
+      return n.shown, true
+    end
+  end
+  return nil, true
+end
+
+-- Hide toast `id` `ms` after snacks first shows it, which can be later than
+-- the request when other notifications fill the screen. Only this id: other
+-- notifications, and the next commit's toast, keep their own lifetimes. This
+-- also overrides snacks' keep rules (e.g. it holds toasts while the cmdline is
+-- open).
+local function expire(snacks, id, ms)
+  local asked = uv.now()
+  local timer = uv.new_timer()
+  timer:start(
+    0,
+    10,
+    vim.schedule_wrap(function()
+      if timer:is_closing() then
+        return
+      end
+      local shown, known = shown_at(snacks, id)
+      local elapsed
+      if shown then
+        elapsed = (realtime() - shown) * 1000
+      elseif not known or uv.now() - asked > 60000 then
+        elapsed = uv.now() - asked -- can't see it (or never shown): count from the request
+      else
+        return
+      end
+      timer:stop()
+      timer:close()
+      vim.defer_fn(function()
+        pcall(snacks.notifier.hide, id)
+      end, math.max(0, math.floor(ms - elapsed)))
+    end)
+  )
+end
+
 --- Show the toast for `commit`, at most once per commit. Top right through
---- snacks.notifier; it's hidden `toast_ms` after it was asked for, whatever
---- snacks' own keep rules say (e.g. while the cmdline is open).
+--- snacks.notifier, for `toast_ms` from the moment it's on screen. A newer
+--- commit's toast replaces an older one still showing, after a short gap so
+--- the change is visible, and gets its own full `toast_ms`.
 function M.toast(commit)
   if M.state.toasted[commit] then
     return
@@ -74,19 +135,30 @@ function M.toast(commit)
   M.state.toasts = M.state.toasts + 1
   local ms = M.config.toast_ms
   local snacks = rawget(_G, "Snacks")
-  local ok = snacks
-    and snacks.notifier
-    and pcall(snacks.notifier.notify, M.TOAST, vim.log.levels.WARN, {
-      id = "envi.hotreload",
-      title = "envi",
-      timeout = ms,
-    })
-  if ok then
-    vim.defer_fn(function()
-      pcall(snacks.notifier.hide, "envi.hotreload")
-    end, ms)
+  if not (snacks and snacks.notifier) then
+    return vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
+  end
+  local id = "envi.hotreload." .. commit
+  local gap = 0
+  if toast_id and uv.now() - toast_at < ms + 1000 then
+    pcall(snacks.notifier.hide, toast_id)
+    gap = 100
+  end
+  toast_id, toast_at = id, uv.now()
+  local function show()
+    if toast_id ~= id then
+      return -- an even newer commit's toast came first
+    end
+    local ok = pcall(snacks.notifier.notify, M.TOAST, vim.log.levels.WARN, { id = id, title = "envi", timeout = ms })
+    if not ok then
+      return vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
+    end
+    expire(snacks, id, ms)
+  end
+  if gap > 0 then
+    vim.defer_fn(show, gap)
   else
-    vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
+    show()
   end
 end
 
@@ -163,9 +235,11 @@ local function act()
   end
 end
 
+-- The config files among NUL-separated paths (git diff -z: exact names, no
+-- quoting, so a non-ASCII *.md is still docs).
 local function config_files(names)
   local files = {}
-  for name in (names or "?"):gmatch("[^\n]+") do
+  for name in names:gmatch("[^%z]+") do
     if not name:match("%.md$") then
       files[#files + 1] = name
     end
@@ -204,7 +278,10 @@ function M.check()
     -- `.` is the config dir: git -C runs there, so pathspecs are relative to it.
     -- Only what changed since the last check counts, so a docs-only commit after
     -- a config commit doesn't toast again.
-    git({ "diff", "--name-only", seen, head, "--", "." }, function(names)
+    git({ "diff", "-z", "--name-only", seen, head, "--", "." }, function(names)
+      if not names then
+        return done() -- git failed: not a verdict. `seen` stays, the next check retries.
+      end
       M.state.seen = head
       local files = config_files(names)
       if #files > 0 then
