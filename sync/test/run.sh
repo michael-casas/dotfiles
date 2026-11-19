@@ -141,11 +141,11 @@ check "diverged: refused" grep -q ' refused .*have diverged' "$state/last"
 git -C "$prod" reset -q --hard HEAD~1 # test cleanup in the sandbox only
 "$sync"
 
-# 8. Lock: an flock on sync.lock, shared by `run` and `now`, released by the
-# kernel when its holder exits or is killed.
+# 8. Lock: an flock on <git dir>/dotfiles-sync.lock, shared by `run` and
+# `now`, released by the kernel when its holders exit or are killed.
+lock="$prod/.git/dotfiles-sync.lock"
 hold_lock() { # hold the lock in the background for $1 seconds; sets $holder
-  mkdir -p "$state"
-  (exec 9>>"$state/sync.lock" && exec perl -e 'use Fcntl qw(:flock); open(my $fh, ">&=", 9) or die; flock($fh, LOCK_EX) or die; sleep shift' "$1") </dev/null >/dev/null 2>&1 &
+  (exec 9>>"$lock" && exec perl -e 'use Fcntl qw(:flock); open(my $fh, ">&=", 9) or die; flock($fh, LOCK_EX) or die; sleep shift' "$1") </dev/null >/dev/null 2>&1 &
   holder=$!
 }
 hold_lock 30
@@ -219,11 +219,44 @@ check "concurrent runs: never inside together" [ ! -e "$marks/overlap" ]
 check "concurrent runs: a periodic run backs off (3)" [ "$rc_run" -eq 3 ]
 check "concurrent runs: both 'now' runs finish (0)" [ "$ra" -eq 0 ] && [ "$rb" -eq 0 ]
 check "concurrent runs: one synced, the other found it up to date" sh -c "cat '$marks/a.out' '$marks/b.out' | grep -c -e ' synced ' -e ' uptodate ' | grep -qx 2"
-# A lock directory from the previous version, owner dead: cleared.
-mkdir -p "$state/lock" && echo 99999999 >"$state/lock/pid"
-push nvim/lua/legacy.lua 'return 6'
+# The shell is killed while its merge is still running: the merge keeps the
+# lock, so another run reports busy and HEAD stays put until the merge is
+# done; then the next run is a no-op. (The merge is parked by the hook.)
+push nvim/lua/killed.lua 'return 6'
+before="$(head_of)"
+rm -f "$root/hook.count" "$marks/go"
+PATH="$hooks:$PATH" HOOK_AT=merge HOOK_WHEN=before HOOK_DO="echo \$\$ >'$marks/merge.pid'; while [ ! -e '$marks/go' ]; do sleep 0.05; done" "$sync" now >/dev/null 2>&1 &
+shell=$!
+for _ in $(seq 100); do [ -s "$marks/merge.pid" ] && break; sleep 0.05; done
+kill -KILL "$shell"
+wait "$shell" 2>/dev/null
+child="$(cat "$marks/merge.pid")"
+check "killed shell: its merge child is still alive" kill -0 "$child"
 "$sync"
-check "legacy lock dir with a dead owner: cleared, synced" [ ! -e "$state/lock" ] && [ "$(head_of)" = "$(git -C "$dev" rev-parse HEAD)" ]
+rc=$?
+check "killed shell, live merge: next run is busy (3)" [ "$rc" -eq 3 ]
+check "killed shell, live merge: HEAD unchanged" [ "$(head_of)" = "$before" ]
+DOTFILES_SYNC_WAIT=1 "$sync" now >/dev/null 2>&1
+check "killed shell, live merge: 'now' busy too" [ $? -eq 3 ]
+touch "$marks/go"
+for _ in $(seq 100); do kill -0 "$child" 2>/dev/null || break; sleep 0.05; done
+"$sync"
+rc=$?
+check "after the merge finished: the next run succeeds" [ "$rc" -eq 0 ]
+check "after the merge finished: at origin/main" [ "$(head_of)" = "$(git -C "$dev" rev-parse HEAD)" ]
+# Split state: a run with another log directory still shares the lock.
+hold_lock 30
+push nvim/lua/split.lua 'return 7'
+before="$(head_of)"
+DOTFILES_SYNC_STATE="$root/other-state" DOTFILES_SYNC_WAIT=1 "$sync" now >/dev/null 2>&1
+rc=$?
+check "another state dir: same lock, busy (3)" [ "$rc" -eq 3 ]
+check "another state dir: HEAD unchanged" [ "$(head_of)" = "$before" ]
+kill -KILL "$holder"
+wait "$holder" 2>/dev/null
+DOTFILES_SYNC_STATE="$root/other-state" "$sync"
+check "another state dir: syncs once free" [ "$(head_of)" = "$(git -C "$dev" rev-parse HEAD)" ]
+check "the lock lives in the git dir" [ -f "$lock" ] && [ ! -e "$state/sync.lock" ]
 
 # 9. Log rotation.
 for i in 1 2 3 4 5 6; do push "nvim/lua/r$i.lua" "return $i"; DOTFILES_SYNC_LOG_MAX=200 "$sync"; done
@@ -308,6 +341,24 @@ check "ignored file created after the check: kept" [ "$(cat "$prod/late.local")"
 check "ignored file created after the check: HEAD unchanged" [ "$(head_of)" = "$before" ]
 check "ignored file created after the check: git's reason logged" grep -q ' refused .*late.local' "$state/last"
 rm "$prod/late.local"
+"$sync"
+
+# 15b. Switched at the very moment the merge starts (out of scope): git
+# advances that branch. The result names it and the recovery, which works.
+git -C "$prod" branch side-at-entry
+push nvim/lua/entry.lua 'return 10'
+before="$(head_of)"
+incoming="$(git -C "$dev" rev-parse HEAD)"
+rm -f "$root/hook.count"
+PATH="$hooks:$PATH" HOOK_AT=merge HOOK_WHEN=before HOOK_DO="$real_git -C '$prod' switch -q side-at-entry" "$sync"
+rc=$?
+check "switched at merge entry: error (1)" [ "$rc" -eq 1 ]
+check "switched at merge entry: wrongbranch names the branch" grep -q " wrongbranch the merge advanced side-at-entry (not main) from $before to $incoming; " "$state/last"
+check "switched at merge entry: gives both recovery commands" grep -q "recover: git -C $prod reset --keep $before (while it is checked out), or git -C $prod branch -f side-at-entry $before$" "$state/last"
+check "switched at merge entry: main untouched" [ "$(git -C "$prod" rev-parse main)" = "$before" ]
+git -C "$prod" reset -q --keep "$before"
+check "the recovery command restores the branch" [ "$(git -C "$prod" rev-parse side-at-entry)" = "$before" ] && [ -z "$(git -C "$prod" status --porcelain -- nvim/lua/entry.lua)" ]
+git -C "$prod" switch -q main
 "$sync"
 
 # 16. Only the main checkout: not a linked worktree, not a subdirectory.

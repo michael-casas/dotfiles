@@ -13,13 +13,18 @@ watches the checkout and reloads, or shows a toast.
 
 ## What a sync does
 
-1. **Lock:** takes an `flock` on `sync.lock`, which the scheduled run and `now`
-   share. A periodic run skips quietly (exit 3) while another sync holds it, and
-   `now` waits up to 60 s. The kernel releases the lock when its holder exits or
-   is killed, so there is never a stale lock to clean up.
-2. **Checkout:** `DOTFILES_SYNC_REPO` must be the top of a **main checkout**: not
+1. **Checkout:** `DOTFILES_SYNC_REPO` must be the top of a **main checkout**: not
    a linked worktree, not a subdirectory (`error`, exit 1). The installer checks
    the same thing before it writes the plist.
+2. **Lock:** takes an `flock` on `<checkout>/.git/dotfiles-sync.lock`.
+   - It belongs to the checkout, not the log directory, so the scheduled run and
+     `now` share it even when their state paths differ.
+   - A periodic run skips quietly (exit 3) while another sync holds it; `now`
+     waits up to 60 s.
+   - The merge inherits the lock, so it stays held while the merge runs, even
+     if the sync shell was killed.
+   - The kernel releases it once all holders have exited or been killed, so
+     there is never a stale lock to clean up.
 3. **State check:** skips (exit 3) unless HEAD is `refs/heads/main` and no merge,
    rebase, cherry-pick, revert or bisect is in progress, with no `index.lock`.
 4. `git fetch origin main` (no tags, no submodules, no auto gc). Then it checks
@@ -46,13 +51,30 @@ It never stashes, resets, checks out over changes, or touches untracked or
 ignored files. Resolving a block is the owner's call: commit, move or drop the
 local change, and the next run catches up.
 
+**Out of scope: another process changing the checkout during a run.** If the
+checkout is switched to another branch at the exact moment the merge starts,
+git advances *that* branch. The production checkout stays on `main`; branches
+belong in worktrees. The sync checks the result afterwards. If that happened,
+it records `wrongbranch`, naming the branch, the old and new SHAs, and the way
+back. `:EnviHotReload status` shows it as "sync moved the wrong branch: …".
+
+```sh
+git -C ~/.dotfiles reset --keep <old-sha>          # while that branch is checked out
+git -C ~/.dotfiles branch -f <branch> <old-sha>    # once it is not checked out
+```
+
+`git branch -f` refuses a branch that is checked out, which is why the first
+command comes first. `reset --keep` keeps your local changes, and refuses if
+they would be lost.
+
 **State:** `${XDG_STATE_HOME:-~/.local/state}/dotfiles-sync/`:
 - `last` holds the latest result, one line: `<UTC time> <result> <detail>`.
   `:EnviHotReload status` shows it.
 - `sync.log` gets a line only when the result changes, or on every sync, so idle
   minutes add nothing. It rotates to `sync.log.1` past 256 KiB.
 - `launchd.log` holds launchd's stdout and stderr, capped the same way.
-- `sync.lock` is the lock file. It stays in place; the lock is the `flock` on it.
+- The lock file is `<checkout>/.git/dotfiles-sync.lock`. It stays in place;
+  the lock is the `flock` on it.
 
 **Needs:** `git` and `perl`. macOS ships both in `/usr/bin`.
 

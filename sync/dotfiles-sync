@@ -19,7 +19,8 @@
 # them changed, it skips.
 #
 # Results (the `last` file and the log): synced, uptodate, ahead, blocked,
-# refused, skip, error.
+# refused, skip, error, wrongbranch (the checkout was switched at the moment
+# the merge started; the message names the branch and the recovery command).
 #
 # Env: DOTFILES_SYNC_REPO (default ~/.dotfiles), DOTFILES_SYNC_STATE (log dir,
 # default ${XDG_STATE_HOME:-~/.local/state}/dotfiles-sync), DOTFILES_SYNC_LOG_MAX
@@ -38,15 +39,19 @@ repo="${DOTFILES_SYNC_REPO:-$HOME/.dotfiles}"
 state="${DOTFILES_SYNC_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles-sync}"
 log="$state/sync.log"
 last="$state/last"
-lockfile="$state/sync.lock"
+lockfile= # <git dir>/dotfiles-sync.lock, set once the checkout is known
 max="${DOTFILES_SYNC_LOG_MAX:-262144}"
 mode=run
 tmp=
 
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# git in the checkout. fd 9 holds the lock; children must not keep it alive.
+# git in the checkout. fd 9 holds the lock: read-only calls and the fetch
+# (whose helpers can outlive it) don't inherit it; the merge does (gm), so the
+# lock stays held while it runs even if this shell is killed. No daemon may
+# inherit it: no fsmonitor, auto gc or maintenance.
 g() { git -C "$repo" "$@" 9>&-; }
+gm() { git -C "$repo" -c core.fsmonitor=false -c gc.auto=0 -c maintenance.auto=false "$@"; }
 
 cap() { # rotate a file that grew past $max (keeps one old copy)
   if [ -f "$1" ] && [ "$(wc -c <"$1" | tr -d ' ')" -gt "$max" ]; then
@@ -80,9 +85,10 @@ cleanup() {
   if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
 }
 
-# take_lock <seconds>: an flock(2) on sync.lock, held through fd 9 for the
-# whole run. The kernel drops it when the process exits or is killed, so there
-# is no stale lock to reclaim. Scheduled and `now` runs share it.
+# take_lock <seconds>: an flock(2) on <git dir>/dotfiles-sync.lock via fd 9.
+# Keyed to the checkout, not the log dir, so every run shares it. The kernel
+# drops it once all holders (this shell, a running merge) have exited or been
+# killed, so there is no stale lock to reclaim.
 take_lock() {
   exec 9>>"$lockfile" || return 1
   perl -e '
@@ -94,18 +100,6 @@ take_lock() {
       exit 1 if $n-- <= 0;
       select(undef, undef, undef, 0.1);
     }' "$1"
-}
-
-# A lock directory left by the previous (mkdir-based) version: gone once its
-# owner is dead, or after 10 minutes in any case.
-legacy_lock() {
-  old="$state/lock"
-  [ -d "$old" ] || return 0
-  pid="$(cat "$old/pid" 2>/dev/null)"
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ -z "$(find "$old" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
-    finish skip 3 "an older dotfiles-sync (pid $pid) is still running"
-  fi
-  rm -rf "$old"
 }
 
 # canonical <dir>: succeeds when <dir> is the top of a main checkout (not a
@@ -200,10 +194,6 @@ oneline() { # git's message as one log line
 }
 
 sync_once() {
-  if ! why="$(canonical "$repo")"; then
-    finish error 1 "$why"
-  fi
-  gitdir="$(g rev-parse --absolute-git-dir)"
   verify
   start_sha="$(g rev-parse --verify --quiet HEAD)" || finish error 1 "$repo has no commit on $branch"
 
@@ -239,13 +229,18 @@ sync_once() {
   # --no-autostash: never stash, whatever the config says. --no-overwrite-ignore:
   # git refuses too if an ignored file appeared in the way after the check above.
   verify "$start_sha"
-  if ! g -c gc.auto=0 -c maintenance.auto=false \
-    merge --ff-only --no-autostash --no-overwrite-ignore --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
+  if ! gm merge --ff-only --no-autostash --no-overwrite-ignore --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
     finish refused 1 "fast-forward ${start_sha:0:7}..${remote_sha:0:7} refused: $(oneline "$err")"
   fi
+  # The checkout was switched just as the merge started (out of scope), so git
+  # advanced that branch instead: name it and the way back.
   ref="$(g symbolic-ref --quiet HEAD)"
-  if [ "$ref" != "refs/heads/$branch" ] || [ "$(g rev-parse "refs/heads/$branch")" != "$remote_sha" ]; then
-    finish error 1 "the checkout changed during the merge (HEAD is ${ref:-detached}); check $repo by hand"
+  if [ "$ref" != "refs/heads/$branch" ]; then
+    moved="${ref#refs/heads/}"
+    finish wrongbranch 1 "the merge advanced ${moved:-a detached HEAD} (not $branch) from $start_sha to $remote_sha; recover: git -C $repo reset --keep $start_sha (while it is checked out), or git -C $repo branch -f ${moved:-<branch>} $start_sha"
+  fi
+  if [ "$(g rev-parse "refs/heads/$branch")" != "$remote_sha" ]; then
+    finish error 1 "$branch is not at ${remote_sha:0:7} after the merge; check $repo by hand"
   fi
   finish synced 0 "${start_sha:0:7}..${remote_sha:0:7} ($count commit(s))"
 }
@@ -278,6 +273,11 @@ main() {
   esac
   mkdir -p "$state" || return 1
   cap "$state/launchd.log"
+  if ! why="$(canonical "$repo")"; then
+    finish error 1 "$why"
+  fi
+  gitdir="$(g rev-parse --absolute-git-dir)" # = the common dir (canonical)
+  lockfile="$gitdir/dotfiles-sync.lock"
   wait_s=0
   if [ "$mode" = now ]; then wait_s="${DOTFILES_SYNC_WAIT:-60}"; fi
   if ! take_lock "$wait_s"; then
@@ -288,7 +288,6 @@ main() {
   fi
   tmp="$(mktemp -d "$state/run.XXXXXX")" || return 1
   trap cleanup EXIT
-  legacy_lock
   sync_once
 }
 
