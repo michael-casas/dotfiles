@@ -125,7 +125,8 @@ get() { # <key>: its single value in $manifest
   case "$v" in *$'\n'*) die "$manifest repeats $1; not touching it" ;; esac
   printf '%s\n' "$v"
 }
-# validate <backup>: refuse anything this tool did not write; set m_* fields.
+# validate <backup>: refuse anything this tool did not write; set m_* fields
+# (m_rb, m_ap: the ROLLED_BACK and APPLIED markers).
 validate() {
   local b="$1" first rc=0 i v
   [[ "${b##*/}" =~ ^envi-migrate-($txid_re)$ ]] || die "$b is not a backup this tool made; not touching it"
@@ -136,52 +137,52 @@ validate() {
   [ -f "$manifest" ] || die "$b has no manifest; not touching it"
   first="$(head -n 1 "$manifest")" || die "cannot read $manifest; nothing changed"
   [ "$first" = format=2 ] || die "$b has an unsupported manifest format; not touching it"
+  m_rb=0 m_ap=0 m_do_state="" m_do_links="" m_state_old="" m_state="" m_staging="" m_link=()
+  [ ! -e "$b/ROLLED_BACK" ] || m_rb=1
+  [ ! -e "$b/APPLIED" ] || m_ap=1
   grep -qx end=1 "$manifest" || rc=$?
-  case "$rc" in
-    0) m_torn=0 ;;
-    1) m_torn=1 && return 0 ;; # torn while being written: before any change
-    *) die "cannot read $manifest; nothing changed" ;;
-  esac
+  [ "$rc" -le 1 ] || die "cannot read $manifest; nothing changed"
+  m_torn=$rc
+  [ "$rc" = 0 ] || return 0 # torn (no end record) while being written: before any change
   v="$(get txid)" || exit 1
   [ "$v" = "$txid" ] || die "$b does not match its manifest; not touching it"
-  m_do_state="$(get do_state)" || exit 1
-  m_do_links="$(get do_links)" || exit 1
-  m_state_old="$(get state_old)" || exit 1
+  { m_do_state="$(get do_state)" && m_do_links="$(get do_links)" && m_state_old="$(get state_old)"; } || exit 1
   case "$m_do_state$m_do_links:$m_state_old" in [01][01]:present | [01][01]:absent) ;; *) die "$manifest is corrupt; not touching it" ;; esac
-  v="$(get state)" || exit 1
-  dec "$v" m_state
-  v="$(get staging)" || exit 1
-  dec "$v" m_staging
+  { v="$(get state)" && dec "$v" m_state && v="$(get staging)" && dec "$v" m_staging; } || exit 1
   [ "$m_state" = "$dst" ] && [ "$m_staging" = "$state_home/nvim.envi-migrate.$txid" ] ||
     die "$b was made for another state folder; not touching it"
-  m_link=()
   for i in 0 1 2 3; do
-    v="$(get "link${i}_old")" || exit 1
-    dec "$v" v
+    { v="$(get "link${i}_old")" && dec "$v" v; } || exit 1
     [ "$m_do_links" = 0 ] || [ "$v" = A ] || [ "${v:0:1}" = L ] || die "$manifest has a corrupt link entry; not touching it"
     m_link[i]="$v"
-    v="$(get "link${i}_path")" || exit 1
-    dec "$v" v
+    { v="$(get "link${i}_path")" && dec "$v" v; } || exit 1
     [ "$m_do_links" = 0 ] || [ "$v" = "${links[$i]}" ] ||
       die "$b relinked $v, but here it would be ${links[$i]}: roll back with the cutover's HOME and XDG_CONFIG_HOME; nothing changed"
   done
 }
-# scan: validate every backup under the root (other names are ignored, never
-# touched); `open` holds those not rolled back, `listing` names them all. An
-# unreadable root, or any backup in doubt, refuses and names every candidate.
+# fields: validate's result as one line to eval, so a backup is read once.
+fields() {
+  printf 'txid=%q manifest=%q m_torn=%q m_rb=%q m_ap=%q m_do_state=%q m_do_links=%q m_state_old=%q m_state=%q m_staging=%q m_link=(%q %q %q %q)\n' \
+    "$txid" "$manifest" "$m_torn" "$m_rb" "$m_ap" "$m_do_state" "$m_do_links" "$m_state_old" "$m_state" "$m_staging" "${m_link[0]-}" "${m_link[1]-}" "${m_link[2]-}" "${m_link[3]-}"
+}
+# scan: validate every backup under the root once (other names are ignored,
+# never touched); `open` holds those not rolled back (`open_f`: their fields),
+# `listing` names them all. An unreadable root, or any backup in doubt,
+# refuses and names every candidate with its error.
 scan() {
-  local b names err doubt=0
-  open=() state_done="" listing=""
+  local b names out doubt=0
+  open=() open_f=() state_done="" pending="" listing=""
   [ -e "$backup_root" ] || return 0
   names="$(find "$backup_root" -mindepth 1 -maxdepth 1 -name 'envi-migrate-*' -print | sort)" ||
     die "cannot read $backup_root; nothing changed"
   while IFS= read -r b; do
     [ "${b%/*}" = "$backup_root" ] && [[ "${b##*/}" =~ ^envi-migrate-$txid_re$ ]] || continue
-    if ! err="$( (validate "$b") 2>&1 >/dev/null)"; then doubt=1 listing+=$'\n'"  $b: ${err#envi-migrate: }" && continue; fi
-    validate "$b"
-    [ -e "$b/ROLLED_BACK" ] && listing+=$'\n'"  $b (rolled back)" && continue
-    open+=("$b") listing+=$'\n'"  $b"
-    if [ "$m_torn" = 0 ] && [ -e "$b/APPLIED" ] && [ "$m_do_state" = 1 ]; then state_done="$b"; fi
+    if ! out="$( (validate "$b" && fields) 2>&1)"; then doubt=1 listing+=$'\n'"  $b: ${out#envi-migrate: }" && continue; fi
+    out="${out##*$'\n'}" && eval "$out"
+    [ "$m_rb" = 0 ] || { listing+=$'\n'"  $b (rolled back)" && continue; }
+    open+=("$b") open_f+=("$out") listing+=$'\n'"  $b"
+    [ "$m_ap" = 1 ] || pending="$b"
+    [ "$m_torn$m_ap$m_do_state" != 011 ] || state_done="$b"
   done <<<"$names"
   [ "$doubt" = 0 ] || die "a backup is in doubt; nothing changed. Roll one back by its path:$listing"
 }
@@ -192,9 +193,7 @@ plan() { # refuses before any write; sets do_state, do_links, olds, news
   local part="$1" i old dirty d p dep bin="$dotfiles/nvim/bin"
   guard_paths
   scan
-  for p in ${open[@]+"${open[@]}"}; do
-    [ -e "$p/APPLIED" ] || die "an interrupted migration remains ($p); run envi-migrate rollback first"
-  done
+  [ -z "$pending" ] || die "an interrupted migration remains ($pending); run envi-migrate rollback first"
   do_state=0 do_links=0
   case "$part" in cutover) do_state=1 do_links=1 ;; state) do_state=1 ;; links) do_links=1 ;; esac
   if [ "$do_state" = 1 ] && [ -n "$state_done" ]; then say "state: already migrated (backup $state_done)" && do_state=0; fi
@@ -337,12 +336,13 @@ rollback() {
     scan
     if [ "${#open[@]}" = 0 ]; then say "rollback: no backup to roll back" && return 0; fi
     [ "${#open[@]}" = 1 ] || die "more than one backup is not rolled back; pass one explicitly:$listing"
-    b="${open[0]}"
+    b="${open[0]}" && eval "${open_f[0]}" # validated once, by the scan
+  else
+    b="${b%/}"
+    case "$b" in "$backup_root"/*) ;; *) die "$b is not a backup under $backup_root" ;; esac
+    validate "$b"
   fi
-  b="${b%/}"
-  case "$b" in "$backup_root"/*) ;; *) die "$b is not a backup under $backup_root" ;; esac
-  validate "$b"
-  if [ -e "$b/ROLLED_BACK" ]; then say "rollback: $b was already rolled back" && return 0; fi
+  if [ "$m_rb" = 1 ]; then say "rollback: $b was already rolled back" && return 0; fi
   if [ "$m_torn" = 1 ]; then # only a manifest torn before any change can be closed
     only_manifest "$b" || die "$b has an incomplete manifest but holds more than it; not touching it"
     if [ "$dry" = 0 ]; then : >"$b/ROLLED_BACK" || die "cannot mark $b rolled back"; fi
@@ -368,9 +368,7 @@ rollback() {
     say "dry run: nothing written"
     return 0
   fi
-  for i in 0 1 2 3; do
-    [ ! -L "${links[$i]%/*}/.envi-migrate-link.$txid" ] || rm -f -- "${links[$i]%/*}/.envi-migrate-link.$txid" || die "cannot remove a temporary link"
-  done
+  for i in 0 1 2 3; do [ ! -L "${links[$i]%/*}/.envi-migrate-link.$txid" ] || rm -f -- "${links[$i]%/*}/.envi-migrate-link.$txid" || die "cannot remove a temporary link"; done
   if [ "$m_do_state" = 1 ]; then
     staged=1
     [ -e "$m_staging" ] || staged=0

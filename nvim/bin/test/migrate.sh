@@ -480,6 +480,33 @@ check "  ... naming the recorded destination" has "$sandbox/out" "$XDG_CONFIG_HO
 migrate rollback "$b" >/dev/null 2>&1 || bad "  ... the original environment still rolls back"
 check "  ... and restores everything" test "$(world_state)" = "$pre"
 
+# ── r5: automatic selection reads each backup once ──────────────────────
+
+world reread
+pre="$(world_state)"
+migrate cutover >/dev/null 2>&1
+old="$(open_backups)"
+migrate rollback "$old" >/dev/null 2>&1
+migrate cutover >/dev/null 2>&1
+active="$(open_backups)"
+mkdir -p "$sandbox/head"
+# shellcheck disable=SC2016 # the shim's own variables
+printf '#!/bin/sh\nfor a do last="$a"; done\nif [ "$last" = "%s" ]; then\n  if [ "$HEAD_ALWAYS" = 1 ] || [ -e "%s" ]; then echo "fixture: head failed" >&2; exit 1; fi\n  : >"%s"\nfi\nexec %s "$@"\n' \
+  "$old/manifest" "$sandbox/head-seen" "$sandbox/head-seen" "$(command -v head)" >"$sandbox/head/head"
+chmod +x "$sandbox/head/head"
+before="$(world_state)"
+if HEAD_ALWAYS=1 PATH="$sandbox/head:$PATH" migrate rollback >"$sandbox/out" 2>&1; then
+  bad "a backup that cannot be read: rollback without a path refused"
+else ok "a backup that cannot be read: rollback without a path refused"; fi
+check "  ... nothing changed, not marked done" test "$(world_state)" = "$before" -a ! -e "$active/ROLLED_BACK"
+check "  ... naming the unreadable one" has "$sandbox/out" "^  $old: "
+check "  ... with its error" has "$sandbox/out" "cannot read $old/manifest"
+check "  ... and the active one" has "$sandbox/out" "^  $active$"
+rm -f "$sandbox/head-seen"
+HEAD_ALWAYS=0 PATH="$sandbox/head:$PATH" migrate rollback >"$sandbox/out" 2>&1 ||
+  bad "each backup read once: rollback without a path exits 0"
+check "  ... and restores everything" test "$(world_state)" = "$pre" -a -f "$active/ROLLED_BACK"
+
 # ── SIGKILL after every cp, mv, ln and mkdir ────────────────────────────
 
 # Shims count each call, run the real tool, then kill the migration after call
