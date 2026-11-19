@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# envi-migrate: move envi into the default nvim profile (the production cutover).
+#
+#   envi-migrate [--dry-run] [--allow-running] cutover   state, then links
+#   envi-migrate [--dry-run] [--allow-running] state     envi state -> nvim state
+#   envi-migrate [--dry-run] [--allow-running] links     production links
+#   envi-migrate [--dry-run] [--allow-running] rollback [<backup>]
+#   envi-migrate backups                                 list backups
+#
+# state copies shada/, undo/, hcmux/ and envi-hotreload.* from the envi state
+# folder into the nvim one. A new file is copied; an identical one is skipped;
+# on a conflict the newer file wins and the loser goes into the backup. The
+# envi folder is never changed: t3-session.json (the T3 credential, read there
+# by every T3 client), swap/ and anything else stay where they are.
+# links points ~/.config/nvim and ~/.local/bin/envi{,-dev} at ~/.dotfiles and
+# removes the ~/.config/envi link.
+# Every change is recorded in a timestamped backup under ~/.backups/;
+# rollback undoes the newest one (or the one given). Running it again changes
+# nothing. See nvim/ENVI.md, "Cutover".
+set -euo pipefail
+
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+bin_home="$HOME/.local/bin"
+dotfiles="${DOTFILES:-$HOME/.dotfiles}"
+backup_root="${ENVI_BACKUP_ROOT:-$HOME/.backups}"
+src="$state_home/envi"
+dst="$state_home/nvim"
+
+dry=0
+allow_running=0
+backup=""
+changes=0
+
+say() { printf '%s\n' "$*"; }
+warn() { printf 'envi-migrate: %s\n' "$*" >&2; }
+die() {
+  warn "$*"
+  exit 1
+}
+usage() {
+  sed -n '2,8p' "$self" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+act() { # print an action, "would ..." in a dry run
+  if [ "$dry" = 1 ]; then say "would $*"; else say "$*"; fi
+}
+
+# The backup of this run, made on its first change only (a no-op run makes none).
+ensure_backup() {
+  [ "$dry" = 1 ] && return 0
+  [ -n "$backup" ] && return 0
+  local stamp
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$backup_root/envi-migrate-$stamp"
+  [ -e "$backup" ] && backup="$backup-$$"
+  mkdir -p "$backup"
+  chmod 700 "$backup"
+  printf 'version\t1\nsrc\t%s\ndst\t%s\n' "$src" "$dst" >"$backup/manifest"
+  say "backup: $backup"
+}
+record() { # one tab-separated manifest line, written before the change it describes
+  [ "$dry" = 1 ] && return 0
+  local IFS=$'\t'
+  printf '%s\n' "$*" >>"$backup/manifest"
+}
+copy() { # atomic copy keeping mode and mtime
+  mkdir -p "$(dirname "$2")"
+  cp -p "$1" "$2.envi-migrate.$$"
+  mv -f "$2.envi-migrate.$$" "$2"
+}
+
+# A launcher-started nvim (envi) still running would keep writing envi state
+# and loading modules through the old links.
+preflight() {
+  [ "$dry" = 1 ] && return 0
+  local pids
+  pids="$(pgrep -f ENVI_INSTANCE_FILE 2>/dev/null | tr '\n' ' ' || true)"
+  if [ -n "${pids// /}" ]; then
+    if [ "$allow_running" = 1 ]; then
+      warn "launcher-started nvim still running (pid $pids); continuing (--allow-running)"
+    else
+      die "a launcher-started nvim is running (pid ${pids% }). Close envi first (:qd), or pass --allow-running."
+    fi
+  fi
+}
+
+# ── state ────────────────────────────────────────────────────────────────
+
+backed_up_before() { # a loser identical to $1 already sits in some backup
+  local rel="$1" file="$2" b
+  for b in "$backup_root"/envi-migrate-*/; do
+    [ -f "$b/losers/envi/$rel" ] && cmp -s "$b/losers/envi/$rel" "$file" && return 0
+  done
+  return 1
+}
+
+merge_file() {
+  local rel="$1" s="$src/$1" d="$dst/$1"
+  if [ ! -e "$d" ] && [ ! -L "$d" ]; then
+    act "create $rel"
+    changes=$((changes + 1))
+    [ "$dry" = 1 ] && return 0
+    ensure_backup
+    record created "$rel"
+    copy "$s" "$d"
+  elif [ -L "$d" ] || [ ! -f "$d" ]; then
+    warn "skip $rel: $d is not a regular file"
+  elif cmp -s "$s" "$d"; then
+    same=$((same + 1))
+  elif [ "$s" -nt "$d" ]; then
+    act "replace $rel (envi's is newer; nvim's goes into the backup)"
+    changes=$((changes + 1))
+    [ "$dry" = 1 ] && return 0
+    ensure_backup
+    copy "$d" "$backup/displaced/nvim/$rel"
+    record replaced "$rel"
+    copy "$s" "$d"
+  elif backed_up_before "$rel" "$s"; then
+    kept=$((kept + 1))
+  else
+    act "keep $rel (nvim's is newer; envi's goes into the backup)"
+    changes=$((changes + 1))
+    [ "$dry" = 1 ] && return 0
+    ensure_backup
+    copy "$s" "$backup/losers/envi/$rel"
+    record kept "$rel"
+  fi
+}
+
+migrate_state() {
+  same=0 kept=0
+  if [ ! -d "$src" ]; then
+    say "state: no $src; nothing to bring over"
+    return 0
+  fi
+  local dirs=() d rel file
+  for d in shada undo hcmux; do
+    [ -d "$src/$d" ] && dirs+=("$src/$d")
+  done
+  while IFS= read -r -d '' file; do
+    rel="${file#"$src"/}"
+    merge_file "$rel"
+  done < <(
+    {
+      [ ${#dirs[@]} -gt 0 ] && find "${dirs[@]}" -type f ! -name '*.tmp.*' -print0
+      find "$src" -maxdepth 1 -type f -name 'envi-hotreload.*' -print0
+    } | sort -z
+  )
+  say "state: $same identical, $kept already settled"
+  local swaps
+  swaps="$(find "$src/swap" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$swaps" != 0 ]; then
+    say "state: $swaps envi swap file(s) left untouched in $src/swap (recover with NVIM_APPNAME=envi nvim -r)"
+  fi
+}
+
+# ── links ────────────────────────────────────────────────────────────────
+
+link_to() { # make $1 a link to $2
+  local path="$1" target="$2" old=ABSENT
+  if [ -L "$path" ]; then
+    old="$(readlink "$path")"
+    [ "$old" = "$target" ] && return 0
+  elif [ -e "$path" ]; then
+    die "$path is not a link; move it aside, then run again"
+  fi
+  act "link $path -> $target (was $old)"
+  changes=$((changes + 1))
+  [ "$dry" = 1 ] && return 0
+  ensure_backup
+  record link "$path" "$old" "$target"
+  mkdir -p "$(dirname "$path")"
+  ln -sfn "$target" "$path"
+}
+
+unlink_old() { # remove the link $1
+  local path="$1" old
+  if [ -L "$path" ]; then
+    old="$(readlink "$path")"
+    act "remove $path (was -> $old)"
+    changes=$((changes + 1))
+    [ "$dry" = 1 ] && return 0
+    ensure_backup
+    record link "$path" "$old" ABSENT
+    rm -f -- "$path"
+  elif [ -e "$path" ]; then
+    warn "$path is not a link; leaving it"
+  fi
+}
+
+migrate_links() {
+  [ -f "$dotfiles/nvim/init.lua" ] || die "$dotfiles/nvim/init.lua is missing"
+  if [ ! -x "$dotfiles/nvim/bin/envi-dev" ] || ! grep -q ENVI_DEV "$dotfiles/nvim/bin/envi"; then
+    die "$dotfiles has no production launcher yet; merge it into main and fast-forward $dotfiles first"
+  fi
+  # The production config is the checkout as it is, uncommitted edits included:
+  # list them, so a behaviour change at cutover has a known cause. Read-only
+  # (no index refresh), and never acted on.
+  local dirty
+  dirty="$(git --no-optional-locks -C "$dotfiles" status --short -- nvim/ 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    say "links: local changes in $dotfiles/nvim become part of production:"
+    printf '%s\n' "$dirty" | sed 's/^/  /'
+  fi
+  link_to "$config_home/nvim" "$dotfiles/nvim"
+  link_to "$bin_home/envi" "$dotfiles/nvim/bin/envi"
+  link_to "$bin_home/envi-dev" "$dotfiles/nvim/bin/envi-dev"
+  unlink_old "$config_home/envi"
+  if [ ! -d "$dotfiles/nvim/tools/t3-thread/node_modules" ]; then
+    warn "$dotfiles/nvim/tools/t3-thread has no node_modules: run npm ci there before opening T3"
+  fi
+}
+
+# ── rollback ─────────────────────────────────────────────────────────────
+
+latest_backup() {
+  local b found=""
+  for b in "$backup_root"/envi-migrate-*/; do
+    [ -f "$b/manifest" ] && [ ! -e "$b/ROLLED_BACK" ] && found="${b%/}"
+  done
+  printf '%s' "$found"
+}
+
+displace() { # move a file changed since the migration out of the way, never delete it
+  local file="$1" rel="$2"
+  act "set aside $file (changed since the migration) in $dir/rollback-displaced/"
+  [ "$dry" = 1 ] && return 0
+  mkdir -p "$(dirname "$dir/rollback-displaced/nvim/$rel")"
+  mv -f "$file" "$dir/rollback-displaced/nvim/$rel"
+}
+
+rollback() {
+  dir="${1:-$(latest_backup)}"
+  [ -n "$dir" ] || {
+    say "rollback: no backup to roll back"
+    return 0
+  }
+  dir="${dir%/}"
+  [ -f "$dir/manifest" ] || die "$dir has no manifest"
+  if [ -e "$dir/ROLLED_BACK" ]; then
+    say "rollback: $dir was already rolled back"
+    return 0
+  fi
+  local kind a b c rsrc rdst lines=() i
+  rsrc="$(awk -F '\t' '$1 == "src" { print $2 }' "$dir/manifest")"
+  rdst="$(awk -F '\t' '$1 == "dst" { print $2 }' "$dir/manifest")"
+  say "rollback: $dir"
+  while IFS= read -r a; do lines+=("$a"); done <"$dir/manifest"
+  # Newest change first.
+  for ((i = ${#lines[@]} - 1; i >= 0; i--)); do
+    IFS=$'\t' read -r kind a b c <<<"${lines[$i]}"
+    case "$kind" in
+      created)
+        if [ -f "$rdst/$a" ]; then
+          if cmp -s "$rdst/$a" "$rsrc/$a"; then
+            act "remove $a"
+            [ "$dry" = 1 ] || rm -f -- "$rdst/$a"
+          else
+            displace "$rdst/$a" "$a"
+          fi
+        fi
+        ;;
+      replaced)
+        if [ -f "$rdst/$a" ] && ! cmp -s "$rdst/$a" "$rsrc/$a"; then
+          displace "$rdst/$a" "$a"
+        fi
+        act "restore $a"
+        [ "$dry" = 1 ] || copy "$dir/displaced/nvim/$a" "$rdst/$a"
+        ;;
+      link)
+        if [ -L "$a" ] && [ "$(readlink "$a")" != "$c" ] && [ "$c" != ABSENT ]; then
+          warn "$a now points to $(readlink "$a"), not $c; restoring it anyway"
+        elif [ -e "$a" ] && [ ! -L "$a" ]; then
+          warn "$a is no longer a link; leaving it"
+          continue
+        fi
+        if [ "$b" = ABSENT ]; then
+          act "remove link $a"
+          [ "$dry" = 1 ] || rm -f -- "$a"
+        else
+          act "link $a -> $b"
+          if [ "$dry" = 0 ]; then
+            mkdir -p "$(dirname "$a")"
+            ln -sfn "$b" "$a"
+          fi
+        fi
+        ;;
+    esac
+  done
+  [ "$dry" = 1 ] || date >"$dir/ROLLED_BACK"
+  say "rollback: done"
+}
+
+# ── main ─────────────────────────────────────────────────────────────────
+
+cmd=""
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run | -n) dry=1 ;;
+    --allow-running) allow_running=1 ;;
+    -h | --help | help) usage ;;
+    -*) usage ;;
+    *)
+      if [ -z "$cmd" ]; then cmd="$1"; else args+=("$1"); fi
+      ;;
+  esac
+  shift
+done
+
+case "$cmd" in
+  cutover)
+    preflight
+    migrate_state
+    migrate_links
+    ;;
+  state)
+    preflight
+    migrate_state
+    ;;
+  links)
+    preflight
+    migrate_links
+    ;;
+  rollback)
+    preflight
+    rollback "${args[0]:-}"
+    exit 0
+    ;;
+  backups)
+    for b in "$backup_root"/envi-migrate-*/; do
+      [ -f "$b/manifest" ] || continue
+      printf '%s\t%s\n' "${b%/}" "$([ -e "$b/ROLLED_BACK" ] && echo rolled-back || echo active)"
+    done
+    exit 0
+    ;;
+  *) usage ;;
+esac
+
+if [ "$changes" = 0 ]; then
+  say "nothing to change"
+elif [ "$dry" = 1 ]; then
+  say "dry run: $changes change(s), nothing written"
+else
+  say "done: $changes change(s); undo with: envi-migrate rollback $backup"
+fi
