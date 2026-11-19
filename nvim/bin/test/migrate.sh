@@ -29,6 +29,13 @@ links() {
 }
 world_state() { printf '%s\n--\n%s\n--\n%s\n' "$(snapshot "$XDG_STATE_HOME/nvim")" "$(snapshot "$XDG_STATE_HOME/envi")" "$(links)"; }
 no_staging() { ! find "$XDG_STATE_HOME" -maxdepth 1 -name 'nvim.envi-migrate.*' | grep -q .; }
+open_backups() { # backups not rolled back (envi-migrate has no listing command)
+  local b
+  for b in "$HOME/.backups"/envi-migrate-*; do
+    [[ "${b##*/}" =~ ^envi-migrate-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$ ]] && [ ! -e "$b/ROLLED_BACK" ] && printf '%s\n' "$b"
+  done
+  return 0
+}
 
 # A world: a fresh HOME with today's layout (envi from slot 2, its own state).
 world() { # <name>
@@ -37,7 +44,7 @@ world() { # <name>
   export XDG_STATE_HOME="$HOME/.local/state" XDG_CACHE_HOME="$HOME/.cache"
   local e="$XDG_STATE_HOME/envi" n="$XDG_STATE_HOME/nvim"
   mkdir -p "$HOME/.dotfiles/nvim/bin" "$sandbox/slot2-$1/nvim/bin" "$XDG_CONFIG_HOME" "$HOME/.local/bin"
-  cp "$repo/nvim/bin/envi" "$repo/nvim/bin/envi-dev" "$HOME/.dotfiles/nvim/bin/"
+  cp "$repo/nvim/bin/envi" "$repo/nvim/bin/envi-dev" "$repo/nvim/bin/envi-guard.sh" "$HOME/.dotfiles/nvim/bin/"
   : >"$HOME/.dotfiles/nvim/init.lua"
   ln -s "$HOME/.dotfiles/nvim" "$XDG_CONFIG_HOME/nvim"
   ln -s "$sandbox/slot2-$1/nvim" "$XDG_CONFIG_HOME/envi"
@@ -191,7 +198,7 @@ check "rollback again: nothing to roll back, nothing changed" test "$(snapshot "
 
 # A link path that holds real content blocks rollback, which stays retryable.
 migrate cutover >/dev/null 2>&1
-backup2="$(migrate backups | sed -n 's/^applied //p')"
+backup2="$(open_backups)"
 rm "$XDG_CONFIG_HOME/nvim" && put "$XDG_CONFIG_HOME/nvim/owner" "keep"
 if migrate rollback >"$sandbox/blocked" 2>&1; then bad "rollback blocked by a real folder: fails"; else ok "rollback blocked by a real folder: fails"; fi
 check "  ... leaves the folder and the state alone" test -f "$XDG_CONFIG_HOME/nvim/owner" -a -f "$backup2/state-nvim/lsp.log"
@@ -294,20 +301,136 @@ world formats
 put "$HOME/.backups/envi-migrate-20250101-000000-00000001/manifest" "$(printf 'version\t1')"
 : >"$HOME/.backups/envi-migrate-20250101-000000-00000001/APPLIED"
 mkdir -p "$HOME/.backups/envi-migrate-20250101-000000-00000002"
-migrate backups >"$sandbox/out" 2>&1
-check "backups lists an unsupported and a manifest-less backup" test "$(grep -c '^unsupported \|^no-manifest ' "$sandbox/out")" = 2
 for b in 00000001 00000002; do
   if migrate rollback "$HOME/.backups/envi-migrate-20250101-000000-$b" >"$sandbox/out" 2>&1; then
     bad "rollback refuses $b"
   else ok "rollback refuses $b"; fi
 done
+if migrate rollback >"$sandbox/out" 2>&1; then bad "rollback without a backup refuses when one is in doubt"; else
+  ok "rollback without a backup refuses when one is in doubt"
+fi
+refused "apply refuses while a backup is in doubt" cutover
 check "  ... and leaves their markers alone" test -f "$HOME/.backups/envi-migrate-20250101-000000-00000001/APPLIED" -a \
   -z "$(find "$HOME/.backups" -name ROLLED_BACK)"
+rm -rf "$HOME/.backups"
 rm "$XDG_CONFIG_HOME/nvim" && ln -s -- "-old-config"$'\n' "$XDG_CONFIG_HOME/nvim"
 pre="$(world_state)"
 migrate cutover >/dev/null 2>&1
 migrate rollback >/dev/null 2>&1 || bad "a link target starting with a dash: rollback exits 0"
 check "a link target starting with a dash (and a newline) is restored exactly" test "$(world_state)" = "$pre"
+
+# ── r3: rollback operands, manifest integrity, initializers, preflight ──
+
+# rollback_refused <name> <backup>: refused, live state, links and markers unchanged.
+rollback_refused() {
+  local before
+  before="$(world_state):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)"
+  if migrate rollback "$2" >"$sandbox/out" 2>&1; then bad "$1: refused"; else ok "$1: refused"; fi
+  check "  ... nothing changed, not marked done" test "$(world_state):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)" = "$before"
+}
+world operands
+pre="$(world_state)"
+migrate cutover >/dev/null 2>&1
+b="$(open_backups)"
+envi_before="$(snapshot "$XDG_STATE_HOME/envi")"
+ln -s "$XDG_STATE_HOME/envi/undo" "$b/rollback-displaced"
+rollback_refused "a linked rollback-displaced (into the envi state)" "$b"
+check "  ... the envi state untouched" test "$(snapshot "$XDG_STATE_HOME/envi")" = "$envi_before"
+rm "$b/rollback-displaced"
+mv "$b/state-nvim" "$b/state-aside" && ln -s "$XDG_STATE_HOME/envi" "$b/state-nvim"
+rollback_refused "a linked saved state" "$b"
+rm "$b/state-nvim" && mv "$b/state-aside" "$b/state-nvim"
+ln -s "$XDG_STATE_HOME/envi" "$XDG_STATE_HOME/nvim.envi-migrate.${b##*envi-migrate-}"
+rollback_refused "a linked staging path" "$b"
+rm "$XDG_STATE_HOME/nvim.envi-migrate.${b##*envi-migrate-}"
+cp "$b/manifest" "$sandbox/manifest"
+sed '/^do_state=/d' "$sandbox/manifest" >"$b/manifest"
+rollback_refused "a manifest without do_state" "$b"
+sed 's/^link1_old=.*/link1_old=5a/' "$sandbox/manifest" >"$b/manifest"
+rollback_refused "a manifest with a corrupt link entry" "$b"
+{ cat "$sandbox/manifest"; echo do_state=0; } >"$b/manifest"
+rollback_refused "a manifest with a repeated key" "$b"
+cp "$sandbox/manifest" "$b/manifest"
+mkdir -p "$sandbox/grep"
+# shellcheck disable=SC2016 # the shim's own variables
+printf '#!/bin/sh\nfor a do last="$a"; done\n[ "$last" = "%s" ] && exit "$GREP_RC"\nexec %s "$@"\n' "$b/manifest" "$(command -v grep)" >"$sandbox/grep/grep"
+chmod +x "$sandbox/grep/grep"
+for rc in 2 1; do # 2: a read error; 1: what a torn manifest looks like, here with a state change behind it
+  before="$(world_state)"
+  if GREP_RC=$rc PATH="$sandbox/grep:$PATH" migrate rollback "$b" >"$sandbox/out" 2>&1; then bad "manifest check exit $rc: refused"; else
+    ok "manifest check exit $rc: refused"
+  fi
+  check "  ... nothing changed, not marked done" test "$(world_state)" = "$before" -a ! -e "$b/ROLLED_BACK"
+done
+mkdir -p "$sandbox/stat"
+cat >"$sandbox/stat/stat" <<EOF
+#!/bin/sh
+for a do last="\$a"; done
+[ "\$last" = "$b/state-nvim" ] && exit 1
+exec "$(command -v stat)" "\$@"
+EOF
+chmod +x "$sandbox/stat/stat"
+before="$(world_state)"
+if PATH="$sandbox/stat:$PATH" migrate rollback "$b" >"$sandbox/out" 2>&1; then bad "no device id for the saved state: rollback refused"; else
+  ok "no device id for the saved state: rollback refused"
+fi
+check "  ... nothing changed" test "$(world_state)" = "$before" -a ! -e "$b/ROLLED_BACK"
+migrate rollback "$b" >/dev/null 2>&1 || bad "  ... the retry exits 0"
+check "  ... and restores everything" test "$(world_state)" = "$pre"
+torn="$HOME/.backups/envi-migrate-20250101-000000-0000000d"
+put "$torn/manifest" "format=2"
+migrate rollback "$torn" >"$sandbox/out" 2>&1 || bad "a torn manifest alone (stopped before any change): closed"
+check "a torn manifest alone (stopped before any change): closed, nothing else changed" test -f "$torn/ROLLED_BACK" -a "$(world_state)" = "$pre"
+
+world preflight
+pre="$(world_state)"
+cat >"$sandbox/stat/stat" <<EOF
+#!/bin/sh
+for a do last="\$a"; done
+[ "\$last" = "$XDG_STATE_HOME/nvim" ] && echo 99999999 && exit 0
+exec "$(command -v stat)" "\$@"
+EOF
+if PATH="$sandbox/stat:$PATH" migrate cutover >"$sandbox/out" 2>&1; then bad "the state folder on another device: refused"; else
+  ok "the state folder on another device: refused"
+fi
+check "  ... nothing changed, no backup" test "$(world_state)" = "$pre" -a ! -e "$HOME/.backups"
+fail_tool od "-tx1"
+if with_fail cutover >"$sandbox/out" 2>&1; then bad "a manifest encoding error: refused"; else ok "a manifest encoding error: refused"; fi
+check "  ... before any change or backup" test "$(world_state)" = "$pre" -a ! -e "$HOME/.backups"
+clear_fail
+mv "$HOME/.dotfiles/nvim/bin/envi-guard.sh" "$sandbox/guard-aside"
+refused "a production launcher whose sourced helper is missing" cutover
+mv "$sandbox/guard-aside" "$HOME/.dotfiles/nvim/bin/envi-guard.sh"
+ln -s "$XDG_CONFIG_HOME/old" "$HOME/.local/bin/nvim"
+if XDG_CONFIG_HOME="$HOME/.local/bin" migrate cutover >"$sandbox/out" 2>&1; then bad "overlapping managed paths: refused"; else
+  ok "overlapping managed paths: refused"
+fi
+check "  ... nothing changed, no backup" test ! -e "$HOME/.backups" -a "$(readlink "$HOME/.local/bin/nvim")" = "$XDG_CONFIG_HOME/old"
+rm "$HOME/.local/bin/nvim"
+mkdir -p "$HOME/.backups/envi-migrate-manual.init" "$HOME/.backups/envi-migrate-20250101-000000-0000000a.init" "$HOME/.backups/notes"
+echo keep >"$HOME/.backups/envi-migrate-manual.init/sentinel"
+echo keep >"$HOME/.backups/envi-migrate-20250101-000000-0000000a.init/sentinel"
+mkdir -m 700 "$HOME/.backups/envi-migrate-20250101-000000-0000000b.init"
+mkdir -p "$XDG_STATE_HOME/envi/swap"
+fail_tool find "\"$XDG_STATE_HOME/envi/swap\""
+if with_fail cutover >"$sandbox/out" 2>&1; then ok "a failed swap count is advisory: exit 0"; else bad "a failed swap count is advisory: exit 0"; fi
+check "  ... with APPLIED" test -n "$(find "$HOME/.backups" -name APPLIED)"
+check "  ... and a warning" has "$sandbox/out" "advisory"
+clear_fail
+check "foreign initializer-like folders untouched" test -f "$HOME/.backups/envi-migrate-manual.init/sentinel" -a \
+  -f "$HOME/.backups/envi-migrate-20250101-000000-0000000a.init/sentinel" -a -d "$HOME/.backups/notes"
+check "  ... while this tool's own empty initializer is removed" test ! -e "$HOME/.backups/envi-migrate-20250101-000000-0000000b.init"
+mkdir -m 700 "$HOME/.backups/envi-migrate-20250101-000000-0000000c.init"
+migrate cutover >"$sandbox/out" 2>&1
+check "a no-op re-apply also removes its own initializer" test ! -e "$HOME/.backups/envi-migrate-20250101-000000-0000000c.init"
+check "  ... and changes nothing else" has "$sandbox/out" "^nothing to change$"
+migrate links >/dev/null 2>&1
+rm "$HOME/.local/bin/envi-dev"
+migrate links >/dev/null 2>&1
+if migrate rollback >"$sandbox/out" 2>&1; then bad "two open backups: rollback without a path refuses"; else
+  ok "two open backups: rollback without a path refuses"
+fi
+check "  ... naming both" test "$(grep -c 'envi-migrate-' "$sandbox/out")" -ge 2
 
 # ── SIGKILL after every cp, mv, ln and mkdir ────────────────────────────
 
@@ -358,7 +481,7 @@ for spec in $apply_calls; do
     rc=0
     shimmed "$tool" "$at" cutover || rc=$?
     check "$name: really killed" test "$rc" = 137
-    if migrate backups | grep -q '^interrupted '; then
+    if [ -n "$(open_backups)" ] && [ -z "$(find "$HOME/.backups" -name APPLIED)" ]; then
       if migrate cutover >/dev/null 2>&1; then bad "$name: a new apply refuses"; else ok "$name: a new apply refuses"; fi
     else
       check "$name: no backup yet, so nothing changed" test "$(world_state)" = "$pre"
@@ -386,7 +509,7 @@ for spec in $rollback_calls; do
     rc=0
     shimmed "$tool" "$at" rollback || rc=$?
     check "$name: really killed" test "$rc" = 137
-    b="$(migrate backups | cut -d' ' -f2-)"
+    b="$(open_backups)"
     check "$name: not marked done" test ! -e "$b/ROLLED_BACK"
     migrate rollback >"$sandbox/out" 2>&1 || bad "$name: the retry exits 0"
     check "$name: the retry restores state and links exactly" test "$(world_state)" = "$pre"
