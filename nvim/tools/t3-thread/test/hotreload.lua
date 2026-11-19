@@ -341,6 +341,34 @@ vim.api.nvim_exec_autocmds("FocusGained", {})
 sleep(300)
 assert(#toasts == nd + 2, "once shown, not again")
 
+-- Two queued toasts, the newer one arriving long after the older (more than
+-- toast_ms + 1 s): the older is superseded and dismissed unseen, and isn't
+-- offered again. The newer one, once shown, gets toast_ms.
+display_ms = false
+local no = #toasts
+local older_commit = commit("nvim/lua/s.lua", "return 17")
+until_(3000, function()
+  return #toasts == no + 1
+end, "older toast queued")
+local older = toasts[#toasts]
+sleep(1500)
+local newer_commit = commit("nvim/lua/t.lua", "return 18")
+until_(3000, function()
+  return #toasts == no + 2
+end, "newer toast queued")
+local newer = toasts[#toasts]
+assert(older.hidden and not older.shown, "the superseded older toast is dismissed before it shows")
+assert(newer.id == "envi.hotreload." .. newer_commit and not newer.hidden, "the newer toast is the one waiting")
+show_now(newer)
+until_(1000, function()
+  return newer.hidden ~= nil
+end, "newer toast expires")
+assert(lasted(newer) >= 190 and lasted(newer) <= 260, "newer toast gets toast_ms once shown: " .. lasted(newer))
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == no + 2 and hot.state.toasted[older_commit], "the superseded toast is not offered again")
+display_ms = 30
+
 -- A failed `git diff` is no verdict: no toast, `seen` stays, the next check
 -- (here FocusGained) classifies the commit properly.
 local system, failed, seen_after = vim.system, false, nil

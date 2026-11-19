@@ -63,7 +63,7 @@ local function reloadable()
   return require("hcmux.session").reloadable()
 end
 
-local toast_id, toast_at -- the toast on screen (one id per commit) and when it was asked for
+local toast_id -- the current toast (one id per commit), shown or still queued, until it expires
 
 -- snacks' clock (notif.shown is in these seconds).
 local function realtime()
@@ -112,8 +112,13 @@ local function expire(snacks, id, ms, commit)
     timer:stop()
     timer:close()
     if after_ms then
+      -- Hidden by id at its own deadline: snacks' keep rules (e.g. while the
+      -- command line is open) don't stretch it.
       vim.defer_fn(function()
         pcall(snacks.notifier.hide, id)
+        if toast_id == id then
+          toast_id = nil
+        end
       end, math.max(0, math.floor(after_ms)))
     end
   end
@@ -130,7 +135,8 @@ local function expire(snacks, id, ms, commit)
       elseif where == nil then
         stop(ms - (uv.now() - asked)) -- can't see it: count from the request
       elseif toast_id ~= id then
-        stop() -- replaced by a newer commit's toast, which carries the notice
+        pcall(snacks.notifier.hide, id) -- superseded before it was shown: dismissed
+        stop()
       elseif where == "dropped" then
         stop()
         M.state.toasted[commit] = nil
@@ -142,8 +148,9 @@ end
 
 --- Show the toast for `commit`, at most once per commit. Top right through
 --- snacks.notifier, for `toast_ms` from the moment it's on screen. A newer
---- commit's toast replaces an older one still showing, after a short gap so
---- the change is visible, and gets its own full `toast_ms`.
+--- commit's toast replaces an older one, whether it is showing or still
+--- queued, after a short gap so the change is visible, and gets its own full
+--- `toast_ms`.
 function M.toast(commit)
   if M.state.toasted[commit] then
     return
@@ -157,11 +164,12 @@ function M.toast(commit)
   end
   local id = "envi.hotreload." .. commit
   local gap = 0
-  if toast_id and uv.now() - toast_at < ms + 1000 then
+  if toast_id then
+    -- The older commit's toast, shown or still queued, is superseded.
     pcall(snacks.notifier.hide, toast_id)
     gap = 100
   end
-  toast_id, toast_at = id, uv.now()
+  toast_id = id
   local function show()
     if toast_id ~= id then
       return -- an even newer commit's toast came first
