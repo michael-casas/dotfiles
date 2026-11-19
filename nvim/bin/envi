@@ -35,7 +35,7 @@ own_link() {
   if [ -L "$link" ]; then
     current="$(readlink -n -- "$link")" || die "cannot read $link"
     [ "$current" = "$target" ] && return 0
-    die "$link points to $current, not $target; not repointing it (see envi-dev prune)."
+    die "$link points to $current, not $target; not repointing it (see Cleanup in nvim/ENVI.md)."
   fi
   [ -e "$link" ] && die "$link exists and is not a link; not replacing it."
   mkdir -p -- "${link%/*}" || die "cannot create ${link%/*}"
@@ -48,14 +48,15 @@ own_dir() {
   local dir="$1" links
   [ -e "$dir" ] || [ -L "$dir" ] || return 0
   if [ -L "$dir" ] || [ ! -d "$dir" ]; then
-    die "$dir is not a real folder; refusing (envi-dev prune ${dir##*/} removes it)."
+    die "$dir is not a real folder; refusing (see Cleanup in nvim/ENVI.md)."
   fi
   links="$(find "$dir" -maxdepth 2 -type l -print)" || die "cannot inspect $dir"
   [ -z "$links" ] || die "$dir contains a link; refusing to write a dev profile through it."
 }
 
 if [ -n "${ENVI_DEV:-}" ]; then
-  dev_root="$(cd "$ENVI_DEV" 2>/dev/null && pwd -P)" || die "ENVI_DEV: no such folder: $ENVI_DEV"
+  dev_root=""
+  resolve_dir "$ENVI_DEV" dev_root
   [ -f "$dev_root/nvim/init.lua" ] || die "ENVI_DEV: $dev_root has no nvim/init.lua"
   # Its hcmux.session must declare the dev namespace (protocol 2) exactly.
   dev_protocol_ok "$dev_root/nvim/lua/hcmux/session.lua" ||

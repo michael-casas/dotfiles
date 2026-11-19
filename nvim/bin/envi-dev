@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
 # envi-dev: run a worktree's nvim/ as envi, without touching production.
 #
-#   envi-dev [<worktree>] [args]  envi on that worktree (default: the git
-#                                 worktree of the current folder)
-#   envi-dev ls                   dev profiles, their worktrees, stale ones
+#   envi-dev [<worktree>] [args]     envi on that worktree (default: the git
+#                                    worktree of the current folder)
 #   envi-dev sessions | kill <name>  dev sessions (run inside a worktree)
-#   envi-dev prune [--dry-run] <slot>|--stale
-#                                 delete a dev profile's links and state
 #
 # Each worktree gets its own profile, NVIM_APPNAME=envi-dev/<slot> (config
 # link, state; plugins shared with production), and its own herdr-core
 # session, dev-<slot>, kept in its own core namespace (nvsdev.<name>,
 # nvsdev-index, herdr.nvsdev labels), apart from every production session.
-# `ENVI_DEV=<worktree> envi` is the same thing.
+# `ENVI_DEV=<worktree> envi` is the same thing. A worktree path with a control
+# character is refused. Stale profiles are removed by hand: nvim/ENVI.md.
 set -euo pipefail
 
 self="$(readlink -f "${BASH_SOURCE[0]}")"
-config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
-state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
-cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 die() {
   echo "envi-dev: $*" >&2
@@ -29,94 +23,30 @@ die() {
 # shellcheck source=nvim/bin/envi-guard.sh
 . "${self%/*}/envi-guard.sh"
 
-# slot<TAB>worktree<TAB>live|stale for every dev profile (valid slot names only).
-profiles() {
-  local link slot target
-  for link in "$config_home/envi-dev"/* "$state_home/envi-dev"/*; do
-    [ -e "$link" ] || [ -L "$link" ] || continue
-    slot="${link##*/}"
-    valid_slot "$slot" || continue
-    target="$(readlink -n -- "$config_home/envi-dev/$slot" 2>/dev/null)" || target=""
-    if [ -n "$target" ] && [ -f "$target/init.lua" ]; then
-      printf '%s\t%s\tlive\n' "$slot" "${target%/*}"
-    else
-      printf '%s\t%s\tstale\n' "$slot" "${target%/*}"
-    fi
-  done | sort -u
-}
-
-# Remove one profile's folders. Each envi-dev/ folder and its ancestors up to
-# $HOME must be real folders; a link is removed as a link, never followed.
-prune_one() {
-  local slot="$1" dry="$2" home path
-  valid_slot "$slot" || die "not a dev profile slot: $slot"
-  for home in "$config_home" "$data_home" "$state_home" "$cache_home"; do
-    real_chain "$home/envi-dev" "$home" absent-ok
-  done
-  for home in "$config_home" "$data_home" "$state_home" "$cache_home"; do
-    path="$home/envi-dev/$slot"
-    [ -e "$path" ] || [ -L "$path" ] || continue
-    if [ "$dry" = 1 ]; then
-      echo "would remove $path"
-    elif [ -L "$path" ] || [ ! -d "$path" ]; then
-      rm -f -- "$path" || die "cannot remove $path"
-      echo "removed $path"
-    else
-      rm -rf -- "$path" || die "cannot remove $path"
-      echo "removed $path"
-    fi
-  done
-  echo "its herdr-core session, if any: run \`envi-dev kill dev-$slot\` inside any worktree"
-}
-
 case "${1:-}" in
   -h | --help | help)
-    sed -n '2,15p' "$self" | sed 's/^# \{0,1\}//'
+    sed -n '2,13p' "$self" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
-  ls | list)
-    profiles | awk -F '\t' 'BEGIN { printf "%-22s %-6s %s\n", "SLOT", "STATE", "WORKTREE" }
-      { printf "%-22s %-6s %s\n", $1, $3, $2 }'
-    exit 0
-    ;;
-  prune)
+  ls | list | prune) die "\`envi-dev $1\` was removed; stale profiles are cleaned up by hand (nvim/ENVI.md, \"Cleanup\")" ;;
+  sessions) # envi's `ls`, in the dev namespace
     shift
-    dry=0
-    if [ "${1:-}" = "--dry-run" ]; then
-      dry=1
-      shift
-    fi
-    [ $# -eq 1 ] || die "usage: envi-dev prune [--dry-run] <slot>|--stale"
-    list="$(profiles)" || die "cannot list dev profiles"
-    if [ "$1" = "--stale" ]; then
-      for slot in $(printf '%s\n' "$list" | awk -F '\t' '$3 == "stale" { print $1 }'); do
-        prune_one "$slot" "$dry"
-      done
-    else
-      if printf '%s\n' "$list" | awk -F '\t' -v s="$1" '$1 == s && $3 == "live" { found = 1 } END { exit !found }'; then
-        [ "${ENVI_DEV_PRUNE_LIVE:-}" = 1 ] || die "$1 still has its worktree; set ENVI_DEV_PRUNE_LIVE=1 to prune it anyway"
-      fi
-      prune_one "$1" "$dry"
-    fi
-    exit 0
+    set -- ls "$@"
     ;;
 esac
 
-# `envi-dev sessions` is envi's `ls`, in the dev namespace (envi-dev ls lists profiles).
-if [ "${1:-}" = sessions ]; then
-  shift
-  set -- ls "$@"
-fi
-
 # The worktree: a leading folder that holds nvim/init.lua, else the current git worktree.
+worktree=""
 if [ $# -gt 0 ] && [ -f "$1/nvim/init.lua" ]; then
-  worktree="$1"
+  resolve_dir "$1" worktree
   shift
 else
-  worktree="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not in a git worktree; pass one: envi-dev <worktree>"
+  top="$(git rev-parse --show-toplevel 2>/dev/null && printf x)" ||
+    die "not in a git worktree; pass one: envi-dev <worktree>"
+  top="${top%x}"
+  resolve_dir "${top%?}" worktree
   [ -f "$worktree/nvim/init.lua" ] || die "$worktree has no nvim/init.lua"
 fi
-worktree="$(cd "$worktree" && pwd -P)"
 
 # Run the worktree's own launcher, so launcher changes are developed there too.
 # A worktree from before the dev profile (protocol 2) could reach

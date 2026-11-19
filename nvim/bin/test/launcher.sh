@@ -202,40 +202,21 @@ check "  ... but ENVI_SESSION still picks one" test "$(tail -n 1 "$FAKE_LOG" | c
 PATH="$sandbox/fake:$PATH" HCMUX_SESSION=dev-inherited envi 2>/dev/null
 check "  ... and envi with no arguments is still the dotfiles session" test "$(tail -n 1 "$FAKE_LOG" | cut -d' ' -f2)" = "session=dotfiles"
 
-# ── stale profiles ───────────────────────────────────────────────────────
+# ── stale profiles: removed by hand (Amendment 3) ──────────────────────
 
-envi-dev ls >"$sandbox/dev-ls"
-check "envi-dev ls shows each profile live" test "$(grep -c ' live ' "$sandbox/dev-ls")" = 3
-rm -rf "$wt_c"
-envi-dev ls >"$sandbox/dev-ls"
-check "envi-dev ls marks a removed worktree stale" has "$sandbox/dev-ls" "^${app_c#envi-dev/} *stale"
-envi-dev prune --dry-run --stale >"$sandbox/prune-dry"
-check "prune --dry-run lists, removes nothing" test -L "$XDG_CONFIG_HOME/$app_c" -a -d "$XDG_STATE_HOME/$app_c"
-check "prune --dry-run names the paths" has "$sandbox/prune-dry" "would remove $XDG_STATE_HOME/$app_c"
-envi-dev prune --stale >/dev/null
-check "prune --stale removes the stale profile" test ! -e "$XDG_CONFIG_HOME/$app_c" -a ! -L "$XDG_CONFIG_HOME/$app_c" -a ! -e "$XDG_STATE_HOME/$app_c"
-check "prune --stale keeps shared plugins" test -d "$XDG_DATA_HOME/nvim"
-check "prune --stale keeps live profiles" test -L "$XDG_CONFIG_HOME/$app_a" -a -L "$XDG_CONFIG_HOME/$app_b"
-if envi-dev prune "$slot_a" 2>/dev/null; then bad "prune refuses a live profile"; else ok "prune refuses a live profile"; fi
-check "  ... and keeps it" test -L "$XDG_CONFIG_HOME/$app_a"
-if envi-dev prune ../nvim 2>/dev/null; then bad "prune refuses a name that is not a slot"; else ok "prune refuses a name that is not a slot"; fi
-# A stale profile behind a linked envi-dev/ parent: the link's target is never deleted.
-mkdir -p "$sandbox/prod-like/${app_b#envi-dev/}"
-echo keep >"$sandbox/prod-like/${app_b#envi-dev/}/file"
-mkdir -p "$XDG_CACHE_HOME"
-mv "$XDG_CACHE_HOME/envi-dev" "$sandbox/cache-aside" 2>/dev/null || :
-ln -s "$sandbox/prod-like" "$XDG_CACHE_HOME/envi-dev"
-if ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_b#envi-dev/}" >/dev/null 2>&1; then
-  bad "prune refuses a linked envi-dev/ folder"
-else ok "prune refuses a linked envi-dev/ folder"; fi
-check "  ... and never deletes through it" test -f "$sandbox/prod-like/${app_b#envi-dev/}/file"
-check "  ... nor anything else of that profile" test -L "$XDG_CONFIG_HOME/$app_b"
-rm "$XDG_CACHE_HOME/envi-dev"
-mv "$sandbox/cache-aside" "$XDG_CACHE_HOME/envi-dev" 2>/dev/null || :
+for cmd in ls list prune; do
+  if envi-dev "$cmd" >"$sandbox/out" 2>&1; then bad "envi-dev $cmd: removed"; else ok "envi-dev $cmd: removed"; fi
+  check "  ... pointing to the manual cleanup" has "$sandbox/out" "cleaned up by hand"
+done
+# The documented read-only listing (nvim/ENVI.md, "Cleanup") shows every profile path.
+find "$XDG_CONFIG_HOME/envi-dev" "$XDG_DATA_HOME/envi-dev" "$XDG_STATE_HOME/envi-dev" "$XDG_CACHE_HOME/envi-dev" \
+  -mindepth 1 -maxdepth 1 -exec ls -ld {} + >"$sandbox/listing" 2>/dev/null || :
+check "the documented listing shows a profile's config link" has "$sandbox/listing" "$XDG_CONFIG_HOME/$app_a -> $wt_a/nvim"
+check "  ... and its state folder" has "$sandbox/listing" "$XDG_STATE_HOME/$app_a"
 
 # ── r2: XDG ancestor aliases, protocol values, odd slot names ───────────
 
-# An XDG home that is itself a link into production: refused, and so is prune.
+# An XDG home that is itself a link into production: refused.
 prod_before="$(prod_state)"
 ln -s "$XDG_STATE_HOME/nvim" "$sandbox/aliased-state"
 : >"$PROBE_OUT"
@@ -244,13 +225,6 @@ if XDG_STATE_HOME="$sandbox/aliased-state" ENVI_SESSION=x envi-dev "$wt_a" --hea
 else ok "a linked XDG_STATE_HOME: refused"; fi
 check "  ... before nvim ran" test ! -s "$PROBE_OUT"
 check "  ... production state untouched" test "$(prod_state)" = "$prod_before"
-mkdir -p "$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}"
-echo keep >"$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}/sentinel"
-if XDG_STATE_HOME="$sandbox/aliased-state" ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_a#envi-dev/}" >/dev/null 2>&1; then
-  bad "prune through a linked XDG_STATE_HOME: refused"
-else ok "prune through a linked XDG_STATE_HOME: refused"; fi
-check "  ... the production sentinel kept" test -f "$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}/sentinel"
-rm -rf "$XDG_STATE_HOME/nvim/envi-dev"
 
 # Only exactly one "envi-dev-protocol: 2" declaration counts.
 for variant in "20" "2x" "02" "2 and more"; do
@@ -274,17 +248,32 @@ if ENVI_DEV="$dup" ENVI_SESSION=x envi --headless +qa 2>/dev/null; then bad "  .
   ok "  ... also through ENVI_DEV=<path> envi"
 fi
 
-# A worktree name with a newline, capitals and symbols: a slot that ls and prune accept.
-odd="$sandbox/Odd Name"$'\n'"With!Symbols"
+# ── r3: worktree paths with control characters are refused ──────────────
+
+slot_ok() { [[ "$1" =~ ^envi-dev/[a-z0-9-]{1,12}-[0-9a-f]{8}$ ]]; }
+for name in "trailing"$'\n' "embedded"$'\n'"newline" "a"$'\t'"tab" "del"$'\x7f'"char"; do
+  wt="$sandbox/cc-$name"
+  make_config "$wt"
+  label="$(printf '%q' "${wt##*/}")"
+  before="$(find "$XDG_CONFIG_HOME/envi-dev" -mindepth 1 | wc -l)"
+  : >"$PROBE_OUT"
+  : >"$HC_LOG"
+  if ENVI_SESSION=x envi-dev "$wt" --headless +qa 2>"$sandbox/err"; then bad "worktree $label: refused"; else
+    ok "worktree $label: refused"
+  fi
+  check "  ... saying why" has "$sandbox/err" "control character"
+  check "  ... before nvim, the core or a profile link" test ! -s "$PROBE_OUT" -a ! -s "$HC_LOG" -a "$(find "$XDG_CONFIG_HOME/envi-dev" -mindepth 1 | wc -l)" = "$before"
+  if ENVI_DEV="$wt" ENVI_SESSION=x envi --headless +qa 2>/dev/null; then bad "  ... also through ENVI_DEV=<path> envi"; else
+    ok "  ... also through ENVI_DEV=<path> envi"
+  fi
+done
+# Ordinary unusual names keep working: spaces, capitals, symbols, non-ASCII.
+odd="$sandbox/Odd Name With!Symbols café"
 make_config "$odd"
 : >"$PROBE_OUT"
-ENVI_SESSION=odd envi-dev "$odd" --headless +qa 2>/dev/null
+ENVI_SESSION=odd envi-dev "$odd" --headless +qa 2>/dev/null || bad "odd folder name: launches"
 odd_app="$(field appname)"
-slot_ok() { [[ "$1" =~ ^envi-dev/[a-z0-9-]{1,12}-[0-9a-f]{8}$ ]]; }
 check "odd folder name: a valid slot ($odd_app)" slot_ok "$odd_app"
-envi-dev ls >"$sandbox/dev-ls"
-check "  ... listed by envi-dev ls" has "$sandbox/dev-ls" "^${odd_app#envi-dev/} "
-ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${odd_app#envi-dev/}" >/dev/null 2>&1 || bad "  ... prune exits 0"
-check "  ... and pruned" test ! -e "$XDG_CONFIG_HOME/$odd_app" -a ! -L "$XDG_CONFIG_HOME/$odd_app" -a ! -e "$XDG_STATE_HOME/$odd_app"
+check "  ... its profile links to it" test "$(readlink -n "$XDG_CONFIG_HOME/$odd_app")" = "$odd/nvim"
 
 finish
