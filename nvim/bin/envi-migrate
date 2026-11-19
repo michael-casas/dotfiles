@@ -170,17 +170,23 @@ validate() {
   done
 }
 # scan: validate every backup under the root (other names are ignored, never
-# touched) and list those not rolled back in `open`.
+# touched); `open` holds those not rolled back, `listing` names them all. An
+# unreadable root, or any backup in doubt, refuses and names every candidate.
 scan() {
-  local b
-  open=() state_done=""
-  for b in "$backup_root"/envi-migrate-*; do
-    [[ "${b##*/}" =~ ^envi-migrate-$txid_re$ ]] || continue
+  local b names err doubt=0
+  open=() state_done="" listing=""
+  [ -e "$backup_root" ] || return 0
+  names="$(find "$backup_root" -mindepth 1 -maxdepth 1 -name 'envi-migrate-*' -print | sort)" ||
+    die "cannot read $backup_root; nothing changed"
+  while IFS= read -r b; do
+    [ "${b%/*}" = "$backup_root" ] && [[ "${b##*/}" =~ ^envi-migrate-$txid_re$ ]] || continue
+    if ! err="$( (validate "$b") 2>&1 >/dev/null)"; then doubt=1 listing+=$'\n'"  $b: ${err#envi-migrate: }" && continue; fi
     validate "$b"
-    [ -e "$b/ROLLED_BACK" ] && continue
-    open+=("$b")
+    [ -e "$b/ROLLED_BACK" ] && listing+=$'\n'"  $b (rolled back)" && continue
+    open+=("$b") listing+=$'\n'"  $b"
     if [ "$m_torn" = 0 ] && [ -e "$b/APPLIED" ] && [ "$m_do_state" = 1 ]; then state_done="$b"; fi
-  done
+  done <<<"$names"
+  [ "$doubt" = 0 ] || die "a backup is in doubt; nothing changed. Roll one back by its path:$listing"
 }
 
 # ── apply ────────────────────────────────────────────────────────────────
@@ -334,7 +340,7 @@ rollback() {
   if [ -z "$b" ]; then
     scan
     if [ "${#open[@]}" = 0 ]; then say "rollback: no backup to roll back" && return 0; fi
-    [ "${#open[@]}" = 1 ] || die "more than one backup is not rolled back; pass one explicitly: $(printf '\n  %s' "${open[@]}")"
+    [ "${#open[@]}" = 1 ] || die "more than one backup is not rolled back; pass one explicitly:$listing"
     b="${open[0]}"
   fi
   b="${b%/}"

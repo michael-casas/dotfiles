@@ -332,7 +332,7 @@ check "a link target starting with a dash (and a newline) is restored exactly" t
 rollback_refused() {
   local before
   before="$(world_state):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)"
-  if migrate rollback "$2" >"$sandbox/out" 2>&1; then bad "$1: refused"; else ok "$1: refused"; fi
+  if migrate rollback ${2:+"$2"} >"$sandbox/out" 2>&1; then bad "$1: refused"; else ok "$1: refused"; fi
   check "  ... nothing changed, not marked done" test "$(world_state):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)" = "$before"
 }
 world operands
@@ -438,6 +438,26 @@ if migrate rollback >"$sandbox/out" 2>&1; then bad "two open backups: rollback w
   ok "two open backups: rollback without a path refuses"
 fi
 check "  ... naming both" test "$(grep -c 'envi-migrate-' "$sandbox/out")" -ge 2
+
+# ── r4: the backup inventory ────────────────────────────────────────────
+
+world inventory
+migrate cutover >/dev/null 2>&1
+b="$(open_backups)"
+before="$(world_state)"
+chmod 300 "$HOME/.backups"
+if migrate rollback >"$sandbox/out" 2>&1; then bad "an unreadable backup root: rollback refused"; else ok "an unreadable backup root: rollback refused"; fi
+chmod 700 "$HOME/.backups"
+check "  ... nothing changed, not marked done" test "$(world_state)" = "$before" -a ! -e "$b/ROLLED_BACK" -a -d "$b/state-nvim"
+check "  ... saying it cannot read it" has "$sandbox/out" "cannot read $HOME/.backups"
+check "  ... never \"no backup\"" lacks "$sandbox/out" "no backup to roll back"
+doubt="$HOME/.backups/envi-migrate-20000101-000000-aabbccdd"
+mkdir "$doubt"
+rollback_refused "a backup in doubt beside a valid one: rollback without a path" ""
+check "  ... naming the valid one" has "$sandbox/out" "^  $b"
+check "  ... and the doubtful one, with its error" has "$sandbox/out" "^  $doubt: .*has no manifest"
+migrate rollback "$b" >/dev/null 2>&1 || bad "  ... an explicit path still rolls back"
+check "  ... and restores the state" test ! -e "$b/state-nvim" -a -f "$b/ROLLED_BACK"
 
 # ── SIGKILL after every cp, mv, ln and mkdir ────────────────────────────
 
