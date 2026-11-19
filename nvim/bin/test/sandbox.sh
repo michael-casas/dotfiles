@@ -7,7 +7,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 sandbox="$(mktemp -d "${TMPDIR:-/tmp}/envi-prod-sandbox.XXXXXX")"
 sandbox="$(cd "$sandbox" && pwd -P)"
-trap 'rm -rf "$sandbox" 2>/dev/null || { sleep 1; rm -rf "$sandbox"; } || true' EXIT
+trap 'rm -rf "$sandbox"' EXIT
 
 export HOME="$sandbox/home"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
@@ -77,15 +77,24 @@ make_config() { # <dir>: <dir>/nvim
   cat >"$1/nvim/init.lua" <<'EOF'
 local s = require("hcmux.session")
 if vim.env.HCMUX_SESSION then
+  -- Wait for attach's own event and its scheduled save to finish, then
+  -- require the final synchronous save: no core call outlives this nvim.
+  local attached = false
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "HcmuxSession",
+    once = true,
+    callback = function()
+      attached = true
+    end,
+  })
   s.attach(vim.env.HCMUX_SESSION)
-  -- Let attach's scheduled save finish: no core call may outlive this nvim.
-  vim.wait(100, function()
-    return false
-  end)
-  vim.wait(5000, function()
-    return not s.saving
-  end, 10)
-  s.save({ sync = true, force = true, release = true })
+  assert(
+    vim.wait(5000, function()
+      return attached and not s.saving
+    end, 10),
+    "attach save never completed"
+  )
+  assert(s.save({ sync = true, force = true, release = true }), "final session save failed")
 end
 vim.cmd("wshada")
 vim.fn.writefile({
