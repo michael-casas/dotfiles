@@ -173,22 +173,42 @@ in the plugin spec to turn all of this off.
 
 ## Hot reload on commit (`hotreload.lua`)
 
-Every nvim started by `envi` watches the git checkout its config comes from
-(the git dir's `logs/HEAD`, plus a check on `FocusGained`). When a new commit
-changes files under the config dir, it reloads itself with `:reload`.
+On by default in every interactive nvim. Each nvim watches the git checkout its
+config comes from (the git dir's `logs/HEAD`). When new commits change files
+under the config dir, it picks them up. After a PR merges, `sync/dotfiles-sync`
+fast-forwards `~/.dotfiles` (a LaunchAgent runs it every 60 s; run
+`dotfiles-sync now` right after merging), and every nvim on that checkout reacts.
+See `sync/README.md`.
 
-- **Ignored:** commits that only touch `*.md`, or files outside the config dir.
-- **When:** it waits until the editor is safe to restart: normal mode, no unsaved
-  buffers, and no key pressed for 3 s. It waits while you type in INSERT or in a
-  T3 popover (TERMINAL). With unsaved buffers it says so once and keeps waiting.
-- **Notices:** you see "commit abc1234 changed N config file(s); reloading when
-  idle", then "reloaded for commit abc1234" in the new nvim.
-- **Scope:** an nvim not started by `envi` can't restart itself, so it only
-  reports the new commit. T3 TUI clients keep running their old code; use
-  `:T3Restart` for those.
-- **Commands:** `:EnviHotReload on|off|status`. `ENVI_HOT_RELOAD_ROOT=<dir>`
-  watches another config dir (used for testing). Headless test:
-  `test/hotreload.lua`.
+- **Ignored:** new commits that only touch `*.md`, or only files outside the
+  config dir. No reload and no toast.
+- **Started by `envi`:** it reloads itself (`:reload`) once that's safe: normal
+  mode, no unsaved buffers, and no key pressed for 3 s. While you type (INSERT, or
+  a T3 popover in TERMINAL) it waits silently. With unsaved buffers it shows the
+  toast once per commit and keeps waiting; save, and it reloads. If the quit is
+  cancelled at a prompt, it stops retrying that commit and shows the toast. The
+  new nvim says "reloaded for commit abc1234".
+- **Any other nvim** (a plain `nvim file`) can't restart itself. It shows the
+  toast once per commit and nothing else. There, `:Reload` says to close and
+  reopen nvim (or use envi).
+- **The toast:** "Your configuration has changed since the last time you
+  reloaded, run :Reload". It appears top right (snacks.notifier) and stays 4 s in
+  total, at most once per new commit per nvim.
+- **Robustness:** every watch event re-arms the watch, so a replaced
+  `logs/HEAD` (a new inode) keeps working. A check on `FocusGained` and a cheap
+  one every 60 s (`recheck_ms`) re-arm it and catch anything missed, for example
+  after hours idle.
+- **Commands:** `:EnviHotReload on|off|status`. `status` shows:
+  - the watched path;
+  - the loaded commit, the current HEAD and the pending commit;
+  - whether this nvim can reload itself;
+  - the last sync result, for example `sync blocked: local changes in <paths>`.
+
+  `ENVI_HOT_RELOAD_ROOT=<dir>` watches another config dir (used for testing).
+  Setup in the plugin spec: `hot_reload = false` turns it off, and a table
+  overrides `idle_ms`, `recheck_ms`, `toast_ms` and so on. Headless nvims never
+  start it. Test: `test/hotreload.lua`.
+- **Scope:** T3 TUI clients keep running their old code; use `:T3Restart` for those.
 
 ## Labels
 
