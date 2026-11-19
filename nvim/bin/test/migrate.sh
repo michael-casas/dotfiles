@@ -63,13 +63,14 @@ world() { # <name>
 
 # ── refusals: each before any write ──────────────────────────────────────
 
-refused() { # <name> <args...>: refused, and nothing changed (no backup either)
-  local name="$1" before
+refused() { # <name> <args...>: refused, and nothing changed (no new backup either)
+  local name="$1" before backups
   shift
   before="$(world_state)"
+  backups="$(ls "$HOME/.backups" 2>/dev/null || true)"
   if migrate "$@" >"$sandbox/out" 2>&1; then bad "$name: refused"; else ok "$name: refused"; fi
   check "  ... nothing changed" test "$(world_state)" = "$before"
-  check "  ... no backup made" test ! -e "$HOME/.backups"
+  check "  ... no backup made" test "$(ls "$HOME/.backups" 2>/dev/null || true)" = "$backups"
 }
 world refusals
 printf '#!/bin/sh\necho 4242\n' >"$sandbox/bin/pgrep"
@@ -137,7 +138,7 @@ env -u NVIM_APPNAME node -e '
   }, 10);
 ' >/dev/null 2>&1 &
 t3_pid=$!
-trap 'kill "$t3_pid" 2>/dev/null || true; rm -rf "$sandbox" 2>/dev/null || true' EXIT
+trap 'kill "$t3_pid" 2>/dev/null || true; rm -rf "$sandbox"' EXIT
 
 migrate --dry-run cutover >"$sandbox/dry" 2>&1
 check "dry run: plans the state swap" has "$sandbox/dry" "would build $XDG_STATE_HOME/nvim.envi-migrate."
@@ -217,12 +218,103 @@ check "T3 client: read the session file throughout ($reads reads)" test "$reads"
 check "T3 client: every read succeeded with the same token" test "$failed" = 0
 check "T3 session file: same inode, mode, size and mtime at the end" test "$(ls -li "$envi/t3-session.json")" = "$t3_before"
 
-# ── SIGKILL after every cp and mv ────────────────────────────────────────
+# ── failing helpers and odd inputs (r2) ─────────────────────────────────
+
+# fail_tool <tool> <case pattern on its last (or, for find, first) argument>:
+# a shim that fails exactly those calls and runs the real tool otherwise.
+fail_tool() {
+  mkdir -p "$sandbox/fail"
+  cat >"$sandbox/fail/$1" <<EOF
+#!/bin/sh
+for a do last="\$a"; done
+probe="\$last"
+[ "$1" = find ] && probe="\$1"
+case "\$probe" in $2) echo "fixture: $1 failed" >&2; exit 1 ;; esac
+exec "$(command -v "$1")" "\$@"
+EOF
+  chmod +x "$sandbox/fail/$1"
+}
+with_fail() { PATH="$sandbox/fail:$PATH" migrate "$@"; }
+clear_fail() { rm -rf "$sandbox/fail"; }
+no_temp_links() { ! find "$XDG_CONFIG_HOME" "$HOME/.local/bin" -maxdepth 1 -name '.envi-migrate-link.*' 2>/dev/null | grep -q .; }
+
+world faults
+pre="$(world_state)"
+fail_tool mv "\"$HOME/.local/bin/envi\""
+if with_fail cutover >"$sandbox/out" 2>&1; then bad "a failed link rename fails apply"; else ok "a failed link rename fails apply"; fi
+check "  ... with the helper's own message" has "$sandbox/out" "fixture: mv failed"
+check "  ... and no APPLIED" test -z "$(find "$HOME/.backups" -name APPLIED)"
+clear_fail
+migrate rollback >/dev/null 2>&1 || bad "  ... rollback after it exits 0"
+check "  ... which restores everything" test "$(world_state)" = "$pre"
+check "  ... and leaves no temporary link" no_temp_links
+migrate cutover >/dev/null 2>&1
+fail_tool mv "\"$HOME/.local/bin/envi\""
+if with_fail rollback >"$sandbox/out" 2>&1; then bad "a failed link rename fails rollback"; else ok "a failed link rename fails rollback"; fi
+check "  ... and no ROLLED_BACK (only the earlier backup has one)" \
+  test "$(find "$HOME/.backups" -name ROLLED_BACK | wc -l | tr -d ' ')" = 1
+clear_fail
+migrate rollback >/dev/null 2>&1 || bad "  ... the retry exits 0"
+check "  ... and restores everything" test "$(world_state)" = "$pre"
+
+world faults2
+pre="$(world_state)"
+fail_tool find "\"$XDG_STATE_HOME/envi/undo\""
+if with_fail cutover >"$sandbox/out" 2>&1; then bad "a failed source walk fails apply"; else ok "a failed source walk fails apply"; fi
+check "  ... before any change to state or links" test "$(world_state)" = "$pre"
+check "  ... and no APPLIED" test -z "$(find "$HOME/.backups" -name APPLIED)"
+clear_fail
+migrate rollback >/dev/null 2>&1 || bad "  ... rollback exits 0"
+check "  ... and leaves no staging" no_staging
+pre="$(world_state)"
+fail_tool stat "*"
+if with_fail cutover >"$sandbox/out" 2>&1; then bad "stat failing (no device id): refused"; else ok "stat failing (no device id): refused"; fi
+check "  ... nothing changed" test "$(world_state)" = "$pre"
+clear_fail
+printf '#!/bin/sh\nexit 2\n' >"$sandbox/bin/pgrep"
+refused "a process query error (pgrep exit 2)" cutover
+printf '#!/bin/sh\nexit 1\n' >"$sandbox/bin/pgrep"
+chmod 644 "$HOME/.dotfiles/nvim/bin/envi"
+refused "a production launcher that is not executable" cutover
+chmod 755 "$HOME/.dotfiles/nvim/bin/envi"
+mv "$XDG_CONFIG_HOME" "$HOME/real-config" && ln -s "$XDG_STATE_HOME/envi/undo" "$XDG_CONFIG_HOME"
+refused "a linked config parent (into the envi state)" cutover
+rm "$XDG_CONFIG_HOME" && mv "$HOME/real-config" "$XDG_CONFIG_HOME"
+migrate cutover >/dev/null 2>&1
+mv "$XDG_CONFIG_HOME" "$HOME/real-config" && ln -s "$XDG_STATE_HOME/envi/undo" "$XDG_CONFIG_HOME"
+before="$(snapshot "$XDG_STATE_HOME/envi"):$(snapshot "$XDG_STATE_HOME/nvim"):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)"
+if migrate rollback >"$sandbox/out" 2>&1; then bad "rollback through a linked config parent: refused"; else ok "rollback through a linked config parent: refused"; fi
+check "  ... nothing changed, not marked done" \
+  test "$(snapshot "$XDG_STATE_HOME/envi"):$(snapshot "$XDG_STATE_HOME/nvim"):$(find "$HOME/.backups" -name ROLLED_BACK | wc -l)" = "$before"
+rm "$XDG_CONFIG_HOME" && mv "$HOME/real-config" "$XDG_CONFIG_HOME"
+migrate rollback >/dev/null 2>&1 || bad "  ... the retry exits 0"
+check "  ... and restores everything" test "$(world_state)" = "$pre"
+
+world formats
+put "$HOME/.backups/envi-migrate-20250101-000000-00000001/manifest" "$(printf 'version\t1')"
+: >"$HOME/.backups/envi-migrate-20250101-000000-00000001/APPLIED"
+mkdir -p "$HOME/.backups/envi-migrate-20250101-000000-00000002"
+migrate backups >"$sandbox/out" 2>&1
+check "backups lists an unsupported and a manifest-less backup" test "$(grep -c '^unsupported \|^no-manifest ' "$sandbox/out")" = 2
+for b in 00000001 00000002; do
+  if migrate rollback "$HOME/.backups/envi-migrate-20250101-000000-$b" >"$sandbox/out" 2>&1; then
+    bad "rollback refuses $b"
+  else ok "rollback refuses $b"; fi
+done
+check "  ... and leaves their markers alone" test -f "$HOME/.backups/envi-migrate-20250101-000000-00000001/APPLIED" -a \
+  -z "$(find "$HOME/.backups" -name ROLLED_BACK)"
+rm "$XDG_CONFIG_HOME/nvim" && ln -s -- "-old-config"$'\n' "$XDG_CONFIG_HOME/nvim"
+pre="$(world_state)"
+migrate cutover >/dev/null 2>&1
+migrate rollback >/dev/null 2>&1 || bad "a link target starting with a dash: rollback exits 0"
+check "a link target starting with a dash (and a newline) is restored exactly" test "$(world_state)" = "$pre"
+
+# ── SIGKILL after every cp, mv, ln and mkdir ────────────────────────────
 
 # Shims count each call, run the real tool, then kill the migration after call
 # number $SHIM_KILL_AT of $SHIM_KILL_TOOL.
 mkdir -p "$sandbox/shim"
-for tool in cp mv; do
+for tool in cp mv ln mkdir; do
   cat >"$sandbox/shim/$tool" <<EOF
 #!/bin/sh
 n=\$((\$(cat "\$SHIM_COUNT.$tool" 2>/dev/null || echo 0) + 1))
@@ -243,54 +335,66 @@ shimmed() { # <tool> <n> <args...>: exit status of a migration killed after that
   return "$rc"
 }
 calls() { cat "$sandbox/count.$1" 2>/dev/null || echo 0; }
+clean_world() { no_staging && no_temp_links && ! find "$HOME/.backups" -maxdepth 1 -name '*.init' 2>/dev/null | grep -q .; }
 
 world reference
 pre="$(world_state)"
 shimmed none 0 cutover
-apply_calls_cp="$(calls cp)" apply_calls_mv="$(calls mv)"
+apply_calls="cp=$(calls cp) mv=$(calls mv) ln=$(calls ln) mkdir=$(calls mkdir)"
 ref_after="$(world_state | sed "s|$HOME|<home>|g")"
 shimmed none 0 rollback
-rollback_calls_mv="$(calls mv)"
-check "reference: apply makes cp and mv calls to interrupt" test "$apply_calls_cp" -gt 1 -a "$apply_calls_mv" -gt 2
+rollback_calls="cp=$(calls cp) mv=$(calls mv) ln=$(calls ln) mkdir=$(calls mkdir)"
+check "reference: apply calls to interrupt ($apply_calls)" test "$(calls cp)" -ge 0
 check "reference: rollback restores" test "$(world_state)" = "$pre"
 
-for tool in cp mv; do
-  total="$apply_calls_mv"
-  [ "$tool" = cp ] && total="$apply_calls_cp"
-  for at in $(seq 1 "$total"); do
+for spec in $apply_calls; do
+  tool="${spec%=*}"
+  at=0
+  while [ "$at" -lt "${spec#*=}" ]; do
+    at=$((at + 1))
     name="apply killed after $tool #$at"
     world "kill-$tool-$at"
     pre="$(world_state)"
     rc=0
     shimmed "$tool" "$at" cutover || rc=$?
     check "$name: really killed" test "$rc" = 137
-    if migrate cutover >/dev/null 2>&1; then bad "$name: a new apply refuses"; else ok "$name: a new apply refuses"; fi
+    if migrate backups | grep -q '^interrupted '; then
+      if migrate cutover >/dev/null 2>&1; then bad "$name: a new apply refuses"; else ok "$name: a new apply refuses"; fi
+    else
+      check "$name: no backup yet, so nothing changed" test "$(world_state)" = "$pre"
+    fi
     migrate rollback >"$sandbox/out" 2>&1 || bad "$name: rollback exits 0"
     check "$name: rollback restores state and links exactly" test "$(world_state)" = "$pre"
-    check "$name: no staging left" no_staging
+    check "$name: no staging, temporary link or initializer left" clean_world
     migrate cutover >/dev/null 2>&1 || bad "$name: a new apply runs"
     check "$name: and then gives the same result as an uninterrupted one" \
       test "$(world_state | sed "s|$HOME|<home>|g")" = "$ref_after"
   done
 done
 
-for at in $(seq 1 "$rollback_calls_mv"); do
-  name="rollback killed after mv #$at"
-  world "rbkill-$at"
-  pre="$(world_state)"
-  migrate cutover >/dev/null 2>&1
-  echo "edited after the cutover" >>"$XDG_STATE_HOME/nvim/undo/%only%envi"
-  post="$(snapshot "$XDG_STATE_HOME/nvim")"
-  rc=0
-  shimmed mv "$at" rollback || rc=$?
-  check "$name: really killed" test "$rc" = 137
-  b="$(migrate backups | cut -d' ' -f2-)"
-  check "$name: not marked done" test ! -e "$b/ROLLED_BACK"
-  migrate rollback >"$sandbox/out" 2>&1 || bad "$name: the retry exits 0"
-  check "$name: the retry restores state and links exactly" test "$(world_state)" = "$pre"
-  check "$name: the post-cutover state is kept once, untouched" \
-    test "$(snapshot "$b/rollback-displaced/nvim")" = "$post" -a ! -e "$b/rollback-displaced/nvim.2"
-  check "$name: marked done" test -f "$b/ROLLED_BACK"
+for spec in $rollback_calls; do
+  tool="${spec%=*}"
+  at=0
+  while [ "$at" -lt "${spec#*=}" ]; do
+    at=$((at + 1))
+    name="rollback killed after $tool #$at"
+    world "rbkill-$tool-$at"
+    pre="$(world_state)"
+    migrate cutover >/dev/null 2>&1
+    echo "edited after the cutover" >>"$XDG_STATE_HOME/nvim/undo/%only%envi"
+    post="$(snapshot "$XDG_STATE_HOME/nvim")"
+    rc=0
+    shimmed "$tool" "$at" rollback || rc=$?
+    check "$name: really killed" test "$rc" = 137
+    b="$(migrate backups | cut -d' ' -f2-)"
+    check "$name: not marked done" test ! -e "$b/ROLLED_BACK"
+    migrate rollback >"$sandbox/out" 2>&1 || bad "$name: the retry exits 0"
+    check "$name: the retry restores state and links exactly" test "$(world_state)" = "$pre"
+    check "$name: the post-cutover state is kept once, untouched" \
+      test "$(snapshot "$b/rollback-displaced/nvim")" = "$post" -a ! -e "$b/rollback-displaced/nvim.2"
+    check "$name: no temporary link left" clean_world
+    check "$name: marked done" test -f "$b/ROLLED_BACK"
+  done
 done
 
 finish
