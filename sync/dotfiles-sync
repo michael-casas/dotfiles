@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# dotfiles-sync: fast-forward the production dotfiles checkout to origin/main,
+# so a merge on GitHub reaches every running nvim (hcmux hot reload).
+#
+#   dotfiles-sync          one quiet run (the LaunchAgent runs this every 60 s)
+#   dotfiles-sync now      run now (waits for a running sync); prints the result
+#   dotfiles-sync status   the last result and the end of the log
+#
+# It only runs `git fetch origin main` and `git merge --ff-only origin/main`,
+# and only while the checkout is on main. It never stashes, resets, checks out
+# over changes, or touches untracked or dirty files. When the update would
+# touch a locally changed path, it refuses before merging ("blocked: local
+# changes in <paths>"); when git refuses, it logs git's reason ("refused").
+# Either way nothing changes and it exits 1. Unrelated local changes stay put.
+#
+# Results (the `last` file and the log): synced, uptodate, ahead, blocked,
+# refused, skip, error.
+#
+# Env: DOTFILES_SYNC_REPO (default ~/.dotfiles), DOTFILES_SYNC_STATE (log dir,
+# default ${XDG_STATE_HOME:-~/.local/state}/dotfiles-sync), DOTFILES_SYNC_LOG_MAX
+# (bytes before the log rotates, default 256 KiB), DOTFILES_SYNC_WAIT (seconds
+# `now` waits for a running sync, default 60).
+# Exit: 0 synced or nothing to do, 1 refused or failed, 2 usage, 3 skipped
+# (not on main, a git operation in progress, or another sync running).
+#
+# Bash 3.2-safe (macOS /bin/bash runs it from launchd).
+set -u
+
+remote=origin
+branch=main
+repo="${DOTFILES_SYNC_REPO:-$HOME/.dotfiles}"
+state="${DOTFILES_SYNC_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles-sync}"
+log="$state/sync.log"
+last="$state/last"
+lock="$state/lock"
+max="${DOTFILES_SYNC_LOG_MAX:-262144}"
+mode=run
+owned=
+
+stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+cap() { # rotate a file that grew past $max (keeps one old copy)
+  if [ -f "$1" ] && [ "$(wc -c <"$1" | tr -d ' ')" -gt "$max" ]; then
+    mv -f "$1" "$1.1"
+  fi
+}
+
+# finish <kind> <exit code> <message>: record the result and exit.
+# `last` always holds the latest run; the log only gets a line when the result
+# changes (or something was synced), so a quiet minute adds nothing.
+finish() {
+  kind=$1 code=$2
+  shift 2
+  msg="$*"
+  line="$(stamp) $kind $msg"
+  prev=
+  if [ -f "$last" ]; then prev="$(cut -d' ' -f2- "$last" 2>/dev/null)"; fi
+  if [ "$kind" = synced ] || [ "$prev" != "$kind $msg" ]; then
+    cap "$log"
+    printf '%s\n' "$line" >>"$log"
+  fi
+  printf '%s\n' "$line" >"$last.tmp.$$" && mv -f "$last.tmp.$$" "$last"
+  if [ "$mode" = now ]; then
+    printf 'dotfiles-sync: %s %s\n' "$kind" "$msg"
+  fi
+  exit "$code"
+}
+
+# shellcheck disable=SC2329 # called by the EXIT trap
+release() {
+  if [ -n "$owned" ]; then
+    rm -f "$lock/pid"
+    rmdir "$lock" 2>/dev/null
+  fi
+}
+
+take_lock() { # mkdir is atomic; a lock whose owner died is taken over
+  if mkdir "$lock" 2>/dev/null; then
+    owned=1
+    trap release EXIT
+    echo $$ >"$lock/pid"
+    return 0
+  fi
+  pid="$(cat "$lock/pid" 2>/dev/null)"
+  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$lock/pid"
+    rmdir "$lock" 2>/dev/null
+  elif [ -z "$pid" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
+    rmdir "$lock" 2>/dev/null # created, but its owner never wrote a pid
+  fi
+  return 1
+}
+
+oneline() { # git's message as one log line
+  tr '\n' ' ' <"$1" | sed -e 's/  */ /g' -e 's/ $//' | cut -c1-400
+}
+
+# local_conflicts <from> <to>: the paths the update would change that are not
+# clean locally, one per line. Checked before merging, so the refusal names
+# them and nothing is left to git's judgement:
+# * tracked files changed locally (modified, staged or deleted);
+# * paths the update adds that already exist untracked, including ignored ones,
+#   which git would otherwise overwrite without asking.
+local_conflicts() {
+  dirty="$state/dirty.$$"
+  incoming="$state/incoming.$$"
+  git -C "$repo" diff --name-only --no-renames HEAD -- | LC_ALL=C sort -u >"$dirty"
+  git -C "$repo" diff --name-only --no-renames "$1" "$2" -- | LC_ALL=C sort -u >"$incoming"
+  LC_ALL=C comm -12 "$dirty" "$incoming"
+  git -C "$repo" diff --name-only --no-renames --diff-filter=A "$1" "$2" -- | while IFS= read -r p; do
+    if [ -e "$repo/$p" ] || [ -L "$repo/$p" ]; then echo "$p"; fi
+  done
+  rm -f "$dirty" "$incoming"
+}
+
+summary() { # "a, b, c and N more"
+  n="$(printf '%s\n' "$1" | wc -l | tr -d ' ')"
+  shown="$(printf '%s\n' "$1" | head -n 8 | paste -sd, - | sed 's/,/, /g')"
+  if [ "$n" -gt 8 ]; then shown="$shown and $((n - 8)) more"; fi
+  printf '%s' "$shown"
+}
+
+sync_once() {
+  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+    finish error 1 "$repo is not a git checkout"
+  fi
+  head_ref="$(git -C "$repo" symbolic-ref --quiet --short HEAD)" ||
+    finish skip 3 "$repo has a detached HEAD, not $branch"
+  if [ "$head_ref" != "$branch" ]; then
+    finish skip 3 "$repo is on $head_ref, not $branch"
+  fi
+  gitdir="$(git -C "$repo" rev-parse --absolute-git-dir)"
+  for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply index.lock; do
+    if [ -e "$gitdir/$f" ]; then finish skip 3 "a git operation is in progress ($f)"; fi
+  done
+
+  err="$state/git.err.$$"
+  # Light on purpose: it runs every minute. No tags, no submodules, no auto gc.
+  if ! GIT_TERMINAL_PROMPT=0 git -C "$repo" -c gc.auto=0 -c maintenance.auto=false \
+    fetch --quiet --no-tags --recurse-submodules=no "$remote" \
+    "+refs/heads/$branch:refs/remotes/$remote/$branch" 2>"$err"; then
+    msg="$(oneline "$err")"
+    rm -f "$err"
+    finish error 1 "fetch $remote $branch failed: $msg"
+  fi
+  rm -f "$err"
+
+  local_sha="$(git -C "$repo" rev-parse HEAD)"
+  remote_sha="$(git -C "$repo" rev-parse "refs/remotes/$remote/$branch")"
+  if [ "$local_sha" = "$remote_sha" ]; then
+    finish uptodate 0 "$branch at ${local_sha:0:7}"
+  fi
+  if git -C "$repo" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    finish ahead 0 "$branch at ${local_sha:0:7} is ahead of $remote/$branch ${remote_sha:0:7}"
+  fi
+  if ! git -C "$repo" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+    finish refused 1 "$branch ${local_sha:0:7} and $remote/$branch ${remote_sha:0:7} have diverged; not merging"
+  fi
+
+  count="$(git -C "$repo" rev-list --count "$local_sha..$remote_sha")"
+  blocked="$(local_conflicts "$local_sha" "$remote_sha")"
+  if [ -n "$blocked" ]; then
+    finish blocked 1 "local changes in $(summary "$blocked")"
+  fi
+  # --ff-only: never a merge commit. --no-autostash: never stash, whatever the
+  # config says. Git refuses (and changes nothing) when the update would touch a
+  # dirty tracked file or overwrite an untracked one; other local changes stay.
+  if ! git -C "$repo" -c gc.auto=0 -c maintenance.auto=false \
+    merge --ff-only --no-autostash --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
+    msg="$(oneline "$err")"
+    rm -f "$err"
+    finish refused 1 "fast-forward ${local_sha:0:7}..${remote_sha:0:7} refused: $msg"
+  fi
+  rm -f "$err"
+  finish synced 0 "${local_sha:0:7}..${remote_sha:0:7} ($count commit(s))"
+}
+
+main() {
+  case "${1:-run}" in
+    run) mode=run ;;
+    now) mode=now ;;
+    status)
+      if [ -f "$last" ]; then cat "$last"; else echo "no sync has run yet ($state)"; fi
+      if [ -f "$log" ]; then
+        echo "--- $log"
+        tail -n 10 "$log"
+      fi
+      return 0
+      ;;
+    -h | --help | help)
+      sed -n '2,/^set -u/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
+      return 0
+      ;;
+    *)
+      echo "usage: dotfiles-sync [run|now|status]" >&2
+      return 2
+      ;;
+  esac
+  mkdir -p "$state" || return 1
+  cap "$state/launchd.log"
+  if ! take_lock; then
+    if [ "$mode" = run ]; then
+      return 3 # the running sync will do it; stay quiet
+    fi
+    waited=0
+    until take_lock; do
+      if [ "$waited" -ge "${DOTFILES_SYNC_WAIT:-60}" ]; then
+        echo "dotfiles-sync: busy: another sync still holds $lock" >&2
+        return 3
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+  fi
+  sync_once
+}
+
+# Everything runs inside main, so a fast-forward that rewrites this file can't
+# change the code of the run that is doing it.
+main "$@"
+exit $?

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: `dotfiles-sync-agent install` renders the @TOKENS@ from $HOME. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@SCRIPT@</string>
+    <string>run</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>DOTFILES_SYNC_REPO</key>
+    <string>@REPO@</string>
+    <key>DOTFILES_SYNC_STATE</key>
+    <string>@STATE@</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>@STATE@/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>@STATE@/launchd.log</string>
+</dict>
+</plist>
