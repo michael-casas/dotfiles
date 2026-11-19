@@ -1,25 +1,67 @@
-# envi: experimental nvim
+# envi: the production nvim
 
-envi is where the agentic Neovim configuration is developed: nvim as a terminal
-multiplexer and session manager on top of **herdr-core** (`hc`), with agents
-one key away. It runs from a stable worktree, so the daily `nvim` stays
-untouched until a change is committed and merged.
+envi is the agentic Neovim configuration: nvim as a terminal multiplexer and
+session manager on top of **herdr-core** (`hc`), with agents one key away. It
+is the daily nvim: the default profile, running the `~/.dotfiles` checkout of
+`main`. Changes are developed in worktrees, each under its own dev profile, and
+reach production when they merge.
 
 ## The setup
 
+### Production
+
 | Part | Where |
 |---|---|
-| Worktree (stable; all edits happen here) | `~/.dotfiles/.treehouse/.dotfiles-0c8f72/2/.dotfiles` |
-| Branch | `envi/main` (local, no upstream). The lease holder is `claude-hcmux` |
-| nvim profile | `NVIM_APPNAME=envi`: `~/.config/envi` points to the worktree's `nvim/`; `~/.local/share/envi` points to `~/.local/share/nvim` (plugins are shared) |
-| Command | `envi` (`~/.local/bin/envi` points to `nvim/bin/envi`) |
+| Config | `~/.dotfiles/nvim`, the main checkout (`~/.config/nvim` points there). Uncommitted edits in `~/.dotfiles/nvim` are part of production too |
+| nvim profile | the default one (`NVIM_APPNAME` unset): state in `~/.local/state/nvim`, plugins in `~/.local/share/nvim` |
+| Command | `envi` (`~/.local/bin/envi` points to `~/.dotfiles/nvim/bin/envi`) |
 | Session | `envi` attaches to the herdr-core session **`dotfiles`**, running in `~/.dotfiles` |
+| T3 credential | `~/.local/state/envi/t3-session.json`, read and written by every T3 client whatever the profile. It stays there; never print it |
 
 `envi` with no arguments opens the session. `envi <file>` opens files with no
 session. `envi ls` and `envi kill <name>` manage sessions. Inside, `:detach` or
 `:qd` leaves; everything keeps running in herdr-core. `:reload` (or `:Reload`)
 detaches and starts envi again on the same session, so config, plugin and
 launcher changes take effect. It asks first about unsaved buffers.
+`ENVI_SESSION=<name> envi` picks another session.
+
+A plain `nvim` is the same config and profile without the launcher: `nvim`
+attaches the folder's session, `nvim <file>` is a plain editor, and `:reload`
+there says to `:qd` and run `envi`. `envi` always runs production, even when
+started inside a dev nvim.
+
+### Development: `envi-dev`
+
+Work happens in a worktree (a Treehouse slot). `envi-dev` runs that worktree's
+`nvim/` without touching production:
+
+```sh
+cd <worktree> && envi-dev          # or: envi-dev <worktree>, or ENVI_DEV=<worktree> envi
+envi-dev <worktree> path/to/file   # files, no session
+ENVI_SESSION=e2e-x envi-dev        # another session: dev-e2e-x
+```
+
+| Part | Where |
+|---|---|
+| nvim profile | `NVIM_APPNAME=envi-dev/<slot>`, one per worktree. `<slot>` is `slot<N>` (its Treehouse slot) or its folder name, plus a checksum of its path, e.g. `slot3-1a2b3c4d`; it is printed at start. Two worktrees never share one |
+| Config | `~/.config/envi-dev/<slot>` points to `<worktree>/nvim`. An existing link to another worktree is never repointed |
+| State | `~/.local/state/envi-dev/<slot>` (its own shada, undo, swap) |
+| Plugins | shared: `~/.local/share/envi-dev/<slot>` points to `~/.local/share/nvim` |
+| Session | `dev-<slot>`, running in the worktree. Every dev session name starts with `dev-` (added if missing) and is listed in its own index, `nvs-dev-index`, so a dev nvim never reads or writes a production session |
+| Launcher | the worktree's own `nvim/bin/envi`, so launcher changes are developed there too. `:reload` comes back in the same dev profile and session |
+
+`envi-dev sessions` and `envi-dev kill <name>` manage dev sessions (inside a
+worktree). Hot reload in a dev nvim follows the worktree's own commits.
+
+**Cleanup.** A dev profile outlives its worktree. `envi-dev ls` lists the
+profiles and marks those whose worktree is gone as `stale`;
+`envi-dev prune --dry-run --stale` shows what would go, `envi-dev prune --stale`
+removes their links, state and cache. `envi-dev prune <slot>` removes one (it
+refuses while its worktree exists unless `ENVI_DEV_PRUNE_LIVE=1`). End a dev
+session with `envi-dev kill dev-<slot>`. Plugins are never removed.
+
+**Tests.** `nvim/bin/test/run.sh` proves the launcher, the dev profile and the
+cutover in a throwaway `HOME` (a fake `hc`; nothing real is touched).
 
 ## Keys added for envi
 
@@ -64,16 +106,15 @@ Full reference: `nvim/lua/hcmux/README.md`.
 
 ## How to iterate
 
-1. **Edit only in the worktree.** Never edit `~/.dotfiles` itself. Its
-   checkout has the user's own uncommitted work (including Pi additions to
-   `opencode.lua`, which apply cleanly on top of this branch).
+1. **Edit only in a worktree, never in `~/.dotfiles`.** The main checkout
+   is production and carries the owner's own uncommitted work. Run your
+   worktree with `envi-dev`.
 2. **Reload:** commits reload every running envi on their own (hot reload, see the
    hcmux README); otherwise the user runs `:reload`. It saves and detaches the session, quits
-   nvim, and the `envi` launcher (which stays as nvim's parent, writing the
-   session name to `$ENVI_RELOAD_FILE`) starts envi again on that session.
+   nvim, and the launcher (which stays as nvim's parent, writing the
+   session name to `$ENVI_RELOAD_FILE`) starts it again on that session.
    Nothing is lost: the session and terminals persist. It only works in an nvim
-   started by `envi`; otherwise `:qd`, then `envi`. For a test run of the
-   launcher, `ENVI_SESSION=envi-test envi` picks the session.
+   started by `envi` or `envi-dev`; otherwise `:qd`, then `envi`.
 3. **Verify end to end by hand, with cua-driver in the Herdr app** (the user's
    standard). Headless tests aren't enough on their own. The full procedure is
    `~/.local/state/envi/charters/e2e-standard.md`. In short:
@@ -81,13 +122,14 @@ Full reference: `nvim/lua/hcmux/README.md`.
    - Use cua-driver through executor (`tools.cua_driver.org.default.*`), bound
      to the Herdr window.
    - Open your **own** new tab with the tab bar `+`, then type
-     `ENVI_SESSION=e2e-<slug> envi` there. Never use the user's `dotfiles`
-     session or anyone else's tab.
+     `ENVI_SESSION=e2e-<slug> envi-dev <worktree>` there (session
+     `dev-e2e-<slug>`). Never use the user's `dotfiles` session, production
+     `envi`, or anyone else's tab.
    - Drive it only with real keys and clicks (`press_key`, `hotkey`,
      `type_text`, `click`), with a fresh screenshot after each step.
    - Don't drive envi with `nvim --remote-send`, `hc keys` or `hc send`.
      Read-only `hc read` and read-only RPC state are fine as extra evidence.
-   - Clean up: `:qa!`, `envi kill e2e-<slug> -f`, close your tab, re-focus the
+   - Clean up: `:qa!`, `envi-dev kill dev-e2e-<slug> -f`, close your tab, re-focus the
      user's tab, then release the lock.
 4. **Format:** `~/.local/share/nvim/mason/bin/stylua --config-path nvim/stylua.toml nvim/lua/hcmux nvim/lua/plugins`.
 5. **Commit only when the user says so,** using Conventional Commits.
@@ -96,10 +138,45 @@ Known limits: `:mksession` doesn't keep plain `:terminal` buffers or
 neo-tree. Unsaved edits aren't stored. A lone `Ctrl+\` that times out
 detaches an `hc attach` view (harmless).
 
-Still to do at merge time: link `~/.local/bin/nvim-session`; repoint
-`~/.local/bin/envi` and `~/.config/envi` at `~/.dotfiles`; run `:Lazy clean`
-so the lockfile drops auto-session and persistence. The `herdr/app/omarchy`
-submodule shows as modified in the worktree; that isn't ours, so leave it alone.
+## Cutover (one time: envi from slot 2 → production)
+
+REP runs this with the owner. `envi-migrate` (in `nvim/bin`) does the state and
+link steps; every change goes into a backup under `~/.backups/envi-migrate-<time>/`,
+`--dry-run` shows the plan, and running it twice changes nothing.
+
+1. **Before.** This branch is merged and `~/.dotfiles` is fast-forwarded to
+   `main` (never over the owner's uncommitted work). Review the local edits
+   that become production with the owner:
+   `git -C ~/.dotfiles status --short -- nvim/`. envi behaves differently after
+   the cutover by exactly those edits (for example `nvim/lua/plugins/neo-tree.lua`);
+   slot 2 never had them. `~/.dotfiles/nvim/tools/t3-thread/node_modules` must
+   exist (else `npm ci` there).
+2. **The owner closes envi** with `:qd`. The session and its terminals keep
+   running. `pgrep -f ENVI_INSTANCE_FILE` prints nothing.
+3. **Migrate:** `~/.dotfiles/nvim/bin/envi-migrate --dry-run cutover`, read it,
+   then `~/.dotfiles/nvim/bin/envi-migrate cutover`. It copies `shada/`, `undo/`,
+   `hcmux/` and `envi-hotreload.*` from `~/.local/state/envi` into
+   `~/.local/state/nvim` (new files copied; on a conflict the newer file wins
+   and the loser goes into the backup), and never changes `~/.local/state/envi`
+   itself: the T3 credential, swap files and dev leftovers stay there.
+4. **Links** (same command): `~/.config/nvim` → `~/.dotfiles/nvim`,
+   `~/.local/bin/envi` → `~/.dotfiles/nvim/bin/envi`, `~/.local/bin/envi-dev` →
+   `~/.dotfiles/nvim/bin/envi-dev`; the `~/.config/envi` link is removed.
+5. **`envi`** reattaches the `dotfiles` session with its terminals alive
+   (`hc ls --label herdr.nvs=dotfiles`). **`:Reload`** comes back on it.
+6. **T3 panes reconnect:** the running T3 clients never stop. They keep the
+   same credential file and are reattached by name. They still run slot 2's
+   `tools/t3-thread`, so leave slot 2 in place while they run. `:T3Restart`
+   refuses them as unverified (another `main.mjs` path); close the pane and open
+   the thread again to move one onto production code.
+
+**Rollback:** the owner runs `:qd`, then `~/.dotfiles/nvim/bin/envi-migrate rollback`
+(the newest backup, or pass one). It restores every nvim state file the
+migration replaced, removes the ones it added (a file changed since then is set
+aside in the backup, never deleted), and puts the links back
+(`~/.config/envi` → slot 2, `~/.local/bin/envi` through it, no `envi-dev`).
+`envi` is then slot 2's envi on its untouched `envi` profile. Sessions live in
+herdr-core and are the same either way.
 
 ## Where this is going
 
