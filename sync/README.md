@@ -6,29 +6,45 @@ watches the checkout and reloads, or shows a toast.
 
 | File | What it is |
 |---|---|
-| `dotfiles-sync` | one sync: `run` (quiet, periodic), `now`, `status` |
+| `dotfiles-sync` | one sync: `run` (quiet, periodic), `now`, `status`; `check` (is this a checkout it may update?) |
 | `dotfiles-sync-agent` | `install` / `uninstall` / `render` / `status` for the macOS LaunchAgent |
 | `dotfiles-sync.plist.in` | the LaunchAgent template; `@TOKENS@` are rendered from `$HOME` at install |
 | `test/run.sh` | sandbox tests (temp `HOME`, bare origin, production clone) |
 
 ## What a sync does
 
-1. Skips (exit 3) unless the checkout is on `main` with no merge, rebase or
-   cherry-pick in progress, or while another sync holds the lock.
-2. `git fetch origin main` (no tags, no submodules, no auto gc).
-3. Nothing to do when `main` already equals or is ahead of `origin/main`.
+1. **Lock:** takes an `flock` on `sync.lock`, which the scheduled run and `now`
+   share. A periodic run skips quietly (exit 3) while another sync holds it, and
+   `now` waits up to 60 s. The kernel releases the lock when its holder exits or
+   is killed, so there is never a stale lock to clean up.
+2. **Checkout:** `DOTFILES_SYNC_REPO` must be the top of a **main checkout**: not
+   a linked worktree, not a subdirectory (`error`, exit 1). The installer checks
+   the same thing before it writes the plist.
+3. **State check:** skips (exit 3) unless HEAD is `refs/heads/main` and no merge,
+   rebase, cherry-pick, revert or bisect is in progress, with no `index.lock`.
+4. `git fetch origin main` (no tags, no submodules, no auto gc). Then it checks
+   step 3 again, and that `main` hasn't moved. If the branch was switched in
+   the meantime, it skips: "… (the checkout changed during the sync)".
+5. Nothing to do when `main` already equals or is ahead of `origin/main`.
    Diverged: `refused`, exit 1.
-4. **Blocked** (exit 1, nothing changes) when the update would touch a path that
-   isn't clean locally: a tracked file that is modified, staged or deleted, or an
-   untracked or ignored file where the update adds one. The result names the
-   paths: `blocked local changes in nvim/lua/plugins/neo-tree.lua`.
-5. Otherwise `git merge --ff-only --no-autostash origin/main`. Local changes to
-   other paths stay as they are. If git still refuses, its reason is logged as
-   `refused`.
+6. **Blocked** (exit 1, nothing changes) when the update would touch a path that
+   isn't clean locally. Paths are read NUL-delimited and compared byte for
+   byte, so non-ASCII names count too. A path counts when it is:
+   - a tracked file that differs HEAD→index or index→worktree (staged, unstaged
+     or deleted, even when the two cancel out);
+   - an untracked or ignored file where the update adds one;
+   - an untracked file where the update needs a directory.
 
-It never stashes, resets, checks out over changes, or touches untracked files.
-Resolving a block is the owner's call: commit, move or drop the local change,
-and the next run catches up.
+   The result names the paths: `blocked local changes in nvim/lua/plugins/neo-tree.lua`.
+7. It checks step 3 and `main` once more, then runs
+   `git merge --ff-only --no-autostash --no-overwrite-ignore origin/main`.
+   Local changes to other paths stay as they are. If git refuses, for example
+   because an ignored file appeared in the way after step 6, its reason is
+   logged as `refused`.
+
+It never stashes, resets, checks out over changes, or touches untracked or
+ignored files. Resolving a block is the owner's call: commit, move or drop the
+local change, and the next run catches up.
 
 **State:** `${XDG_STATE_HOME:-~/.local/state}/dotfiles-sync/`:
 - `last` holds the latest result, one line: `<UTC time> <result> <detail>`.
@@ -36,6 +52,9 @@ and the next run catches up.
 - `sync.log` gets a line only when the result changes, or on every sync, so idle
   minutes add nothing. It rotates to `sync.log.1` past 256 KiB.
 - `launchd.log` holds launchd's stdout and stderr, capped the same way.
+- `sync.lock` is the lock file. It stays in place; the lock is the `flock` on it.
+
+**Needs:** `git` and `perl`. macOS ships both in `/usr/bin`.
 
 ## Install (macOS)
 

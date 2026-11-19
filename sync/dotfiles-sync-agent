@@ -9,8 +9,9 @@
 #
 # --no-load writes or removes the file only and leaves launchd alone (tests).
 # Env: DOTFILES_SYNC_REPO (default ~/.dotfiles: the checkout that is synced and
-# whose sync/dotfiles-sync runs), DOTFILES_SYNC_AGENTS_DIR (default
-# ~/Library/LaunchAgents). Linux: see sync/README.md (a systemd user timer).
+# whose sync/dotfiles-sync runs; it must be a main checkout, not a linked
+# worktree), DOTFILES_SYNC_AGENTS_DIR (default ~/Library/LaunchAgents).
+# Linux: see sync/README.md (a systemd user timer).
 set -euo pipefail
 
 label=local.dotfiles-sync
@@ -51,6 +52,12 @@ done
 case "$cmd" in
   render) render ;;
   install)
+    # Only the main checkout itself: never a linked worktree or a subdirectory,
+    # which the job would then run from and fast-forward.
+    if ! DOTFILES_SYNC_REPO="$repo" /bin/bash "$here/dotfiles-sync" check; then
+      echo "dotfiles-sync-agent: not installing (set DOTFILES_SYNC_REPO to the main checkout)" >&2
+      exit 1
+    fi
     if [ ! -f "$repo/sync/dotfiles-sync" ]; then
       echo "dotfiles-sync-agent: $repo/sync/dotfiles-sync not found (set DOTFILES_SYNC_REPO)" >&2
       exit 1
@@ -78,7 +85,7 @@ case "$cmd" in
     "$here/dotfiles-sync" status
     ;;
   *)
-    sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     [ -z "$cmd" ] || [ "$cmd" = help ] || [ "$cmd" = -h ] || exit 2
     ;;
 esac

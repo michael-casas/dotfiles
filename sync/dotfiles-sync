@@ -5,13 +5,18 @@
 #   dotfiles-sync          one quiet run (the LaunchAgent runs this every 60 s)
 #   dotfiles-sync now      run now (waits for a running sync); prints the result
 #   dotfiles-sync status   the last result and the end of the log
+#   dotfiles-sync check    is DOTFILES_SYNC_REPO a checkout it may update?
 #
 # It only runs `git fetch origin main` and `git merge --ff-only origin/main`,
-# and only while the checkout is on main. It never stashes, resets, checks out
-# over changes, or touches untracked or dirty files. When the update would
-# touch a locally changed path, it refuses before merging ("blocked: local
-# changes in <paths>"); when git refuses, it logs git's reason ("refused").
-# Either way nothing changes and it exits 1. Unrelated local changes stay put.
+# and only in the main checkout (never a linked worktree) while it is on main.
+# It never stashes, resets, checks out over changes, or touches untracked,
+# ignored or dirty files. When the update would touch a path that isn't clean
+# locally, it refuses before merging ("blocked local changes in <paths>"); when
+# git refuses (it merges with --no-overwrite-ignore too), it logs git's reason
+# ("refused"). Either way nothing changes and it exits 1. Unrelated local
+# changes stay put. The branch, HEAD and "no git operation in progress" are
+# checked at the start, after the fetch and right before the merge; if any of
+# them changed, it skips.
 #
 # Results (the `last` file and the log): synced, uptodate, ahead, blocked,
 # refused, skip, error.
@@ -21,9 +26,10 @@
 # (bytes before the log rotates, default 256 KiB), DOTFILES_SYNC_WAIT (seconds
 # `now` waits for a running sync, default 60).
 # Exit: 0 synced or nothing to do, 1 refused or failed, 2 usage, 3 skipped
-# (not on main, a git operation in progress, or another sync running).
+# (not on main, a git operation in progress, the checkout changed, or another
+# sync running).
 #
-# Bash 3.2-safe (macOS /bin/bash runs it from launchd).
+# Bash 3.2-safe (macOS /bin/bash runs it from launchd). Needs git and perl.
 set -u
 
 remote=origin
@@ -32,12 +38,15 @@ repo="${DOTFILES_SYNC_REPO:-$HOME/.dotfiles}"
 state="${DOTFILES_SYNC_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles-sync}"
 log="$state/sync.log"
 last="$state/last"
-lock="$state/lock"
+lockfile="$state/sync.lock"
 max="${DOTFILES_SYNC_LOG_MAX:-262144}"
 mode=run
-owned=
+tmp=
 
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# git in the checkout. fd 9 holds the lock; children must not keep it alive.
+g() { git -C "$repo" "$@" 9>&-; }
 
 cap() { # rotate a file that grew past $max (keeps one old copy)
   if [ -f "$1" ] && [ "$(wc -c <"$1" | tr -d ' ')" -gt "$max" ]; then
@@ -67,50 +76,116 @@ finish() {
 }
 
 # shellcheck disable=SC2329 # called by the EXIT trap
-release() {
-  if [ -n "$owned" ]; then
-    rm -f "$lock/pid"
-    rmdir "$lock" 2>/dev/null
+cleanup() {
+  if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+}
+
+# take_lock <seconds>: an flock(2) on sync.lock, held through fd 9 for the
+# whole run. The kernel drops it when the process exits or is killed, so there
+# is no stale lock to reclaim. Scheduled and `now` runs share it.
+take_lock() {
+  exec 9>>"$lockfile" || return 1
+  perl -e '
+    use Fcntl qw(:flock);
+    open(my $fh, ">&=", 9) or exit 2;
+    my $n = shift() * 10;
+    while (1) {
+      exit 0 if flock($fh, LOCK_EX | LOCK_NB);
+      exit 1 if $n-- <= 0;
+      select(undef, undef, undef, 0.1);
+    }' "$1"
+}
+
+# A lock directory left by the previous (mkdir-based) version: gone once its
+# owner is dead, or after 10 minutes in any case.
+legacy_lock() {
+  old="$state/lock"
+  [ -d "$old" ] || return 0
+  pid="$(cat "$old/pid" 2>/dev/null)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ -z "$(find "$old" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
+    finish skip 3 "an older dotfiles-sync (pid $pid) is still running"
+  fi
+  rm -rf "$old"
+}
+
+# canonical <dir>: succeeds when <dir> is the top of a main checkout (not a
+# subdirectory, not a linked worktree); otherwise prints why.
+canonical() {
+  dir="$(cd "$1" 2>/dev/null && pwd -P)" || {
+    echo "$1 does not exist"
+    return 1
+  }
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "$1 is not a git checkout"
+    return 1
+  }
+  top="$(cd "$top" && pwd -P)"
+  if [ "$top" != "$dir" ]; then
+    echo "$1 is not the top of its checkout ($top)"
+    return 1
+  fi
+  gitdir="$(cd "$(git -C "$dir" rev-parse --absolute-git-dir)" && pwd -P)"
+  common="$(cd "$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)" && pwd -P)"
+  if [ "$gitdir" != "$common" ]; then
+    echo "$1 is a linked worktree, not the main checkout"
+    return 1
   fi
 }
 
-take_lock() { # mkdir is atomic; a lock whose owner died is taken over
-  if mkdir "$lock" 2>/dev/null; then
-    owned=1
-    trap release EXIT
-    echo $$ >"$lock/pid"
-    return 0
+# verify [<sha>]: skip unless HEAD is refs/heads/main (at <sha>, when given)
+# and no git operation is in progress.
+verify() {
+  ref="$(g symbolic-ref --quiet HEAD)" ||
+    finish skip 3 "$repo has a detached HEAD, not $branch"
+  if [ "$ref" != "refs/heads/$branch" ]; then
+    finish skip 3 "$repo is on ${ref#refs/heads/}, not $branch${1:+ (the checkout changed during the sync)}"
   fi
-  pid="$(cat "$lock/pid" 2>/dev/null)"
-  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$lock/pid"
-    rmdir "$lock" 2>/dev/null
-  elif [ -z "$pid" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
-    rmdir "$lock" 2>/dev/null # created, but its owner never wrote a pid
+  for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply index.lock; do
+    if [ -e "$gitdir/$f" ]; then finish skip 3 "a git operation is in progress ($f)"; fi
+  done
+  if [ -n "${1:-}" ]; then
+    now_sha="$(g rev-parse --verify --quiet HEAD)"
+    if [ "$now_sha" != "$1" ]; then
+      finish skip 3 "$branch moved from ${1:0:7} to ${now_sha:0:7} during the sync"
+    fi
   fi
-  return 1
-}
-
-oneline() { # git's message as one log line
-  tr '\n' ' ' <"$1" | sed -e 's/  */ /g' -e 's/ $//' | cut -c1-400
 }
 
 # local_conflicts <from> <to>: the paths the update would change that are not
-# clean locally, one per line. Checked before merging, so the refusal names
-# them and nothing is left to git's judgement:
-# * tracked files changed locally (modified, staged or deleted);
-# * paths the update adds that already exist untracked, including ignored ones,
-#   which git would otherwise overwrite without asking.
+# clean locally, one per line (control characters shown as ?). Paths are read
+# as NUL-delimited records and compared byte for byte:
+# * tracked files changed HEAD→index or index→worktree (staged, unstaged,
+#   deleted), even when the two cancel out in the worktree;
+# * paths the update adds where something untracked (or ignored) already
+#   exists, or where a parent directory it needs is an untracked file.
 local_conflicts() {
-  dirty="$state/dirty.$$"
-  incoming="$state/incoming.$$"
-  git -C "$repo" diff --name-only --no-renames HEAD -- | LC_ALL=C sort -u >"$dirty"
-  git -C "$repo" diff --name-only --no-renames "$1" "$2" -- | LC_ALL=C sort -u >"$incoming"
-  LC_ALL=C comm -12 "$dirty" "$incoming"
-  git -C "$repo" diff --name-only --no-renames --diff-filter=A "$1" "$2" -- | while IFS= read -r p; do
-    if [ -e "$repo/$p" ] || [ -L "$repo/$p" ]; then echo "$p"; fi
-  done
-  rm -f "$dirty" "$incoming"
+  g diff -z --name-only --no-renames --cached HEAD -- >"$tmp/staged" &&
+    g diff -z --name-only --no-renames -- >"$tmp/unstaged" &&
+    g diff -z --name-only --no-renames "$1" "$2" -- >"$tmp/incoming" &&
+    g diff -z --name-only --no-renames --diff-filter=A "$1" "$2" -- >"$tmp/added" ||
+    return 2
+  perl -e '
+    my ($repo, $from, $dir) = @ARGV;
+    sub records { open(my $h, "<", "$dir/$_[0]") or die; local $/; my $s = <$h>; return grep { length } split /\0/, (defined $s ? $s : "") }
+    sub tracked { system("git", "-C", $repo, "cat-file", "-e", "$from:$_[0]") == 0 }
+    my %dirty = map { $_ => 1 } (records("staged"), records("unstaged"));
+    my %out;
+    for my $p (records("incoming")) { $out{$p} = 1 if $dirty{$p} }
+    for my $p (records("added")) {
+      my @parts = split m{/}, $p;
+      my $rel = "";
+      for my $i (0 .. $#parts) {
+        $rel = $i ? "$rel/$parts[$i]" : $parts[$i];
+        my $abs = "$repo/$rel";
+        if ($i == $#parts) { $out{$p} = 1 if -e $abs || -l $abs; last }
+        last unless -e $abs || -l $abs;
+        next if -d $abs && !-l $abs;
+        $out{$p} = 1 unless tracked($rel); # an untracked file where a directory goes
+        last;
+      }
+    }
+    for (sort keys %out) { (my $s = $_) =~ s/[\x00-\x1f\x7f]/?/g; print "$s\n" }
+  ' "$repo" "$1" "$tmp" 9>&-
 }
 
 summary() { # "a, b, c and N more"
@@ -120,65 +195,70 @@ summary() { # "a, b, c and N more"
   printf '%s' "$shown"
 }
 
-sync_once() {
-  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
-    finish error 1 "$repo is not a git checkout"
-  fi
-  head_ref="$(git -C "$repo" symbolic-ref --quiet --short HEAD)" ||
-    finish skip 3 "$repo has a detached HEAD, not $branch"
-  if [ "$head_ref" != "$branch" ]; then
-    finish skip 3 "$repo is on $head_ref, not $branch"
-  fi
-  gitdir="$(git -C "$repo" rev-parse --absolute-git-dir)"
-  for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply index.lock; do
-    if [ -e "$gitdir/$f" ]; then finish skip 3 "a git operation is in progress ($f)"; fi
-  done
+oneline() { # git's message as one log line
+  tr '\n' ' ' <"$1" | sed -e 's/  */ /g' -e 's/ $//' | cut -c1-400
+}
 
-  err="$state/git.err.$$"
+sync_once() {
+  if ! why="$(canonical "$repo")"; then
+    finish error 1 "$why"
+  fi
+  gitdir="$(g rev-parse --absolute-git-dir)"
+  verify
+  start_sha="$(g rev-parse --verify --quiet HEAD)" || finish error 1 "$repo has no commit on $branch"
+
+  err="$tmp/git.err"
   # Light on purpose: it runs every minute. No tags, no submodules, no auto gc.
-  if ! GIT_TERMINAL_PROMPT=0 git -C "$repo" -c gc.auto=0 -c maintenance.auto=false \
+  if ! GIT_TERMINAL_PROMPT=0 g -c gc.auto=0 -c maintenance.auto=false \
     fetch --quiet --no-tags --recurse-submodules=no "$remote" \
     "+refs/heads/$branch:refs/remotes/$remote/$branch" 2>"$err"; then
-    msg="$(oneline "$err")"
-    rm -f "$err"
-    finish error 1 "fetch $remote $branch failed: $msg"
+    finish error 1 "fetch $remote $branch failed: $(oneline "$err")"
   fi
-  rm -f "$err"
+  verify "$start_sha"
 
-  local_sha="$(git -C "$repo" rev-parse HEAD)"
-  remote_sha="$(git -C "$repo" rev-parse "refs/remotes/$remote/$branch")"
-  if [ "$local_sha" = "$remote_sha" ]; then
-    finish uptodate 0 "$branch at ${local_sha:0:7}"
+  remote_sha="$(g rev-parse --verify --quiet "refs/remotes/$remote/$branch")" ||
+    finish error 1 "no $remote/$branch after the fetch"
+  if [ "$start_sha" = "$remote_sha" ]; then
+    finish uptodate 0 "$branch at ${start_sha:0:7}"
   fi
-  if git -C "$repo" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
-    finish ahead 0 "$branch at ${local_sha:0:7} is ahead of $remote/$branch ${remote_sha:0:7}"
+  if g merge-base --is-ancestor "$remote_sha" "$start_sha"; then
+    finish ahead 0 "$branch at ${start_sha:0:7} is ahead of $remote/$branch ${remote_sha:0:7}"
   fi
-  if ! git -C "$repo" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
-    finish refused 1 "$branch ${local_sha:0:7} and $remote/$branch ${remote_sha:0:7} have diverged; not merging"
+  if ! g merge-base --is-ancestor "$start_sha" "$remote_sha"; then
+    finish refused 1 "$branch ${start_sha:0:7} and $remote/$branch ${remote_sha:0:7} have diverged; not merging"
   fi
 
-  count="$(git -C "$repo" rev-list --count "$local_sha..$remote_sha")"
-  blocked="$(local_conflicts "$local_sha" "$remote_sha")"
+  count="$(g rev-list --count "$start_sha..$remote_sha")"
+  blocked="$(local_conflicts "$start_sha" "$remote_sha")" ||
+    finish error 1 "could not list local changes in $repo"
   if [ -n "$blocked" ]; then
     finish blocked 1 "local changes in $(summary "$blocked")"
   fi
-  # --ff-only: never a merge commit. --no-autostash: never stash, whatever the
-  # config says. Git refuses (and changes nothing) when the update would touch a
-  # dirty tracked file or overwrite an untracked one; other local changes stay.
-  if ! git -C "$repo" -c gc.auto=0 -c maintenance.auto=false \
-    merge --ff-only --no-autostash --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
-    msg="$(oneline "$err")"
-    rm -f "$err"
-    finish refused 1 "fast-forward ${local_sha:0:7}..${remote_sha:0:7} refused: $msg"
+
+  # Last look, then straight into the merge. --ff-only: never a merge commit.
+  # --no-autostash: never stash, whatever the config says. --no-overwrite-ignore:
+  # git refuses too if an ignored file appeared in the way after the check above.
+  verify "$start_sha"
+  if ! g -c gc.auto=0 -c maintenance.auto=false \
+    merge --ff-only --no-autostash --no-overwrite-ignore --no-stat --quiet "$remote_sha" >"$err" 2>&1; then
+    finish refused 1 "fast-forward ${start_sha:0:7}..${remote_sha:0:7} refused: $(oneline "$err")"
   fi
-  rm -f "$err"
-  finish synced 0 "${local_sha:0:7}..${remote_sha:0:7} ($count commit(s))"
+  ref="$(g symbolic-ref --quiet HEAD)"
+  if [ "$ref" != "refs/heads/$branch" ] || [ "$(g rev-parse "refs/heads/$branch")" != "$remote_sha" ]; then
+    finish error 1 "the checkout changed during the merge (HEAD is ${ref:-detached}); check $repo by hand"
+  fi
+  finish synced 0 "${start_sha:0:7}..${remote_sha:0:7} ($count commit(s))"
 }
 
 main() {
   case "${1:-run}" in
     run) mode=run ;;
     now) mode=now ;;
+    check)
+      if why="$(canonical "$repo")"; then return 0; fi
+      echo "dotfiles-sync: $why" >&2
+      return 1
+      ;;
     status)
       if [ -f "$last" ]; then cat "$last"; else echo "no sync has run yet ($state)"; fi
       if [ -f "$log" ]; then
@@ -192,26 +272,23 @@ main() {
       return 0
       ;;
     *)
-      echo "usage: dotfiles-sync [run|now|status]" >&2
+      echo "usage: dotfiles-sync [run|now|status|check]" >&2
       return 2
       ;;
   esac
   mkdir -p "$state" || return 1
   cap "$state/launchd.log"
-  if ! take_lock; then
-    if [ "$mode" = run ]; then
-      return 3 # the running sync will do it; stay quiet
+  wait_s=0
+  if [ "$mode" = now ]; then wait_s="${DOTFILES_SYNC_WAIT:-60}"; fi
+  if ! take_lock "$wait_s"; then
+    if [ "$mode" = now ]; then
+      echo "dotfiles-sync: busy: another sync still holds $lockfile" >&2
     fi
-    waited=0
-    until take_lock; do
-      if [ "$waited" -ge "${DOTFILES_SYNC_WAIT:-60}" ]; then
-        echo "dotfiles-sync: busy: another sync still holds $lock" >&2
-        return 3
-      fi
-      sleep 1
-      waited=$((waited + 1))
-    done
+    return 3 # a periodic run leaves it to the running sync, quietly
   fi
+  tmp="$(mktemp -d "$state/run.XXXXXX")" || return 1
+  trap cleanup EXIT
+  legacy_lock
   sync_once
 }
 
