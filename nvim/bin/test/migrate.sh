@@ -44,7 +44,8 @@ world() { # <name>
   export XDG_STATE_HOME="$HOME/.local/state" XDG_CACHE_HOME="$HOME/.cache"
   local e="$XDG_STATE_HOME/envi" n="$XDG_STATE_HOME/nvim"
   mkdir -p "$HOME/.dotfiles/nvim/bin" "$sandbox/slot2-$1/nvim/bin" "$XDG_CONFIG_HOME" "$HOME/.local/bin"
-  cp "$repo/nvim/bin/envi" "$repo/nvim/bin/envi-dev" "$repo/nvim/bin/envi-guard.sh" "$HOME/.dotfiles/nvim/bin/"
+  cp "$repo/nvim/bin/envi" "$repo/nvim/bin/envi-dev" "$repo/nvim/bin/envi-guard.sh" "$repo/nvim/bin/nvim-session" \
+    "$HOME/.dotfiles/nvim/bin/"
   : >"$HOME/.dotfiles/nvim/init.lua"
   ln -s "$HOME/.dotfiles/nvim" "$XDG_CONFIG_HOME/nvim"
   ln -s "$sandbox/slot2-$1/nvim" "$XDG_CONFIG_HOME/envi"
@@ -284,6 +285,12 @@ printf '#!/bin/sh\nexit 1\n' >"$sandbox/bin/pgrep"
 chmod 644 "$HOME/.dotfiles/nvim/bin/envi"
 refused "a production launcher that is not executable" cutover
 chmod 755 "$HOME/.dotfiles/nvim/bin/envi"
+chmod 644 "$HOME/.dotfiles/nvim/bin/nvim-session"
+refused "a session helper (nvim-session) that is not executable" cutover
+chmod 755 "$HOME/.dotfiles/nvim/bin/nvim-session"
+rm "$HOME/.dotfiles/nvim/bin/nvim-session" && ln -s envi "$HOME/.dotfiles/nvim/bin/nvim-session"
+refused "a session helper that is a link" cutover
+rm "$HOME/.dotfiles/nvim/bin/nvim-session" && cp "$repo/nvim/bin/nvim-session" "$HOME/.dotfiles/nvim/bin/"
 mv "$XDG_CONFIG_HOME" "$HOME/real-config" && ln -s "$XDG_STATE_HOME/envi/undo" "$XDG_CONFIG_HOME"
 refused "a linked config parent (into the envi state)" cutover
 rm "$XDG_CONFIG_HOME" && mv "$HOME/real-config" "$XDG_CONFIG_HOME"

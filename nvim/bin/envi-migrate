@@ -213,10 +213,13 @@ plan() { # refuses before any write; sets do_state, do_links, olds, news
       die "$bin/$p is missing or not executable; merge the production launcher and fast-forward $dotfiles first"
   done
   grep -q ENVI_DEV "$bin/envi" || die "$bin/envi predates the dev profile; refusing"
-  dep="$(sed -n 's|^\. "[^"]*/\([^"/]*\)"$|\1|p' "$bin/envi" "$bin/envi-dev")" || die "cannot read the launchers"
-  for p in $dep; do
-    [ -f "$bin/$p" ] && [ ! -L "$bin/$p" ] && [ -r "$bin/$p" ] || die "$bin/$p (sourced by the launchers) is missing; refusing"
-  done
+  # What they source (r) must be readable; what they exec (x), e.g. nvim-session, executable.
+  dep="$(sed -n -e 's|^\. "[^"]*/\([^"/]*\)"$|r \1|p' -e 's|.*exec "[$]here/\([^"/]*\)".*|x \1|p' "$bin/envi" "$bin/envi-dev")" ||
+    die "cannot read the launchers"
+  while read -r i p; do
+    { [ -f "$bin/$p" ] && [ ! -L "$bin/$p" ] && [ -r "$bin/$p" ] && { [ "$i" = r ] || [ -x "$bin/$p" ]; }; } ||
+      die "$bin/$p (used by the launchers) is missing, a link or not $([ "$i" = r ] && echo readable || echo executable); refusing"
+  done <<<"$dep"
   news=("$dotfiles/nvim" "$bin/envi" "$bin/envi-dev" "")
   do_links=0
   for i in 0 1 2 3; do
