@@ -275,5 +275,14 @@ ENVI_SESSION=odd envi-dev "$odd" --headless +qa 2>/dev/null || bad "odd folder n
 odd_app="$(field appname)"
 check "odd folder name: a valid slot ($odd_app)" slot_ok "$odd_app"
 check "  ... its profile links to it" test "$(readlink -n "$XDG_CONFIG_HOME/$odd_app")" = "$odd/nvim"
+# A relative path resolves the same with CDPATH set (cd would print the folder).
+: >"$PROBE_OUT"
+(cd "$sandbox" && CDPATH=. ENVI_SESSION=odd envi-dev "${odd##*/}" --headless +qa 2>"$sandbox/err") ||
+  bad "relative path with CDPATH: envi-dev launches"
+check "relative path with CDPATH: envi-dev uses the same slot" test "$(field appname)" = "$odd_app"
+: >"$PROBE_OUT"
+(cd "$sandbox" && CDPATH=. ENVI_DEV="${odd##*/}" ENVI_SESSION=odd envi --headless +qa 2>"$sandbox/err") ||
+  bad "relative path with CDPATH: ENVI_DEV=<path> envi launches"
+check "relative path with CDPATH: ENVI_DEV=<path> envi uses the same slot" test "$(field appname)" = "$odd_app"
 
 finish

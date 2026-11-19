@@ -30,11 +30,12 @@ real_chain() {
 
 # resolve_dir <path> <variable>: the real path of a folder, read without
 # losing a trailing newline. A path with a control byte (0x01-0x1F, 0x7F),
-# before or after resolution, is refused rather than round-tripped.
+# before or after resolution, is refused rather than round-tripped. CDPATH is
+# ignored: a relative path is relative to the caller's folder.
 resolve_dir() {
   local _resolved
   case "$1" in *[[:cntrl:]]*) die "$(printf '%q' "$1") contains a control character; refusing" ;; esac
-  _resolved="$(cd -- "$1" 2>/dev/null && pwd -P && printf x)" || die "no such folder: $1"
+  _resolved="$(CDPATH='' cd -- "$1" >/dev/null 2>&1 && pwd -P && printf x)" || die "no such folder: $1"
   _resolved="${_resolved%x}"
   _resolved="${_resolved%?}"
   case "$_resolved" in *[[:cntrl:]]*) die "$(printf '%q' "$_resolved") contains a control character; refusing" ;; esac
