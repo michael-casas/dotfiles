@@ -225,7 +225,66 @@ echo keep >"$sandbox/prod-like/${app_b#envi-dev/}/file"
 mkdir -p "$XDG_CACHE_HOME"
 mv "$XDG_CACHE_HOME/envi-dev" "$sandbox/cache-aside" 2>/dev/null || :
 ln -s "$sandbox/prod-like" "$XDG_CACHE_HOME/envi-dev"
-ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_b#envi-dev/}" >/dev/null 2>&1
-check "prune never deletes through a linked envi-dev/ folder" test -f "$sandbox/prod-like/${app_b#envi-dev/}/file"
+if ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_b#envi-dev/}" >/dev/null 2>&1; then
+  bad "prune refuses a linked envi-dev/ folder"
+else ok "prune refuses a linked envi-dev/ folder"; fi
+check "  ... and never deletes through it" test -f "$sandbox/prod-like/${app_b#envi-dev/}/file"
+check "  ... nor anything else of that profile" test -L "$XDG_CONFIG_HOME/$app_b"
+rm "$XDG_CACHE_HOME/envi-dev"
+mv "$sandbox/cache-aside" "$XDG_CACHE_HOME/envi-dev" 2>/dev/null || :
+
+# ── r2: XDG ancestor aliases, protocol values, odd slot names ───────────
+
+# An XDG home that is itself a link into production: refused, and so is prune.
+prod_before="$(prod_state)"
+ln -s "$XDG_STATE_HOME/nvim" "$sandbox/aliased-state"
+: >"$PROBE_OUT"
+if XDG_STATE_HOME="$sandbox/aliased-state" ENVI_SESSION=x envi-dev "$wt_a" --headless +qa 2>/dev/null; then
+  bad "a linked XDG_STATE_HOME: refused"
+else ok "a linked XDG_STATE_HOME: refused"; fi
+check "  ... before nvim ran" test ! -s "$PROBE_OUT"
+check "  ... production state untouched" test "$(prod_state)" = "$prod_before"
+mkdir -p "$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}"
+echo keep >"$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}/sentinel"
+if XDG_STATE_HOME="$sandbox/aliased-state" ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${app_a#envi-dev/}" >/dev/null 2>&1; then
+  bad "prune through a linked XDG_STATE_HOME: refused"
+else ok "prune through a linked XDG_STATE_HOME: refused"; fi
+check "  ... the production sentinel kept" test -f "$XDG_STATE_HOME/nvim/envi-dev/${app_a#envi-dev/}/sentinel"
+rm -rf "$XDG_STATE_HOME/nvim/envi-dev"
+
+# Only exactly one "envi-dev-protocol: 2" declaration counts.
+for variant in "20" "2x" "02" "2 and more"; do
+  proto="$sandbox/proto-$(printf '%s' "$variant" | tr -c 'a-z0-9' '-')"
+  make_config "$proto"
+  git -C "$repo" show "0fc1e3f:nvim/lua/hcmux/session.lua" >"$proto/nvim/lua/hcmux/session.lua"
+  printf '\n-- envi-dev-protocol: %s\n' "$variant" >>"$proto/nvim/lua/hcmux/session.lua"
+  : >"$HC_LOG"
+  if ENVI_SESSION=dev-marker envi-dev "$proto" --headless +qa 2>/dev/null; then
+    bad "protocol \"$variant\": refused"
+  else ok "protocol \"$variant\": refused"; fi
+  check "  ... before the core ran" test ! -s "$HC_LOG"
+done
+dup="$sandbox/proto-dup"
+make_config "$dup"
+printf '\n-- envi-dev-protocol: 2\n' >>"$dup/nvim/lua/hcmux/session.lua"
+if ENVI_SESSION=x envi-dev "$dup" --headless +qa 2>/dev/null; then bad "two protocol declarations: refused"; else
+  ok "two protocol declarations: refused"
+fi
+if ENVI_DEV="$dup" ENVI_SESSION=x envi --headless +qa 2>/dev/null; then bad "  ... also through ENVI_DEV=<path> envi"; else
+  ok "  ... also through ENVI_DEV=<path> envi"
+fi
+
+# A worktree name with a newline, capitals and symbols: a slot that ls and prune accept.
+odd="$sandbox/Odd Name"$'\n'"With!Symbols"
+make_config "$odd"
+: >"$PROBE_OUT"
+ENVI_SESSION=odd envi-dev "$odd" --headless +qa 2>/dev/null
+odd_app="$(field appname)"
+slot_ok() { [[ "$1" =~ ^envi-dev/[a-z0-9-]{1,12}-[0-9a-f]{8}$ ]]; }
+check "odd folder name: a valid slot ($odd_app)" slot_ok "$odd_app"
+envi-dev ls >"$sandbox/dev-ls"
+check "  ... listed by envi-dev ls" has "$sandbox/dev-ls" "^${odd_app#envi-dev/} "
+ENVI_DEV_PRUNE_LIVE=1 envi-dev prune "${odd_app#envi-dev/}" >/dev/null 2>&1 || bad "  ... prune exits 0"
+check "  ... and pruned" test ! -e "$XDG_CONFIG_HOME/$odd_app" -a ! -L "$XDG_CONFIG_HOME/$odd_app" -a ! -e "$XDG_STATE_HOME/$odd_app"
 
 finish

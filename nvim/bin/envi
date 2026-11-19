@@ -24,78 +24,67 @@ die() {
   exit 1
 }
 
-# The dev profile id of a worktree: readable (its Treehouse slot, else its
-# folder name) plus a checksum of its real path, so two worktrees never share
-# one. Same path, same id, on every run.
-dev_slot() {
-  local path="$1" label sum
-  label="$(printf '%s\n' "$path" | sed -n 's|.*/\.treehouse/[^/]*/\([0-9][0-9]*\)/[^/]*$|slot\1|p')"
-  if [ -z "$label" ]; then
-    label="$(basename "$path" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-' | sed 's/^-*//; s/-*$//' | cut -c1-12)"
-    label="$(printf '%s' "$label" | sed 's/-*$//')"
-    [ -n "$label" ] || label=wt
-  fi
-  sum="$(printf '%s' "$path" | cksum | awk '{ printf "%08x", $1 }')"
-  printf '%s-%s\n' "$label" "$sum"
-}
+[ -f "$here/envi-guard.sh" ] || die "$here/envi-guard.sh is missing"
+# shellcheck source=nvim/bin/envi-guard.sh
+. "$here/envi-guard.sh"
 
 # Point `link` at `target`. A link that already points elsewhere, or a real
 # folder, belongs to someone else: refuse rather than repoint it.
 own_link() {
-  local link="$1" target="$2"
+  local link="$1" target="$2" current
   if [ -L "$link" ]; then
-    [ "$(readlink "$link")" = "$target" ] && return 0
-    die "$link points to $(readlink "$link"), not $target; not repointing it (see envi-dev prune)."
+    current="$(readlink -n -- "$link")" || die "cannot read $link"
+    [ "$current" = "$target" ] && return 0
+    die "$link points to $current, not $target; not repointing it (see envi-dev prune)."
   fi
   [ -e "$link" ] && die "$link exists and is not a link; not replacing it."
-  mkdir -p "$(dirname "$link")"
-  ln -s "$target" "$link"
+  mkdir -p -- "${link%/*}" || die "cannot create ${link%/*}"
+  ln -s -- "$target" "$link" || die "cannot link $link"
 }
 
-# A dev profile folder is its own: a real folder (or absent) under a real
-# envi-dev/ folder, with no link inside that could route writes elsewhere.
+# A dev profile folder is its own: absent, or a real folder with no link
+# inside that could route writes elsewhere.
 own_dir() {
-  local dir="$1" base
-  base="$(dirname "$dir")"
-  if [ -L "$base" ] || { [ -e "$base" ] && [ ! -d "$base" ]; }; then
-    die "$base is not a real folder; refusing to run a dev profile through it."
+  local dir="$1" links
+  [ -e "$dir" ] || [ -L "$dir" ] || return 0
+  if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+    die "$dir is not a real folder; refusing (envi-dev prune ${dir##*/} removes it)."
   fi
-  if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
-    die "$dir is not a real folder; refusing (envi-dev prune $(basename "$dir") removes it)."
-  fi
-  if [ -d "$dir" ] && [ -n "$(find "$dir" -maxdepth 2 -type l -print 2>/dev/null | head -n 1)" ]; then
-    die "$dir contains a link; refusing to write a dev profile through it."
-  fi
+  links="$(find "$dir" -maxdepth 2 -type l -print)" || die "cannot inspect $dir"
+  [ -z "$links" ] || die "$dir contains a link; refusing to write a dev profile through it."
 }
 
 if [ -n "${ENVI_DEV:-}" ]; then
   dev_root="$(cd "$ENVI_DEV" 2>/dev/null && pwd -P)" || die "ENVI_DEV: no such folder: $ENVI_DEV"
   [ -f "$dev_root/nvim/init.lua" ] || die "ENVI_DEV: $dev_root has no nvim/init.lua"
-  # envi-dev-protocol: 2. Its hcmux.session must keep dev sessions apart.
-  grep -q 'envi-dev-protocol: 2' "$dev_root/nvim/lua/hcmux/session.lua" 2>/dev/null ||
-    die "$dev_root predates the dev profile (its hcmux/session.lua has no dev namespace); rebase it onto main."
+  # Its hcmux.session must declare the dev namespace (protocol 2) exactly.
+  dev_protocol_ok "$dev_root/nvim/lua/hcmux/session.lua" ||
+    die "$dev_root predates the dev profile (its hcmux/session.lua does not declare envi-dev-protocol 2); rebase it onto main."
   slot="$(dev_slot "$dev_root")"
   config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
   data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
-  own_dir "${XDG_STATE_HOME:-$HOME/.local/state}/envi-dev/$slot"
-  own_dir "${XDG_CACHE_HOME:-$HOME/.cache}/envi-dev/$slot"
-  for base in "$config_home/envi-dev" "$data_home/envi-dev"; do
-    if [ -L "$base" ] || { [ -e "$base" ] && [ ! -d "$base" ]; }; then
-      die "$base is not a real folder; refusing to run a dev profile through it."
-    fi
+  state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+  # Every dev root and its ancestors up to $HOME are real folders, and none
+  # lies inside a production profile. Only the two declared links (config ->
+  # worktree, plugin data -> production data) are links.
+  for home in "$config_home" "$data_home" "$state_home" "$cache_home"; do
+    real_chain "$home/envi-dev" "$home" absent-ok
+    outside "$home/envi-dev/$slot" "$config_home/nvim" "$data_home/nvim" "$state_home/nvim" "$cache_home/nvim"
   done
-  # Plugins are the one thing shared with production: a link to its data, or
-  # the profile's own real folder.
+  own_dir "$state_home/envi-dev/$slot"
+  own_dir "$cache_home/envi-dev/$slot"
   data="$data_home/envi-dev/$slot"
   if [ -L "$data" ]; then
-    [ "$(readlink "$data")" = "$data_home/nvim" ] || die "$data points to $(readlink "$data"), not $data_home/nvim; refusing."
-  elif [ -e "$data" ]; then
+    target="$(readlink -n -- "$data")" || die "cannot read $data"
+    [ "$target" = "$data_home/nvim" ] || die "$data points to $target, not $data_home/nvim; refusing."
+  else
     own_dir "$data"
   fi
   own_link "$config_home/envi-dev/$slot" "$dev_root/nvim"
   if [ ! -e "$data" ] && [ ! -L "$data" ]; then
-    mkdir -p "$data_home/envi-dev"
-    ln -s "$data_home/nvim" "$data"
+    mkdir -p -- "$data_home/envi-dev" || die "cannot create $data_home/envi-dev"
+    ln -s -- "$data_home/nvim" "$data" || die "cannot link $data"
   fi
   export ENVI_DEV="$dev_root" NVIM_APPNAME="envi-dev/$slot"
   session_dir="$dev_root"

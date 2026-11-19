@@ -27,8 +27,9 @@ M.config = {
 -- A development profile (NVIM_APPNAME envi-dev/<slot>, see nvim/bin/envi-dev)
 -- keeps its sessions in a storage namespace disjoint from production: its own
 -- documents (nvsdev.<name>), index and terminal label, so no dev name can
--- reach a production session, whatever that one is called.
--- envi-dev-protocol: 2 (nvim/bin/envi-dev refuses a worktree without it)
+-- reach a production session, whatever that one is called. The line below
+-- declares it; nvim/bin/envi-dev refuses a worktree without exactly this one.
+-- envi-dev-protocol: 2
 local appname = vim.env.NVIM_APPNAME or ""
 M.dev = appname == "envi-dev" or appname:sub(1, 9) == "envi-dev/"
 

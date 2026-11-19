@@ -19,46 +19,51 @@ self="$(readlink -f "${BASH_SOURCE[0]}")"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 die() {
   echo "envi-dev: $*" >&2
   exit 1
 }
+[ -f "${self%/*}/envi-guard.sh" ] || die "${self%/*}/envi-guard.sh is missing"
+# shellcheck source=nvim/bin/envi-guard.sh
+. "${self%/*}/envi-guard.sh"
 
-# slot<TAB>worktree<TAB>live|stale for every dev profile.
+# slot<TAB>worktree<TAB>live|stale for every dev profile (valid slot names only).
 profiles() {
   local link slot target
   for link in "$config_home/envi-dev"/* "$state_home/envi-dev"/*; do
     [ -e "$link" ] || [ -L "$link" ] || continue
-    slot="$(basename "$link")"
-    target="$(readlink "$config_home/envi-dev/$slot" 2>/dev/null || true)"
+    slot="${link##*/}"
+    valid_slot "$slot" || continue
+    target="$(readlink -n -- "$config_home/envi-dev/$slot" 2>/dev/null)" || target=""
     if [ -n "$target" ] && [ -f "$target/init.lua" ]; then
-      printf '%s\t%s\tlive\n' "$slot" "$(dirname "$target")"
+      printf '%s\t%s\tlive\n' "$slot" "${target%/*}"
     else
-      printf '%s\t%s\tstale\n' "$slot" "${target:+$(dirname "$target")}"
+      printf '%s\t%s\tstale\n' "$slot" "${target%/*}"
     fi
   done | sort -u
 }
 
-# Remove one profile's folders. Each must sit in a real envi-dev/ folder; a
-# link is removed as a link, never followed.
+# Remove one profile's folders. Each envi-dev/ folder and its ancestors up to
+# $HOME must be real folders; a link is removed as a link, never followed.
 prune_one() {
-  local slot="$1" dry="$2" home path base
-  [[ "$slot" =~ ^[a-z0-9-]+-[0-9a-f]{8}$ ]] || die "not a dev profile slot: $slot"
-  for home in "$config_home" "$data_home" "$state_home" "${XDG_CACHE_HOME:-$HOME/.cache}"; do
-    base="$home/envi-dev"
-    path="$base/$slot"
+  local slot="$1" dry="$2" home path
+  valid_slot "$slot" || die "not a dev profile slot: $slot"
+  for home in "$config_home" "$data_home" "$state_home" "$cache_home"; do
+    real_chain "$home/envi-dev" "$home" absent-ok
+  done
+  for home in "$config_home" "$data_home" "$state_home" "$cache_home"; do
+    path="$home/envi-dev/$slot"
     [ -e "$path" ] || [ -L "$path" ] || continue
-    if [ -L "$base" ] || [ ! -d "$base" ]; then
-      echo "envi-dev: $base is not a real folder; leaving $path" >&2
-      continue
-    fi
     if [ "$dry" = 1 ]; then
       echo "would remove $path"
     elif [ -L "$path" ] || [ ! -d "$path" ]; then
-      rm -f -- "$path" && echo "removed $path"
+      rm -f -- "$path" || die "cannot remove $path"
+      echo "removed $path"
     else
-      rm -rf -- "$path" && echo "removed $path"
+      rm -rf -- "$path" || die "cannot remove $path"
+      echo "removed $path"
     fi
   done
   echo "its herdr-core session, if any: run \`envi-dev kill dev-$slot\` inside any worktree"
@@ -82,12 +87,13 @@ case "${1:-}" in
       shift
     fi
     [ $# -eq 1 ] || die "usage: envi-dev prune [--dry-run] <slot>|--stale"
+    list="$(profiles)" || die "cannot list dev profiles"
     if [ "$1" = "--stale" ]; then
-      profiles | awk -F '\t' '$3 == "stale" { print $1 }' | while IFS= read -r slot; do
+      for slot in $(printf '%s\n' "$list" | awk -F '\t' '$3 == "stale" { print $1 }'); do
         prune_one "$slot" "$dry"
       done
     else
-      if profiles | awk -F '\t' -v s="$1" '$1 == s && $3 == "live" { found = 1 } END { exit !found }'; then
+      if printf '%s\n' "$list" | awk -F '\t' -v s="$1" '$1 == s && $3 == "live" { found = 1 } END { exit !found }'; then
         [ "${ENVI_DEV_PRUNE_LIVE:-}" = 1 ] || die "$1 still has its worktree; set ENVI_DEV_PRUNE_LIVE=1 to prune it anyway"
       fi
       prune_one "$1" "$dry"
@@ -113,10 +119,10 @@ fi
 worktree="$(cd "$worktree" && pwd -P)"
 
 # Run the worktree's own launcher, so launcher changes are developed there too.
-# A worktree from before the dev profile (envi-dev-protocol 2) could reach
+# A worktree from before the dev profile (protocol 2) could reach
 # production sessions: refuse it before anything starts.
 for file in "$worktree/nvim/bin/envi" "$worktree/nvim/lua/hcmux/session.lua"; do
-  grep -q 'envi-dev-protocol: 2' "$file" 2>/dev/null ||
-    die "$worktree predates the dev profile (${file#"$worktree"/} has no dev mode); rebase it onto main."
+  dev_protocol_ok "$file" ||
+    die "$worktree predates the dev profile (${file#"$worktree"/} does not declare envi-dev-protocol 2); rebase it onto main."
 done
 ENVI_DEV="$worktree" exec "$worktree/nvim/bin/envi" "$@"
