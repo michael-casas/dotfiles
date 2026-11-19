@@ -1,63 +1,22 @@
 #!/usr/bin/env bash
-# The cutover (envi-migrate) in a sandbox: dry run, apply, idempotent
-# re-apply, rollback, and a T3 client reading its session file throughout.
+# The cutover (envi-migrate) in a sandbox: refusals before any write, dry run,
+# apply, idempotent re-apply, rollback, a T3 client reading its session file
+# throughout, and a SIGKILL after every single cp/mv of apply and of rollback,
+# each followed by a recovery that must converge.
 #   nvim/bin/test/migrate.sh
 # shellcheck source=nvim/bin/test/sandbox.sh
 . "$(dirname "$0")/sandbox.sh"
 
-envi="$XDG_STATE_HOME/envi"
-nvim="$XDG_STATE_HOME/nvim"
-migrate() { "$HOME/.dotfiles/nvim/bin/envi-migrate" "$@"; }
-
-# ── today's layout ───────────────────────────────────────────────────────
-make_config "$HOME/.dotfiles"
-git -C "$HOME/.dotfiles" init -q
-git -C "$HOME/.dotfiles" -c user.name=t -c user.email=t@example.invalid add -A
-git -C "$HOME/.dotfiles" -c user.name=t -c user.email=t@example.invalid commit -qm base
-echo "-- the owner's local edit" >>"$HOME/.dotfiles/nvim/init.lua"
-slot2="$sandbox/slot2/.dotfiles"
-make_config "$slot2"
-mkdir -p "$XDG_CONFIG_HOME" "$HOME/.local/bin"
-ln -s "$HOME/.dotfiles/nvim" "$XDG_CONFIG_HOME/nvim"
-ln -s "$slot2/nvim" "$XDG_CONFIG_HOME/envi"
-ln -s "$XDG_CONFIG_HOME/envi/bin/envi" "$HOME/.local/bin/envi"
-
-put() { # <file> <content> <touch -t stamp>
+migrate() { "$repo/nvim/bin/envi-migrate" "$@"; }
+put() { # <file> <content> [touch -t stamp]
   mkdir -p "$(dirname "$1")"
   printf '%s\n' "$2" >"$1"
-  touch -t "$3" "$1"
+  touch -t "${3:-202606010000}" "$1"
 }
-old=202601010000 mid=202606010000 new=202611010000
-shada() { # <file> <register a> <touch -t stamp>: a real ShaDa file
-  mkdir -p "$(dirname "$1")"
-  nvim -u NONE -i "$1" --headless +"call setreg('a', '$2')" +qa
-  touch -t "$3" "$1"
-}
-shada "$envi/shada/main.shada" "envi shada" "$new"
-shada "$nvim/shada/main.shada" "nvim shada" "$old"
-put "$envi/shada/main.shada.tmp.a" "torn" "$new"
-put "$envi/undo/%only%envi" "u1" "$mid"
-put "$envi/undo/%same" "same" "$mid"
-put "$nvim/undo/%same" "same" "$old"
-put "$envi/undo/%envi%newer" "envi wins" "$new"
-put "$nvim/undo/%envi%newer" "nvim loses" "$old"
-put "$envi/undo/%nvim%newer" "envi loses" "$old"
-put "$nvim/undo/%nvim%newer" "nvim wins" "$new"
-put "$envi/undo/%with [brackets] *" "glob" "$mid"
-put "$envi/hcmux/t3-layout.log" "envi log" "$new"
-put "$nvim/hcmux/t3-layout.log" "nvim log" "$old"
-put "$envi/envi-hotreload.dotfiles" "abc1234" "$mid"
-put "$envi/swap/%x.swp" "swap" "$mid"
-put "$envi/e2e/run.log" "leftover" "$mid"
-put "$envi/charters/c.md" "leftover" "$mid"
-put "$envi/t3-session.json" '{"token":"fixture","expiresAt":"2099-01-01T00:00:00Z"}' "$mid"
-chmod 600 "$envi/t3-session.json"
-put "$nvim/swap/%y.swp" "nvim swap" "$mid"
-
-snapshot() { # every file under $1 with its content hash and mtime; links with targets
+snapshot() { # every file and link under $1: content hash and mtime, or target
   (cd "$1" 2>/dev/null && find . \( -type f -o -type l \) -print0 | sort -z | while IFS= read -r -d '' f; do
     if [ -L "$f" ]; then
-      printf '%s -> %s\n' "$f" "$(readlink "$f")"
+      printf '%s -> %s\n' "$f" "$(readlink -n "$f" | od -An -c | tr -s ' ')"
     else
       printf '%s %s %s\n' "$f" "$(cksum <"$f" | cut -d' ' -f1)" "$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f")"
     fi
@@ -65,11 +24,95 @@ snapshot() { # every file under $1 with its content hash and mtime; links with t
 }
 links() {
   for l in "$XDG_CONFIG_HOME/nvim" "$XDG_CONFIG_HOME/envi" "$HOME/.local/bin/envi" "$HOME/.local/bin/envi-dev"; do
-    printf '%s -> %s\n' "$l" "$(readlink "$l" 2>/dev/null || echo ABSENT)"
+    printf '%s -> %s\n' "${l#"$HOME"}" "$(readlink -n "$l" 2>/dev/null || echo ABSENT)"
   done
 }
-envi_before="$(snapshot "$envi")"
+world_state() { printf '%s\n--\n%s\n--\n%s\n' "$(snapshot "$XDG_STATE_HOME/nvim")" "$(snapshot "$XDG_STATE_HOME/envi")" "$(links)"; }
+no_staging() { ! find "$XDG_STATE_HOME" -maxdepth 1 -name 'nvim.envi-migrate.*' | grep -q .; }
+
+# A world: a fresh HOME with today's layout (envi from slot 2, its own state).
+world() { # <name>
+  export HOME="$sandbox/$1"
+  export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
+  export XDG_STATE_HOME="$HOME/.local/state" XDG_CACHE_HOME="$HOME/.cache"
+  local e="$XDG_STATE_HOME/envi" n="$XDG_STATE_HOME/nvim"
+  mkdir -p "$HOME/.dotfiles/nvim/bin" "$sandbox/slot2-$1/nvim/bin" "$XDG_CONFIG_HOME" "$HOME/.local/bin"
+  cp "$repo/nvim/bin/envi" "$repo/nvim/bin/envi-dev" "$HOME/.dotfiles/nvim/bin/"
+  : >"$HOME/.dotfiles/nvim/init.lua"
+  ln -s "$HOME/.dotfiles/nvim" "$XDG_CONFIG_HOME/nvim"
+  ln -s "$sandbox/slot2-$1/nvim" "$XDG_CONFIG_HOME/envi"
+  ln -s "$XDG_CONFIG_HOME/envi/bin/envi" "$HOME/.local/bin/envi"
+  put "$e/shada/main.shada" "envi shada" 202611010000
+  put "$e/shada/main.shada.tmp.a" "torn"
+  put "$e/undo/%only%envi" "u1"
+  put "$e/undo/%both" "envi's"
+  put "$e/undo/line"$'\n'"break" "odd"
+  put "$e/hcmux/t3-layout.log" "envi log"
+  put "$e/envi-hotreload.dotfiles" "abc1234"
+  put "$e/swap/%x.swp" "envi swap"
+  put "$e/e2e/run.log" "leftover"
+  put "$e/t3-session.json" '{"token":"fixture","expiresAt":"2099-01-01T00:00:00Z"}'
+  chmod 600 "$e/t3-session.json"
+  put "$n/shada/main.shada" "nvim shada" 202601010000
+  put "$n/undo/%both" "nvim's"
+  put "$n/undo/%only%nvim" "u2"
+  put "$n/swap/%y.swp" "nvim swap"
+  put "$n/lsp.log" "nvim log"
+  put "$n/hcmux/t3-layout.log" "nvim layout log"
+}
+
+# ── refusals: each before any write ──────────────────────────────────────
+
+refused() { # <name> <args...>: refused, and nothing changed (no backup either)
+  local name="$1" before
+  shift
+  before="$(world_state)"
+  if migrate "$@" >"$sandbox/out" 2>&1; then bad "$name: refused"; else ok "$name: refused"; fi
+  check "  ... nothing changed" test "$(world_state)" = "$before"
+  check "  ... no backup made" test ! -e "$HOME/.backups"
+}
+world refusals
+printf '#!/bin/sh\necho 4242\n' >"$sandbox/bin/pgrep"
+refused "any nvim running (plain, envi or dev)" cutover
+check "  ... naming it" has "$sandbox/out" "pid 4242"
+printf '#!/bin/sh\nexit 1\n' >"$sandbox/bin/pgrep"
+mv "$HOME/.local/bin/envi" "$sandbox/aside" && put "$HOME/.local/bin/envi" "a real launcher"
+refused "a real file where a link goes" cutover
+rm "$HOME/.local/bin/envi" && mv "$sandbox/aside" "$HOME/.local/bin/envi"
+mv "$HOME/.dotfiles/nvim/bin/envi-dev" "$sandbox/aside"
+refused "no production launcher in ~/.dotfiles" cutover
+mv "$sandbox/aside" "$HOME/.dotfiles/nvim/bin/envi-dev"
+for p in nvim/hcmux envi/undo nvim; do
+  mv "$XDG_STATE_HOME/$p" "$sandbox/aside"
+  ln -s "$XDG_STATE_HOME/envi/swap" "$XDG_STATE_HOME/$p"
+  refused "state/$p is a link" cutover
+  rm "$XDG_STATE_HOME/$p" && mv "$sandbox/aside" "$XDG_STATE_HOME/$p"
+done
+mv "$XDG_STATE_HOME" "$HOME/.local/real-state" && ln -s real-state "$XDG_STATE_HOME"
+refused "a linked ancestor of the state folders" state
+rm "$XDG_STATE_HOME" && mv "$HOME/.local/real-state" "$XDG_STATE_HOME"
+rm -rf "$XDG_STATE_HOME/envi/swap"
+migrate state >"$sandbox/out" 2>&1
+check "no envi swap folder: zero swap files, not an error" test -f "$XDG_STATE_HOME/nvim/undo/%only%envi"
+
+# ── the cutover, end to end ──────────────────────────────────────────────
+
+world main
+make_config "$HOME/.dotfiles.git-tmp" && rm -rf "$HOME/.dotfiles" && mv "$HOME/.dotfiles.git-tmp" "$HOME/.dotfiles"
+git -C "$HOME/.dotfiles" init -q
+git -C "$HOME/.dotfiles" -c user.name=t -c user.email=t@example.invalid add -A
+git -C "$HOME/.dotfiles" -c user.name=t -c user.email=t@example.invalid commit -qm base
+echo "-- the owner's local edit" >>"$HOME/.dotfiles/nvim/init.lua"
+for f in envi nvim; do # real ShaDa files: an nvim runs on them after the cutover
+  rm "$XDG_STATE_HOME/$f/shada/main.shada"
+  nvim -u NONE -i "$XDG_STATE_HOME/$f/shada/main.shada" --headless +"call setreg('a', '$f shada')" +qa
+done
+touch -t 202611010000 "$XDG_STATE_HOME/envi/shada/main.shada"
+envi="$XDG_STATE_HOME/envi"
+nvim="$XDG_STATE_HOME/nvim"
+before="$(world_state)"
 nvim_before="$(snapshot "$nvim")"
+envi_before="$(snapshot "$envi")"
 links_before="$(links)"
 t3_before="$(ls -li "$envi/t3-session.json")"
 
@@ -94,97 +137,69 @@ env -u NVIM_APPNAME node -e '
   }, 10);
 ' >/dev/null 2>&1 &
 t3_pid=$!
-trap 'kill "$t3_pid" 2>/dev/null || true; rm -rf "$sandbox"' EXIT
+trap 'kill "$t3_pid" 2>/dev/null || true; rm -rf "$sandbox" 2>/dev/null || true' EXIT
 
-# ── dry run ──────────────────────────────────────────────────────────────
 migrate --dry-run cutover >"$sandbox/dry" 2>&1
-check "dry run: plans the new file" has "$sandbox/dry" "would create undo/%only%envi"
-check "dry run: plans envi's newer file" has "$sandbox/dry" "would replace undo/%envi%newer"
-check "dry run: plans keeping nvim's newer file" has "$sandbox/dry" "would keep undo/%nvim%newer"
-check "dry run: plans the hot-reload marker" has "$sandbox/dry" "would create envi-hotreload.dotfiles"
+check "dry run: plans the state swap" has "$sandbox/dry" "would build $XDG_STATE_HOME/nvim.envi-migrate."
 check "dry run: plans the links" has "$sandbox/dry" "would link $HOME/.local/bin/envi -> $HOME/.dotfiles/nvim/bin/envi"
 check "dry run: plans removing ~/.config/envi" has "$sandbox/dry" "would remove $XDG_CONFIG_HOME/envi"
 check "dry run: lists local edits in ~/.dotfiles/nvim" has "$sandbox/dry" "M nvim/init.lua"
-check "dry run: writes nothing (nvim state)" test "$(snapshot "$nvim")" = "$nvim_before"
-check "dry run: writes nothing (links)" test "$(links)" = "$links_before"
-check "dry run: makes no backup" test ! -e "$HOME/.backups"
+check "dry run: writes nothing" test "$(world_state)" = "$before" -a ! -e "$HOME/.backups"
 
-# ── refused while envi runs ──────────────────────────────────────────────
-printf '#!/bin/sh\necho 4242\n' >"$sandbox/bin/pgrep"
-if migrate cutover >"$sandbox/busy" 2>&1; then bad "apply refused while envi runs"; else ok "apply refused while envi runs"; fi
-check "  ... naming the pid" has "$sandbox/busy" "pid 4242"
-check "  ... changing nothing" test "$(snapshot "$nvim"):$(links)" = "$nvim_before:$links_before"
-printf '#!/bin/sh\nexit 1\n' >"$sandbox/bin/pgrep"
-
-# ── links refused until the launcher is in ~/.dotfiles ───────────────────
-mv "$HOME/.dotfiles/nvim/bin/envi-dev" "$sandbox/envi-dev.aside"
-if migrate links >"$sandbox/nolauncher" 2>&1; then bad "links refused without the production launcher"; else
-  ok "links refused without the production launcher"
-fi
-check "  ... changing nothing" test "$(links)" = "$links_before"
-mv "$sandbox/envi-dev.aside" "$HOME/.dotfiles/nvim/bin/envi-dev"
-
-# ── apply ────────────────────────────────────────────────────────────────
 migrate cutover >"$sandbox/apply" 2>&1
 backup="$(sed -n 's/^backup: //p' "$sandbox/apply")"
-check "apply: one timestamped backup under ~/.backups" test -d "$backup" -a "${backup#"$HOME/.backups/envi-migrate-"}" != "$backup"
-check "apply: backup is private" test "$(stat -f %Lp "$backup" 2>/dev/null || stat -c %a "$backup")" = 700
-check "apply: new file copied" cmp -s "$envi/undo/%only%envi" "$nvim/undo/%only%envi"
-check "apply: a name with glob characters copied" cmp -s "$envi/undo/%with [brackets] *" "$nvim/undo/%with [brackets] *"
-check "apply: newer envi shada wins" cmp -s "$envi/shada/main.shada" "$nvim/shada/main.shada"
-check "apply: the losing nvim shada is in the backup" has "$backup/displaced/nvim/shada/main.shada" "nvim shada"
-check "apply: and the winning one is envi's" has "$nvim/shada/main.shada" "envi shada"
-check "apply: newer envi undo wins" cmp -s "$envi/undo/%envi%newer" "$nvim/undo/%envi%newer"
-check "apply: the losing nvim undo is in the backup" has "$backup/displaced/nvim/undo/%envi%newer" "nvim loses"
-check "apply: newer nvim undo kept" has "$nvim/undo/%nvim%newer" "nvim wins"
-check "apply: the losing envi undo is in the backup" has "$backup/losers/envi/undo/%nvim%newer" "envi loses"
-check "apply: mtime kept on copies" test "$(stat -f %m "$nvim/undo/%only%envi" 2>/dev/null || stat -c %Y "$nvim/undo/%only%envi")" = \
+check "apply: one backup under ~/.backups, private" test -d "$backup" -a "$(stat -f %Lp "$backup" 2>/dev/null || stat -c %a "$backup")" = 700
+check "apply: marked APPLIED" test -f "$backup/APPLIED"
+check "apply: the old nvim state is in the backup, exactly" test "$(snapshot "$backup/state-nvim")" = "$nvim_before"
+check "apply: envi's newer shada" cmp -s "$envi/shada/main.shada" "$nvim/shada/main.shada"
+check "apply: envi wins a name collision" cmp -s "$envi/undo/%both" "$nvim/undo/%both"
+check "apply: nvim-only files kept" has "$nvim/undo/%only%nvim" u2
+check "apply: odd names copied" cmp -s "$envi/undo/line"$'\n'"break" "$nvim/undo/line"$'\n'"break"
+check "apply: hcmux/ and the hot-reload marker" test -f "$nvim/hcmux/t3-layout.log" -a -f "$nvim/envi-hotreload.dotfiles"
+check "apply: mtime kept" test "$(stat -f %m "$nvim/undo/%only%envi" 2>/dev/null || stat -c %Y "$nvim/undo/%only%envi")" = \
   "$(stat -f %m "$envi/undo/%only%envi" 2>/dev/null || stat -c %Y "$envi/undo/%only%envi")"
-check "apply: hcmux/ brought over" cmp -s "$envi/hcmux/t3-layout.log" "$nvim/hcmux/t3-layout.log"
-check "apply: hot-reload marker brought over" cmp -s "$envi/envi-hotreload.dotfiles" "$nvim/envi-hotreload.dotfiles"
-check "apply: shada temp files skipped" test ! -e "$nvim/shada/main.shada.tmp.a"
-check "apply: swap files never touched" test ! -e "$nvim/swap/%x.swp" -a -f "$nvim/swap/%y.swp"
-check "apply: dev leftovers stay in envi" test ! -e "$nvim/e2e" -a ! -e "$nvim/charters"
-check "apply: the T3 session file is not copied" test ! -e "$nvim/t3-session.json"
-check "apply: envi state is unchanged, file for file" test "$(snapshot "$envi")" = "$envi_before"
+check "apply: shada temp files and envi swap files skipped" test ! -e "$nvim/shada/main.shada.tmp.a" -a ! -e "$nvim/swap/%x.swp"
+check "apply: nvim's own swap file kept" test -f "$nvim/swap/%y.swp"
+check "apply: T3 session file and leftovers stay in envi" test ! -e "$nvim/t3-session.json" -a ! -e "$nvim/e2e"
+check "apply: envi state unchanged, file for file" test "$(snapshot "$envi")" = "$envi_before"
 check "apply: the T3 session file: same inode, mode, size and mtime" test "$(ls -li "$envi/t3-session.json")" = "$t3_before"
-check "apply: ~/.config/nvim -> ~/.dotfiles/nvim" test "$(readlink "$XDG_CONFIG_HOME/nvim")" = "$HOME/.dotfiles/nvim"
-check "apply: ~/.local/bin/envi -> ~/.dotfiles" test "$(readlink "$HOME/.local/bin/envi")" = "$HOME/.dotfiles/nvim/bin/envi"
-check "apply: ~/.local/bin/envi-dev -> ~/.dotfiles" test "$(readlink "$HOME/.local/bin/envi-dev")" = "$HOME/.dotfiles/nvim/bin/envi-dev"
+check "apply: links" test "$(readlink "$XDG_CONFIG_HOME/nvim"):$(readlink "$HOME/.local/bin/envi"):$(readlink "$HOME/.local/bin/envi-dev")" = \
+  "$HOME/.dotfiles/nvim:$HOME/.dotfiles/nvim/bin/envi:$HOME/.dotfiles/nvim/bin/envi-dev"
 check "apply: ~/.config/envi is gone" test ! -e "$XDG_CONFIG_HOME/envi" -a ! -L "$XDG_CONFIG_HOME/envi"
+check "apply: no staging left" no_staging
 check "apply: the owner's edit in ~/.dotfiles untouched" has "$HOME/.dotfiles/nvim/init.lua" "the owner's local edit"
-nvim_after="$(snapshot "$nvim")"
-links_after="$(links)"
+after="$(world_state)"
 
-# ── idempotent ───────────────────────────────────────────────────────────
 migrate cutover >"$sandbox/again" 2>&1
 check "re-apply: nothing to change" has "$sandbox/again" "^nothing to change$"
 check "re-apply: no second backup" test "$(find "$HOME/.backups" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 1
-check "re-apply: state and links as after the first" test "$(snapshot "$nvim"):$(links)" = "$nvim_after:$links_after"
+check "re-apply: state and links as after the first" test "$(world_state)" = "$after"
 
-# ── rollback ─────────────────────────────────────────────────────────────
+echo "edited after the cutover" >>"$nvim/undo/%only%envi"
+post="$(snapshot "$nvim")"
 migrate --dry-run rollback >"$sandbox/rb-dry" 2>&1
-check "rollback dry run: plans the restore" has "$sandbox/rb-dry" "would restore shada/main.shada"
-check "rollback dry run: changes nothing" test "$(snapshot "$nvim"):$(links)" = "$nvim_after:$links_after"
+check "rollback dry run: changes nothing" test "$(snapshot "$nvim")" = "$post" -a ! -e "$backup/ROLLED_BACK"
 migrate rollback >"$sandbox/rb" 2>&1
 check "rollback: nvim state exactly as before, mtimes included" test "$(snapshot "$nvim")" = "$nvim_before"
 check "rollback: links exactly as before" test "$(links)" = "$links_before"
+check "rollback: the post-cutover state kept, untouched" test "$(snapshot "$backup/rollback-displaced/nvim")" = "$post"
 check "rollback: envi state still unchanged" test "$(snapshot "$envi")" = "$envi_before"
-check "rollback: marked done" test -f "$backup/ROLLED_BACK"
+check "rollback: marked ROLLED_BACK" test -f "$backup/ROLLED_BACK"
 migrate rollback >"$sandbox/rb2" 2>&1
-check "rollback again: nothing to roll back" has "$sandbox/rb2" "no backup to roll back"
-check "rollback again: still as before" test "$(snapshot "$nvim"):$(links)" = "$nvim_before:$links_before"
+check "rollback again: nothing to roll back, nothing changed" test "$(snapshot "$nvim"):$(links)" = "$nvim_before:$links_before"
 
-# A change made after the cutover is set aside on rollback, never deleted.
+# A link path that holds real content blocks rollback, which stays retryable.
 migrate cutover >/dev/null 2>&1
-echo "edited after cutover" >>"$nvim/undo/%only%envi"
-migrate rollback >"$sandbox/rb3" 2>&1
-backup2="$(find "$HOME/.backups" -mindepth 1 -maxdepth 1 -newer "$backup" -type d | head -n 1)"
-check "rollback keeps a post-cutover edit aside" has "$backup2/rollback-displaced/nvim/undo/%only%envi" "edited after cutover"
-check "  ... and still restores the rest" test "$(links)" = "$links_before"
+backup2="$(migrate backups | sed -n 's/^applied //p')"
+rm "$XDG_CONFIG_HOME/nvim" && put "$XDG_CONFIG_HOME/nvim/owner" "keep"
+if migrate rollback >"$sandbox/blocked" 2>&1; then bad "rollback blocked by a real folder: fails"; else ok "rollback blocked by a real folder: fails"; fi
+check "  ... leaves the folder and the state alone" test -f "$XDG_CONFIG_HOME/nvim/owner" -a -f "$backup2/state-nvim/lsp.log"
+check "  ... not marked done" test ! -e "$backup2/ROLLED_BACK"
+mv "$XDG_CONFIG_HOME/nvim" "$sandbox/owner-aside"
+migrate rollback >/dev/null 2>&1
+check "  ... and after moving it aside, the retry restores everything" test "$(snapshot "$nvim"):$(links)" = "$nvim_before:$links_before"
 
-# ── after the cutover ────────────────────────────────────────────────────
-# envi on PATH is production, on the dotfiles session; :reload still works.
+# After the cutover: envi on PATH is production, on the dotfiles session; :reload works.
 migrate cutover >/dev/null 2>&1
 : >"$PROBE_OUT"
 : >"$HC_LOG"
@@ -195,12 +210,87 @@ check "after cutover: envi runs the default profile from ~/.dotfiles" has "$PROB
 check "after cutover: :reload comes back on the dotfiles session" test "$(grep -c "session=dotfiles reloadable=true" "$PROBE_OUT")" = 2
 check "after cutover: envi attaches the dotfiles session" has "$HC_LOG" "^doc.set nvs.dotfiles$"
 
-# ── the T3 client never noticed ──────────────────────────────────────────
 touch "$T3_STOP"
 wait "$t3_pid"
 read -r reads failed <"$T3_READS"
 check "T3 client: read the session file throughout ($reads reads)" test "$reads" -gt 10
 check "T3 client: every read succeeded with the same token" test "$failed" = 0
 check "T3 session file: same inode, mode, size and mtime at the end" test "$(ls -li "$envi/t3-session.json")" = "$t3_before"
+
+# ── SIGKILL after every cp and mv ────────────────────────────────────────
+
+# Shims count each call, run the real tool, then kill the migration after call
+# number $SHIM_KILL_AT of $SHIM_KILL_TOOL.
+mkdir -p "$sandbox/shim"
+for tool in cp mv; do
+  cat >"$sandbox/shim/$tool" <<EOF
+#!/bin/sh
+n=\$((\$(cat "\$SHIM_COUNT.$tool" 2>/dev/null || echo 0) + 1))
+echo "\$n" >"\$SHIM_COUNT.$tool"
+"$(command -v "$tool")" "\$@"
+rc=\$?
+if [ "\${SHIM_KILL_TOOL:-}" = $tool ] && [ "\$n" = "\${SHIM_KILL_AT:-0}" ]; then kill -KILL "\$PPID"; fi
+exit \$rc
+EOF
+  chmod +x "$sandbox/shim/$tool"
+done
+shimmed() { # <tool> <n> <args...>: exit status of a migration killed after that call
+  local tool="$1" at="$2" rc=0
+  shift 2
+  rm -f "$sandbox/count".*
+  SHIM_COUNT="$sandbox/count" SHIM_KILL_TOOL="$tool" SHIM_KILL_AT="$at" PATH="$sandbox/shim:$PATH" migrate "$@" \
+    >"$sandbox/out" 2>&1 || rc=$?
+  return "$rc"
+}
+calls() { cat "$sandbox/count.$1" 2>/dev/null || echo 0; }
+
+world reference
+pre="$(world_state)"
+shimmed none 0 cutover
+apply_calls_cp="$(calls cp)" apply_calls_mv="$(calls mv)"
+ref_after="$(world_state | sed "s|$HOME|<home>|g")"
+shimmed none 0 rollback
+rollback_calls_mv="$(calls mv)"
+check "reference: apply makes cp and mv calls to interrupt" test "$apply_calls_cp" -gt 1 -a "$apply_calls_mv" -gt 2
+check "reference: rollback restores" test "$(world_state)" = "$pre"
+
+for tool in cp mv; do
+  total="$apply_calls_mv"
+  [ "$tool" = cp ] && total="$apply_calls_cp"
+  for at in $(seq 1 "$total"); do
+    name="apply killed after $tool #$at"
+    world "kill-$tool-$at"
+    pre="$(world_state)"
+    rc=0
+    shimmed "$tool" "$at" cutover || rc=$?
+    check "$name: really killed" test "$rc" = 137
+    if migrate cutover >/dev/null 2>&1; then bad "$name: a new apply refuses"; else ok "$name: a new apply refuses"; fi
+    migrate rollback >"$sandbox/out" 2>&1 || bad "$name: rollback exits 0"
+    check "$name: rollback restores state and links exactly" test "$(world_state)" = "$pre"
+    check "$name: no staging left" no_staging
+    migrate cutover >/dev/null 2>&1 || bad "$name: a new apply runs"
+    check "$name: and then gives the same result as an uninterrupted one" \
+      test "$(world_state | sed "s|$HOME|<home>|g")" = "$ref_after"
+  done
+done
+
+for at in $(seq 1 "$rollback_calls_mv"); do
+  name="rollback killed after mv #$at"
+  world "rbkill-$at"
+  pre="$(world_state)"
+  migrate cutover >/dev/null 2>&1
+  echo "edited after the cutover" >>"$XDG_STATE_HOME/nvim/undo/%only%envi"
+  post="$(snapshot "$XDG_STATE_HOME/nvim")"
+  rc=0
+  shimmed mv "$at" rollback || rc=$?
+  check "$name: really killed" test "$rc" = 137
+  b="$(migrate backups | cut -d' ' -f2-)"
+  check "$name: not marked done" test ! -e "$b/ROLLED_BACK"
+  migrate rollback >"$sandbox/out" 2>&1 || bad "$name: the retry exits 0"
+  check "$name: the retry restores state and links exactly" test "$(world_state)" = "$pre"
+  check "$name: the post-cutover state is kept once, untouched" \
+    test "$(snapshot "$b/rollback-displaced/nvim")" = "$post" -a ! -e "$b/rollback-displaced/nvim.2"
+  check "$name: marked done" test -f "$b/ROLLED_BACK"
+done
 
 finish
