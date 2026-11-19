@@ -46,10 +46,14 @@ package.loaded["hcmux.session"] = {
 }
 -- A snacks.notifier stand-in: a notification shows `display_ms` after it's
 -- asked for (snacks waits for room on screen), history reports `shown`.
+-- display_ms = false: it stays queued until show_now() (a full screen).
 local toasts, display_ms = {}, 30
 local function realtime()
   local t = vim.uv.clock_gettime("realtime")
   return t.sec + t.nsec / 1e9
+end
+local function show_now(n)
+  n.shown, n.shown_ms = realtime(), vim.uv.now()
 end
 local function by_id(id)
   for i = #toasts, 1, -1 do
@@ -63,11 +67,13 @@ _G.Snacks = {
     notify = function(msg, level, opts)
       local n = { id = opts.id, msg = msg, level = level, opts = opts, at = vim.uv.now() }
       toasts[#toasts + 1] = n
-      vim.defer_fn(function()
-        if not n.hidden then
-          n.shown, n.shown_ms = realtime(), vim.uv.now()
-        end
-      end, display_ms)
+      if display_ms then
+        vim.defer_fn(function()
+          if not n.hidden then
+            n.shown, n.shown_ms = realtime(), vim.uv.now()
+          end
+        end, display_ms)
+      end
     end,
     hide = function(id)
       local n = by_id(id)
@@ -294,6 +300,47 @@ end, "second toast hidden")
 assert(lasted(second) >= 190 and lasted(second) <= 260, "second toast keeps its own lifetime: " .. lasted(second))
 assert(by_id("unrelated").hidden == nil, "an unrelated notification is never hidden by hot reload")
 
+-- Queued for a long time (the screen is full): never expired unseen; once
+-- shown it gets its full toast_ms. (The TUI probe holds it for over 60 s.)
+display_ms = false
+local nq = #toasts
+commit("nvim/lua/q.lua", "return 15")
+until_(3000, function()
+  return #toasts == nq + 1
+end, "queued toast asked for")
+local queued = toasts[#toasts]
+sleep(1500) -- 7x toast_ms, still queued
+assert(queued.hidden == nil, "a queued toast is not expired by elapsed time")
+show_now(queued)
+until_(1000, function()
+  return queued.hidden ~= nil
+end, "hidden after it was shown")
+assert(lasted(queued) >= 190 and lasted(queued) <= 260, "queued toast gets toast_ms once shown: " .. lasted(queued))
+
+-- Dropped unseen (all notifications dismissed): not counted as toasted, so the
+-- next check offers it again, once.
+local nd = #toasts
+local dropped_commit = commit("nvim/lua/r.lua", "return 16")
+until_(3000, function()
+  return #toasts == nd + 1
+end, "toast asked for")
+Snacks.notifier.hide(toasts[#toasts].id) -- dismissed before it was shown
+until_(1000, function()
+  return not hot.state.toasted[dropped_commit]
+end, "a dropped toast is no longer counted")
+display_ms = 30
+vim.api.nvim_exec_autocmds("FocusGained", {})
+until_(3000, function()
+  return #toasts == nd + 2 and toasts[#toasts].shown_ms
+end, "the next check shows it again")
+assert(toasts[#toasts].id == "envi.hotreload." .. dropped_commit, "same commit, offered again")
+until_(1000, function()
+  return toasts[#toasts].hidden ~= nil
+end, "re-offered toast expires")
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == nd + 2, "once shown, not again")
+
 -- A failed `git diff` is no verdict: no toast, `seen` stays, the next check
 -- (here FocusGained) classifies the commit properly.
 local system, failed, seen_after = vim.system, false, nil
@@ -349,6 +396,14 @@ for _, want in ipairs({
 }) do
   assert(s:find(want, 1, true), ("status has %q:\n%s"):format(want, s))
 end
+vim.fn.writefile({
+  "2026-11-19T10:02:00Z wrongbranch the merge advanced other (not main) from aaa to bbb; recover: git -C /r reset --keep aaa (while it is checked out), or git -C /r branch -f other aaa",
+}, tmp .. "/state/dotfiles-sync/last")
+assert(
+  hot.status():find("sync moved the wrong branch: the merge advanced other (not main)", 1, true)
+    and hot.status():find("git -C /r branch -f other aaa", 1, true),
+  "status names the wrong branch and the recovery"
+)
 vim.fn.writefile({ "2026-11-19T10:01:00Z synced abc1234..def5678 (1 commit(s))" }, tmp .. "/state/dotfiles-sync/last")
 assert(hot.status():find("last sync: synced abc1234..def5678", 1, true), "status shows a synced result")
 reloadable = true

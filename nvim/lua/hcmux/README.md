@@ -195,7 +195,9 @@ See `sync/README.md`.
 - **The toast:** "Your configuration has changed since the last time you
   reloaded, run :Reload". It appears top right (snacks.notifier), at most once
   per new commit per nvim. It stays 4 s in total, counted from the moment it is
-  actually on screen. A newer commit's toast replaces an older one still
+  actually on screen. While other notifications fill the screen, it waits in
+  the queue as long as needed. If it is dismissed before it was ever shown,
+  the next check offers it again. A newer commit's toast replaces an older one still
   showing, after a 0.1 s gap, and gets its own 4 s. Other notifications keep
   their own lifetimes.
 - **Robustness:** every watch event re-arms the watch, so a replaced
@@ -206,7 +208,8 @@ See `sync/README.md`.
   - the watched path;
   - the loaded commit, the current HEAD and the pending commit;
   - whether this nvim can reload itself;
-  - the last sync result, for example `sync blocked: local changes in <paths>`.
+  - the last sync result, for example `sync blocked: local changes in <paths>`,
+    or `sync moved the wrong branch: …` with the recovery command.
 
   `ENVI_HOT_RELOAD_ROOT=<dir>` watches another config dir (used for testing).
   Setup in the plugin spec: `hot_reload = false` turns it off, and a table

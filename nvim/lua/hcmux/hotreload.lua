@@ -75,50 +75,67 @@ local function realtime()
   return sec + usec / 1e6
 end
 
--- When snacks actually showed notification `id` (its own clock), if it has.
--- `known` is false when this snacks can't tell.
-local function shown_at(snacks, id)
+-- Where notification `id` is in snacks: "shown" (plus when, on snacks' own
+-- clock), "queued" (waiting for room on screen), "dropped" (hidden before it
+-- was ever shown, or gone), or nil when this snacks can't tell.
+local function snacks_state(snacks, id)
   local ok, history = pcall(snacks.notifier.get_history)
   if not ok or type(history) ~= "table" then
-    return nil, false
+    return nil
   end
+  local found -- the newest entry with this id (history is oldest first)
   for _, n in ipairs(history) do
     if n.id == id then
-      return n.shown, true
+      found = n
     end
   end
-  return nil, true
+  if not found or (found.hidden and not found.shown) then
+    return "dropped"
+  end
+  if found.shown then
+    return "shown", found.shown
+  end
+  return "queued"
 end
 
--- Hide toast `id` `ms` after snacks first shows it, which can be later than
--- the request when other notifications fill the screen. Only this id: other
--- notifications, and the next commit's toast, keep their own lifetimes. This
--- also overrides snacks' keep rules (e.g. it holds toasts while the cmdline is
--- open).
-local function expire(snacks, id, ms)
+-- Hide toast `id` `ms` after snacks first shows it. While snacks keeps it
+-- queued (other notifications fill the screen) it waits, however long. If it
+-- is dropped unseen (e.g. all notifications dismissed), the commit is no
+-- longer counted as toasted, so the next check offers it again. Only this id
+-- is hidden: other notifications, and the next commit's toast, keep their own
+-- lifetimes. This also overrides snacks' keep rules (e.g. it holds toasts
+-- while the cmdline is open).
+local function expire(snacks, id, ms, commit)
   local asked = uv.now()
   local timer = uv.new_timer()
+  local function stop(after_ms)
+    timer:stop()
+    timer:close()
+    if after_ms then
+      vim.defer_fn(function()
+        pcall(snacks.notifier.hide, id)
+      end, math.max(0, math.floor(after_ms)))
+    end
+  end
   timer:start(
     0,
-    10,
+    25,
     vim.schedule_wrap(function()
       if timer:is_closing() then
         return
       end
-      local shown, known = shown_at(snacks, id)
-      local elapsed
-      if shown then
-        elapsed = (realtime() - shown) * 1000
-      elseif not known or uv.now() - asked > 60000 then
-        elapsed = uv.now() - asked -- can't see it (or never shown): count from the request
-      else
-        return
+      local where, shown = snacks_state(snacks, id)
+      if where == "shown" then
+        stop(ms - (realtime() - shown) * 1000)
+      elseif where == nil then
+        stop(ms - (uv.now() - asked)) -- can't see it: count from the request
+      elseif toast_id ~= id then
+        stop() -- replaced by a newer commit's toast, which carries the notice
+      elseif where == "dropped" then
+        stop()
+        M.state.toasted[commit] = nil
+        toast_id = nil
       end
-      timer:stop()
-      timer:close()
-      vim.defer_fn(function()
-        pcall(snacks.notifier.hide, id)
-      end, math.max(0, math.floor(ms - elapsed)))
     end)
   )
 end
@@ -153,7 +170,7 @@ function M.toast(commit)
     if not ok then
       return vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
     end
-    expire(snacks, id, ms)
+    expire(snacks, id, ms, commit)
   end
   if gap > 0 then
     vim.defer_fn(show, gap)
@@ -267,7 +284,11 @@ function M.check()
   end
   git({ "rev-parse", "HEAD" }, function(head)
     local seen = M.state.seen
-    if not head or head == seen then
+    if not head then
+      return done()
+    end
+    if head == seen then
+      act() -- nothing new; re-offers a toast that was dropped unseen
       return done()
     end
     if head == M.state.head then -- back on the commit this nvim loaded
@@ -387,6 +408,9 @@ function M.sync_status()
   end
   if kind == "blocked" then
     return ("sync blocked: %s (%s)"):format(detail, at)
+  end
+  if kind == "wrongbranch" then
+    return ("sync moved the wrong branch: %s (%s)"):format(detail, at)
   end
   return ("last sync: %s %s (%s)"):format(kind, detail, at)
 end
