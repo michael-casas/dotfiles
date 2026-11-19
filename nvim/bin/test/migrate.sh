@@ -459,6 +459,23 @@ check "  ... and the doubtful one, with its error" has "$sandbox/out" "^  $doubt
 migrate rollback "$b" >/dev/null 2>&1 || bad "  ... an explicit path still rolls back"
 check "  ... and restores the state" test ! -e "$b/state-nvim" -a -f "$b/ROLLED_BACK"
 
+# ── r4: rollback binds the link destinations recorded at apply ──────────
+
+world destinations
+pre="$(world_state)"
+migrate cutover >/dev/null 2>&1
+b="$(open_backups)"
+mkdir -p "$HOME/alt-config" && ln -s "$HOME/unrelated" "$HOME/alt-config/nvim"
+before="$(world_state)"
+if XDG_CONFIG_HOME="$HOME/alt-config" migrate rollback "$b" >"$sandbox/out" 2>&1; then
+  bad "rollback under another XDG_CONFIG_HOME: refused"
+else ok "rollback under another XDG_CONFIG_HOME: refused"; fi
+check "  ... nothing changed, not marked done" test "$(world_state)" = "$before" -a ! -e "$b/ROLLED_BACK"
+check "  ... the other config root untouched" test "$(readlink "$HOME/alt-config/nvim")" = "$HOME/unrelated"
+check "  ... naming the recorded destination" has "$sandbox/out" "$XDG_CONFIG_HOME/nvim"
+migrate rollback "$b" >/dev/null 2>&1 || bad "  ... the original environment still rolls back"
+check "  ... and restores everything" test "$(world_state)" = "$pre"
+
 # ── SIGKILL after every cp, mv, ln and mkdir ────────────────────────────
 
 # Shims count each call, run the real tool, then kill the migration after call

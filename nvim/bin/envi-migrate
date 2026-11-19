@@ -7,11 +7,11 @@
 #
 # Copies ~/.local/state/nvim, lays envi's shada/ undo/ hcmux/ and hot-reload
 # markers over the copy (envi wins), swaps it in, and points the links at
-# ~/.dotfiles; ~/.local/state/envi is only read. Everything is checked before
-# the first write; the backup's manifest exists before any change; rollback is
-# retry-safe at every step. Without <backup>, rollback takes the only backup
-# not rolled back, else refuses and names them. Concurrent changes by another
-# process are out of scope. --allow-running is for tests only. See nvim/ENVI.md.
+# ~/.dotfiles; ~/.local/state/envi is only read. All is checked before the first
+# write; the manifest (state and link paths) exists before any change; rollback
+# is retry-safe and acts only on those paths. Without <backup>, it takes the
+# only backup not rolled back, else refuses naming each. Out of scope: concurrent
+# changes, hand-edited backups. --allow-running is for tests only. See nvim/ENVI.md.
 set -euo pipefail
 
 self="$(readlink -f "${BASH_SOURCE[0]}")"
@@ -28,10 +28,7 @@ dry=0 allow_running=0 m_state="" m_staging=""
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'envi-migrate: %s\n' "$*" >&2 && exit 1; }
-usage() {
-  sed -n '2,6p' "$self" | sed 's/^# \{0,1\}//'
-  exit 2
-}
+usage() { sed -n '2,6p' "$self" | sed 's/^# \{0,1\}//' && exit 2; }
 [ -f "${self%/*}/envi-guard.sh" ] || die "${self%/*}/envi-guard.sh is missing"
 # shellcheck source=nvim/bin/envi-guard.sh
 . "${self%/*}/envi-guard.sh"
@@ -82,8 +79,7 @@ no_editors() {
   [ "$dry" = 1 ] && say "note: nvim is running (pid $pids); close every nvim before applying" && return 0
   die "nvim is running (pid $pids). Close every nvim, envi and dev profiles included (:qd), then run again."
 }
-gnu_mv=0
-mv --version >/dev/null 2>&1 && gnu_mv=1
+if mv --version >/dev/null 2>&1; then gnu_mv=1; else gnu_mv=0; fi
 
 # Every path this command manages: real folders up to $HOME, outside the envi
 # and nvim state, and no two equal or nested.
@@ -101,11 +97,6 @@ guard_paths() {
   done
 }
 
-# An initializer this tool made: the exact name, a real folder holding at most
-# its manifest. Killed before its rename, it made no change.
-owned_init() {
-  [[ "${1##*/}" =~ ^envi-migrate-$txid_re\.init$ ]] && [ -d "$1" ] && [ ! -L "$1" ] && only_manifest "$1"
-}
 only_manifest() { # <folder>: holds nothing but (at most) a regular manifest
   local f
   for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do
@@ -113,10 +104,12 @@ only_manifest() { # <folder>: holds nothing but (at most) a regular manifest
   done
   return 0
 }
+# An initializer this tool made: the exact name, a real folder holding at most
+# its manifest. Killed before its rename, it made no change.
 drop_initializers() {
   local b
   for b in "$backup_root"/envi-migrate-*.init; do
-    owned_init "$b" || continue
+    { [[ "${b##*/}" =~ ^envi-migrate-$txid_re\.init$ ]] && [ -d "$b" ] && [ ! -L "$b" ] && only_manifest "$b"; } || continue
     [ "$dry" = 1 ] && say "would remove the interrupted initializer $b" && continue
     rm -f -- "$b/manifest" || die "cannot remove $b/manifest"
     rmdir -- "$b" || die "cannot remove $b"
@@ -167,6 +160,10 @@ validate() {
     dec "$v" v
     [ "$m_do_links" = 0 ] || [ "$v" = A ] || [ "${v:0:1}" = L ] || die "$manifest has a corrupt link entry; not touching it"
     m_link[i]="$v"
+    v="$(get "link${i}_path")" || exit 1
+    dec "$v" v
+    [ "$m_do_links" = 0 ] || [ "$v" = "${links[$i]}" ] ||
+      die "$b relinked $v, but here it would be ${links[$i]}: roll back with the cutover's HOME and XDG_CONFIG_HOME; nothing changed"
   done
 }
 # scan: validate every backup under the root (other names are ignored, never
@@ -239,7 +236,7 @@ plan() { # refuses before any write; sets do_state, do_links, olds, news
 }
 
 apply() {
-  local stamp i file rel n e_dst e_staging e_links=()
+  local stamp i file rel n e_dst e_staging e_links=() e_paths=()
   plan "$1"
   no_editors
   drop_initializers
@@ -255,9 +252,8 @@ apply() {
     while [ ! -e "$n" ]; do n="${n%/*}"; done
     same_fs "$state_home" "$dst" "$n"
   fi
-  e_dst="$(enc "$dst")" || die "cannot encode the manifest"
-  e_staging="$(enc "$staging")" || die "cannot encode the manifest"
-  for i in 0 1 2 3; do e_links[i]="$(enc "${olds[$i]}")" || die "cannot encode the manifest"; done
+  { e_dst="$(enc "$dst")" && e_staging="$(enc "$staging")"; } || die "cannot encode the manifest"
+  for i in 0 1 2 3; do { e_links[i]="$(enc "${olds[$i]}")" && e_paths[i]="$(enc "${links[$i]}")"; } || die "cannot encode the manifest"; done
   if [ "$dry" = 1 ]; then
     [ "$do_state" = 1 ] && say "would build $staging from $dst and envi's shada/ undo/ hcmux/ envi-hotreload.*, then swap it in"
     for i in 0 1 2 3; do
@@ -274,7 +270,7 @@ apply() {
   {
     printf 'format=2\ntxid=%s\ndo_state=%s\ndo_links=%s\n' "$txid" "$do_state" "$do_links"
     printf 'state=%s\nstaging=%s\nstate_old=%s\n' "$e_dst" "$e_staging" "$([ -e "$dst" ] && echo present || echo absent)"
-    for i in 0 1 2 3; do printf 'link%s_old=%s\n' "$i" "${e_links[$i]}"; done
+    for i in 0 1 2 3; do printf 'link%s_old=%s\nlink%s_path=%s\n' "$i" "${e_links[$i]}" "$i" "${e_paths[$i]}"; done
     printf 'end=1\n'
   } >"$backup.init/manifest" || die "cannot write the manifest"
   mv -- "$backup.init" "$backup" || die "cannot create $backup"
