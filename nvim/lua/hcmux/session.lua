@@ -23,8 +23,15 @@ M.config = {
   sessionoptions = "buffers,curdir,folds,help,tabpages,winsize,terminal",
 }
 
+-- A development profile (NVIM_APPNAME envi-dev/<slot>, see nvim/bin/envi-dev)
+-- keeps its sessions apart from production: every name carries the dev-
+-- prefix and the index is its own document, so it never writes a production
+-- session document.
+local appname = vim.env.NVIM_APPNAME or ""
+M.dev = appname == "envi-dev" or appname:sub(1, 9) == "envi-dev/"
+
 M.LABEL = "herdr.nvs" -- terminals that belong to a session
-M.INDEX = "nvs-index" -- core document listing sessions by name
+M.INDEX = M.dev and "nvs-dev-index" or "nvs-index" -- core document listing sessions by name
 
 M.name = nil -- attached session
 M.root = nil -- its folder
@@ -35,15 +42,26 @@ local uv = vim.uv or vim.loop
 
 -- ── names and storage (no UI; also used by the nvim-session CLI) ─────────
 
---- Session names are core document names minus the `nvs.` prefix:
---- 1-28 of a-z 0-9 - _ .
-function M.sanitize(s)
+local function clean(s)
   s = tostring(s or ""):lower():gsub("[^a-z0-9._-]+", "-"):gsub("^[^a-z0-9]+", ""):gsub("%-+$", "")
   s = s:sub(1, 28):gsub("[-._]+$", "")
   return s ~= "" and s or "session"
 end
 
+--- Session names are core document names minus the `nvs.` prefix:
+--- 1-28 of a-z 0-9 - _ . (in a dev profile, always starting with dev-).
+function M.sanitize(s)
+  s = clean(s)
+  if M.dev and s:sub(1, 4) ~= "dev-" then
+    s = clean("dev-" .. s)
+  end
+  return s
+end
+
 function M.doc_name(name)
+  if M.dev and tostring(name):sub(1, 4) ~= "dev-" then
+    error("hcmux: a dev profile never touches the production session " .. tostring(name))
+  end
   return "nvs." .. name
 end
 
@@ -178,12 +196,13 @@ end
 
 --- End a session: its terminals and its document.
 function M.kill(name)
+  local doc = M.doc_name(name) -- first: a dev profile refuses before ending any terminal
   for _, t in ipairs(M.terminals(name)) do
     core.exec({ "kill", t.address })
     core.exec({ "rm", t.address })
   end
   local _, ver = M.read(name)
-  core.doc_set(M.doc_name(name), nil, ver or 0)
+  core.doc_set(doc, nil, ver or 0)
   return M.index_update(function(s)
     s[name] = nil
   end)

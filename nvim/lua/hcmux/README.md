@@ -164,6 +164,10 @@ explicit way to leave a session from anywhere.
   `undofile` and shada.
 - **Names:** default names are the folder's basename. A second folder with
   the same basename (another worktree, say) gets `name-xxxx`.
+- **Dev profiles** (`NVIM_APPNAME=envi-dev/<slot>`, started by `envi-dev`) keep
+  their sessions apart: every name starts with `dev-` (added if missing), the
+  index is `nvs-dev-index`, and a production name is refused before any core
+  call. A dev nvim never reads or writes `nvs-index` or a production `nvs.<name>`.
 
 `session-bridge.lua` is what makes layouts bring terminals back: it teaches
 nvim the `hc://` buffer scheme (`BufReadCmd`), so a saved layout's terminal

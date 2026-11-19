@@ -1,42 +1,109 @@
 #!/usr/bin/env bash
-# envi: experimental nvim. The config of the envi/main worktree (nvim profile
-# "envi" -> that worktree's nvim/), attached to the herdr-core session
+# envi: the production nvim session. It runs the default nvim profile
+# (~/.config/nvim -> ~/.dotfiles/nvim), attached to the herdr-core session
 # "dotfiles" and running in ~/.dotfiles. See nvim/ENVI.md.
 #
 #   envi                  the dotfiles session (layout, buffers, terminals)
 #   envi <file>...        those files in envi, no session (like nvim <file>)
-#   envi ls | kill <name> manage sessions (nvim-session, envi profile)
+#   envi ls | kill <name> manage sessions (nvim-session)
 #
 # Inside: :detach or :qd leaves the session; everything keeps running.
 # :reload detaches and starts envi again on the same session, so config,
 # plugin and launcher changes take effect.
+#
+# ENVI_DEV=<worktree> envi (or envi-dev) runs that worktree's nvim/ instead,
+# under the profile envi-dev/<slot> and a dev-<slot> session: never production.
 set -euo pipefail
 
-export NVIM_APPNAME=envi
 self="$(readlink -f "${BASH_SOURCE[0]}")"
 here="$(dirname "$self")"
 
+die() {
+  echo "envi: $*" >&2
+  exit 1
+}
+
+# The dev profile id of a worktree: readable (its Treehouse slot, else its
+# folder name) plus a checksum of its real path, so two worktrees never share
+# one. Same path, same id, on every run.
+dev_slot() {
+  local path="$1" label sum
+  label="$(printf '%s\n' "$path" | sed -n 's|.*/\.treehouse/[^/]*/\([0-9][0-9]*\)/[^/]*$|slot\1|p')"
+  if [ -z "$label" ]; then
+    label="$(basename "$path" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-' | sed 's/^-*//; s/-*$//' | cut -c1-12)"
+    label="$(printf '%s' "$label" | sed 's/-*$//')"
+    [ -n "$label" ] || label=wt
+  fi
+  sum="$(printf '%s' "$path" | cksum | awk '{ printf "%08x", $1 }')"
+  printf '%s-%s\n' "$label" "$sum"
+}
+
+# Point `link` at `target`. A link that already points elsewhere, or a real
+# folder, belongs to someone else: refuse rather than repoint it.
+own_link() {
+  local link="$1" target="$2"
+  if [ -L "$link" ]; then
+    [ "$(readlink "$link")" = "$target" ] && return 0
+    die "$link points to $(readlink "$link"), not $target; not repointing it (see envi-dev prune)."
+  fi
+  [ -e "$link" ] && die "$link exists and is not a link; not replacing it."
+  mkdir -p "$(dirname "$link")"
+  ln -s "$target" "$link"
+}
+
+if [ -n "${ENVI_DEV:-}" ]; then
+  dev_root="$(cd "$ENVI_DEV" 2>/dev/null && pwd -P)" || die "ENVI_DEV: no such folder: $ENVI_DEV"
+  [ -f "$dev_root/nvim/init.lua" ] || die "ENVI_DEV: $dev_root has no nvim/init.lua"
+  slot="$(dev_slot "$dev_root")"
+  config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  own_link "$config_home/envi-dev/$slot" "$dev_root/nvim"
+  # Plugins are shared with the production profile (a real folder there is kept).
+  if [ ! -e "$data_home/envi-dev/$slot" ] && [ ! -L "$data_home/envi-dev/$slot" ]; then
+    mkdir -p "$data_home/envi-dev"
+    ln -s "$data_home/nvim" "$data_home/envi-dev/$slot"
+  fi
+  export ENVI_DEV="$dev_root" NVIM_APPNAME="envi-dev/$slot"
+  session_dir="$dev_root"
+  default_session="dev-$slot"
+  if [ -z "${ENVI_RELOAD_SESSION:-}" ]; then
+    echo "envi: dev profile $NVIM_APPNAME ($dev_root)" >&2
+  fi
+else
+  # Production is the default profile, whatever profile the caller runs in.
+  unset NVIM_APPNAME
+  session_dir="$HOME/.dotfiles"
+  default_session=dotfiles
+fi
+
 case "${1:-}" in
   ls | list | kill | rm) exec "$here/nvim-session" "$@" ;;
-  -h | --help | help) sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h | --help | help) sed -n '2,15p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
-# A session start runs in the dotfiles; `envi <file>` keeps the caller's cwd, like nvim.
+# A session start runs in the session's folder; `envi <file>` keeps the caller's cwd, like nvim.
 if [ $# -eq 0 ] || [ -n "${ENVI_RELOAD_SESSION:-}${ENVI_SESSION:-}" ]; then
-  cd "$HOME/.dotfiles"
+  cd "$session_dir"
 fi
 # A reload returns to the session it left; ENVI_SESSION picks another one.
 # Both apply with or without arguments (e.g. `ENVI_SESSION=x envi --listen s`).
-if [ -n "${ENVI_RELOAD_SESSION:-}${ENVI_SESSION:-}" ]; then
-  export HCMUX_SESSION="${ENVI_RELOAD_SESSION:-$ENVI_SESSION}"
-elif [ $# -eq 0 ]; then
-  export HCMUX_SESSION=dotfiles
+session="${ENVI_RELOAD_SESSION:-${ENVI_SESSION:-}}"
+if [ -z "$session" ] && [ $# -eq 0 ]; then
+  session="$default_session"
+fi
+if [ -n "$session" ]; then
+  # Dev sessions always carry the dev- prefix (hcmux.session enforces it too).
+  if [ -n "${ENVI_DEV:-}" ]; then
+    case "$session" in dev-*) ;; *) session="dev-$session" ;; esac
+  fi
+  export HCMUX_SESSION="$session"
 fi
 unset ENVI_RELOAD_SESSION
 
 # The TUI may return before its embedded server has finished exiting. Capture
 # the server's own PID before config loads, not $! (the frontend PID). A private
-# per-launch directory also prevents nested editors from inheriting our marker.
+# per-launch directory also prevents nested editors from inheriting our marker
+# (and ENVI_DEV: an envi started inside is production unless asked otherwise).
 instance_dir="$(mktemp -d "${TMPDIR:-/tmp}/envi.XXXXXXXX")"
 cleanup() {
   rm -f -- "$instance_dir/pid" "$instance_dir/reload"
@@ -46,7 +113,7 @@ trap cleanup EXIT
 export ENVI_RELOAD_FILE="$instance_dir/reload"
 export ENVI_INSTANCE_FILE="$instance_dir/pid"
 rc=0
-nvim --cmd 'lua local p = vim.env.ENVI_INSTANCE_FILE; vim.env.ENVI_INSTANCE_FILE = nil; if p then vim.fn.writefile({tostring(vim.fn.getpid())}, p) end' "$@" || rc=$?
+nvim --cmd 'lua local p = vim.env.ENVI_INSTANCE_FILE; vim.env.ENVI_INSTANCE_FILE = nil; vim.env.ENVI_DEV = nil; if p then vim.fn.writefile({tostring(vim.fn.getpid())}, p) end' "$@" || rc=$?
 
 # This barrier also covers :Detach followed immediately by another envi. Never
 # kill the server or delete its swaps. On timeout refuse to start a new writer.
@@ -80,6 +147,7 @@ fi
 
 # :reload writes the session name, then quits. Re-read the launcher on restart
 # so launcher changes take effect too, but only after the server has gone.
+# ENVI_DEV is still exported here, so a dev reload stays in its dev profile.
 if [ -f "$ENVI_RELOAD_FILE" ]; then
   ENVI_RELOAD_SESSION="$(cat "$ENVI_RELOAD_FILE")"
   export ENVI_RELOAD_SESSION
