@@ -16,6 +16,7 @@
 --   toast once per commit and nothing else.
 -- The toast (snacks.notifier, top right, `toast_ms` in total):
 --   "Your configuration has changed since the last time you reloaded, run :Reload"
+--   One at a time: a newer commit while it's on screen is covered by it (see M.toast).
 -- :EnviHotReload [on|off|status]. ENVI_HOT_RELOAD_ROOT overrides the watched dir.
 local M = {}
 
@@ -28,12 +29,15 @@ M.config = {
   poll_ms = 500, -- how often a queued reload checks whether it's safe yet
   recheck_ms = 60000, -- periodic backstop check (and watch re-arm)
   toast_ms = 4000, -- total time the toast is on screen
+  toast_tail_ms = 250, -- a commit in a toast's last stretch gets its own toast after it
 }
 -- head: the commit this nvim loaded its config from. seen: the last HEAD checked.
 -- pending: { from, to, files } when a newer config commit is waiting.
--- toasted[sha]: the toast was shown for that commit. held[sha]: a reload for it
+-- toasted[sha]: that commit was notified (its own toast, or covered).
+-- covered[sha]: the commit whose toast, already on screen, covered it.
+-- toasts: how many toasts were handed to snacks. held[sha]: a reload for it
 -- was cancelled (a quit prompt said no), so it isn't retried automatically.
-M.state = { head = nil, seen = nil, pending = nil, watching = nil, toasted = {}, held = {}, toasts = 0 }
+M.state = { head = nil, seen = nil, pending = nil, watching = nil, toasted = {}, covered = {}, held = {}, toasts = 0 }
 
 local uv = vim.uv
 local root, gitdir
@@ -63,7 +67,14 @@ local function reloadable()
   return require("hcmux.session").reloadable()
 end
 
-local toast_id -- the current toast (one id per commit), shown or still queued, until it expires
+-- One config toast at a time (they all say the same thing):
+-- toast_id: the newest toast, waiting, queued in snacks or on screen.
+-- asked_id: the newest toast handed to snacks (a waiting one isn't yet).
+-- visible: { id, commit, deadline (uv.now() ms) } for the toast on screen.
+-- last_hidden: when our last displayed toast was hidden (uv.now() ms).
+local toast_id, asked_id, visible
+local last_hidden = -math.huge
+local GAP_MS = 100 -- between one toast hiding and the next showing, so the change is visible
 
 -- snacks' clock (notif.shown is in these seconds).
 local function realtime()
@@ -76,8 +87,9 @@ local function realtime()
 end
 
 -- Where notification `id` is in snacks: "shown" (plus when, on snacks' own
--- clock), "queued" (waiting for room on screen), "dropped" (hidden before it
--- was ever shown, or gone), or nil when this snacks can't tell.
+-- clock), "gone" (shown, then hidden, plus when it was shown), "queued"
+-- (waiting for room on screen), "dropped" (hidden before it was ever shown, or
+-- missing), or nil when this snacks can't tell.
 local function snacks_state(snacks, id)
   local ok, history = pcall(snacks.notifier.get_history)
   if not ok or type(history) ~= "table" then
@@ -93,35 +105,43 @@ local function snacks_state(snacks, id)
     return "dropped"
   end
   if found.shown then
-    return "shown", found.shown
+    return found.hidden and "gone" or "shown", found.shown
   end
   return "queued"
 end
 
--- Hide toast `id` `ms` after snacks first shows it. While snacks keeps it
--- queued (other notifications fill the screen) it waits, however long. If it
--- is dropped unseen (e.g. all notifications dismissed), the commit is no
--- longer counted as toasted, so the next check offers it again. Only this id
--- is hidden: other notifications, and the next commit's toast, keep their own
--- lifetimes. This also overrides snacks' keep rules (e.g. it holds toasts
--- while the cmdline is open).
+-- Toast `id` (for `commit`) is on screen with `left_ms` to go: it is the
+-- visible one until it's hidden by id at its own deadline. Snacks' keep rules
+-- (e.g. while the command line is open) don't stretch it, and a newer commit
+-- doesn't cut it short.
+local function displayed(snacks, id, commit, left_ms)
+  if visible and visible.id == id then
+    return
+  end
+  uv.update_time() -- timers count from the loop's clock: a stale one would hide it early
+  left_ms = math.max(0, math.floor(left_ms))
+  visible = { id = id, commit = commit, deadline = uv.now() + left_ms }
+  vim.defer_fn(function()
+    pcall(snacks.notifier.hide, id)
+    if visible and visible.id == id then
+      visible, last_hidden = nil, uv.now()
+    end
+    if toast_id == id then
+      toast_id = nil
+    end
+  end, left_ms)
+end
+
+-- Follow toast `id` from the moment it's handed to snacks. While snacks keeps
+-- it queued (other notifications fill the screen) it waits, however long.
+-- Once shown, `displayed` takes over: `ms` from that moment. If it is dropped
+-- unseen (e.g. all notifications dismissed), the commit is no longer counted
+-- as toasted, so the next check offers it again. If a newer commit supersedes
+-- it before it's shown, it is dismissed unseen. Only this id is ever hidden:
+-- other notifications keep their own lifetimes.
 local function expire(snacks, id, ms, commit)
   local asked = uv.now()
   local timer = uv.new_timer()
-  local function stop(after_ms)
-    timer:stop()
-    timer:close()
-    if after_ms then
-      -- Hidden by id at its own deadline: snacks' keep rules (e.g. while the
-      -- command line is open) don't stretch it.
-      vim.defer_fn(function()
-        pcall(snacks.notifier.hide, id)
-        if toast_id == id then
-          toast_id = nil
-        end
-      end, math.max(0, math.floor(after_ms)))
-    end
-  end
   timer:start(
     0,
     25,
@@ -130,58 +150,89 @@ local function expire(snacks, id, ms, commit)
         return
       end
       local where, shown = snacks_state(snacks, id)
+      local done = true
       if where == "shown" then
-        stop(ms - (realtime() - shown) * 1000)
+        displayed(snacks, id, commit, ms - (realtime() - shown) * 1000)
+      elseif where == "gone" then -- shown, and hidden already (e.g. dismissed)
+        last_hidden = uv.now()
+        if toast_id == id then
+          toast_id = nil
+        end
       elseif where == nil then
-        stop(ms - (uv.now() - asked)) -- can't see it: count from the request
+        displayed(snacks, id, commit, ms - (uv.now() - asked)) -- can't see it: count from the request
       elseif toast_id ~= id then
         pcall(snacks.notifier.hide, id) -- superseded before it was shown: dismissed
-        stop()
       elseif where == "dropped" then
-        stop()
         M.state.toasted[commit] = nil
         toast_id = nil
+      else
+        done = false -- still queued
+      end
+      if done then
+        timer:stop()
+        timer:close()
       end
     end)
   )
 end
 
---- Show the toast for `commit`, at most once per commit. Top right through
---- snacks.notifier, for `toast_ms` from the moment it's on screen. A newer
---- commit's toast replaces an older one, whether it is showing or still
---- queued, after a short gap so the change is visible, and gets its own full
---- `toast_ms`.
+--- Notify about `commit`, at most once per commit, top right through
+--- snacks.notifier, for `toast_ms` from the moment it's on screen. All of
+--- these toasts say the same thing, so at most one is on screen:
+--- * one on screen covers a newer commit: no second toast, its deadline
+---   stays (not cut short, not extended), and the commit counts as notified.
+---   A commit in its last `toast_tail_ms` instead gets one fresh toast, shown
+---   after the old one hides, so it isn't swallowed by a toast about to go.
+--- * one still queued (never shown) is dismissed for the newer commit's.
+--- A new toast shows at least 100 ms after the last one hid.
 function M.toast(commit)
   if M.state.toasted[commit] then
     return
   end
-  M.state.toasted[commit] = true
-  M.state.toasts = M.state.toasts + 1
   local ms = M.config.toast_ms
   local snacks = rawget(_G, "Snacks")
   if not (snacks and snacks.notifier) then
+    M.state.toasted[commit] = true
+    M.state.toasts = M.state.toasts + 1
     return vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
   end
-  local id = "envi.hotreload." .. commit
-  local gap = 0
-  if toast_id then
-    -- The older commit's toast, shown or still queued, is superseded.
-    pcall(snacks.notifier.hide, toast_id)
-    gap = 100
+  -- The current toast may be on screen before expire's poll noticed.
+  if toast_id and not (visible and visible.id == toast_id) then
+    local where, shown = snacks_state(snacks, toast_id)
+    if where == "shown" then
+      local current = toast_id:sub(#"envi.hotreload." + 1)
+      displayed(snacks, toast_id, current, ms - (realtime() - shown) * 1000)
+    end
   end
+  if visible and snacks_state(snacks, visible.id) == "gone" then
+    visible, last_hidden = nil, uv.now() -- dismissed early (e.g. by the person)
+  end
+  M.state.toasted[commit] = true
+  if visible and visible.deadline - uv.now() > M.config.toast_tail_ms then
+    M.state.covered[commit] = visible.commit
+    return
+  end
+  local id = "envi.hotreload." .. commit
+  local superseded = toast_id
   toast_id = id
+  if superseded and superseded == asked_id and not (visible and visible.id == superseded) then
+    pcall(snacks.notifier.hide, superseded) -- queued in snacks, never shown: dismissed
+  end -- (one still waiting to be handed to snacks just won't be)
   local function show()
     if toast_id ~= id then
       return -- an even newer commit's toast came first
     end
+    M.state.toasts, asked_id = M.state.toasts + 1, id
     local ok = pcall(snacks.notifier.notify, M.TOAST, vim.log.levels.WARN, { id = id, title = "envi", timeout = ms })
     if not ok then
       return vim.notify(M.TOAST, vim.log.levels.WARN, { title = "envi", timeout = ms })
     end
     expire(snacks, id, ms, commit)
   end
-  if gap > 0 then
-    vim.defer_fn(show, gap)
+  -- After the toast on screen (in its tail) hides, or the last one's gap.
+  local wait = visible and (visible.deadline - uv.now() + GAP_MS) or (last_hidden + GAP_MS - uv.now())
+  if wait > 0 then
+    vim.defer_fn(show, math.ceil(wait))
   else
     show()
   end

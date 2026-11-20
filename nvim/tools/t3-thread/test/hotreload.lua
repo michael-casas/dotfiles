@@ -276,29 +276,97 @@ assert(t.shown_ms - t.at >= 290, "shown late: " .. (t.shown_ms - t.at))
 assert(lasted(t) >= 190 and lasted(t) <= 260, "late toast still gets toast_ms on screen: " .. lasted(t))
 display_ms = 30
 
--- Two commits close together: the newer toast replaces the older and keeps its
--- own full lifetime (the older one's timer can't close it). An unrelated
--- notification keeps its own lifetime too.
+-- One notice at a time (Amendment B-2). Here toast_ms = 1500, then 600, and
+-- the tail (the last stretch of a toast's life in which a newer commit gets
+-- its own toast after it) is 150 ms; in real use 4000 and 250.
+hot.config.toast_ms, hot.config.toast_tail_ms = 1500, 150
+local function full(n)
+  local ms = hot.config.toast_ms
+  return n.hidden and lasted(n) >= ms - 10 and lasted(n) <= ms + 70
+end
+-- Two commits close together: the toast on screen covers the newer commit.
+-- It keeps its own deadline (not cut short, not extended), no second toast
+-- comes, and the newer commit counts as notified. An unrelated notification
+-- keeps its own lifetime too.
 Snacks.notifier.notify("unrelated", vim.log.levels.INFO, { id = "unrelated", timeout = 3000 })
 local n0 = #toasts
-commit("nvim/lua/l.lua", "return 13")
+local l_commit = commit("nvim/lua/l.lua", "return 13")
 until_(3000, function()
   return #toasts == n0 + 1 and toasts[#toasts].shown_ms
-end, "first of two toasts shown")
+end, "first toast shown")
 local first = toasts[#toasts]
-sleep(120)
-commit("nvim/lua/m.lua", "return 14")
+sleep(100)
+local m_commit = commit("nvim/lua/m.lua", "return 14")
 until_(3000, function()
-  return #toasts == n0 + 2 and toasts[#toasts].shown_ms
-end, "second toast shown")
-local second = toasts[#toasts]
-assert(first.hidden and first.hidden <= second.at + 5, "the older toast closes when the newer one comes")
-assert(second.shown_ms - first.hidden >= 90, "a visible gap between the two: " .. (second.shown_ms - first.hidden))
-until_(2000, function()
-  return second.hidden ~= nil
-end, "second toast hidden")
-assert(lasted(second) >= 190 and lasted(second) <= 260, "second toast keeps its own lifetime: " .. lasted(second))
+  return hot.state.seen == m_commit
+end, "second commit seen while the first toast shows")
+assert(vim.uv.now() - first.shown_ms < 1500 - 150, "the second commit landed before the tail (slow git?)")
+assert(first.hidden == nil, "the toast on screen isn't cut short by a newer commit")
+until_(3000, function()
+  return first.hidden ~= nil
+end, "the toast hides at its own deadline")
+assert(full(first), "one toast on screen for its full toast_ms: " .. lasted(first))
+sleep(300)
+assert(#toasts == n0 + 1, "no second toast for a commit the visible one covered: " .. (#toasts - n0))
+assert(hot.state.toasted[m_commit] and hot.state.covered[m_commit] == l_commit, "the newer commit counts as notified")
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == n0 + 1, "a covered commit isn't offered again")
 assert(by_id("unrelated").hidden == nil, "an unrelated notification is never hidden by hot reload")
+hot.config.toast_ms = 600
+
+-- A commit in the visible toast's last toast_tail_ms isn't swallowed: the old
+-- toast still keeps its deadline, then one fresh toast follows after a gap.
+-- (hot.toast directly, to land precisely in the tail.)
+local nt = #toasts
+hot.toast("tail-a")
+until_(1000, function()
+  return #toasts == nt + 1 and toasts[#toasts].shown_ms
+end, "tail case: first toast shown")
+local ta = toasts[#toasts]
+until_(1000, function()
+  return vim.uv.now() - ta.shown_ms >= 500
+end, "into the tail")
+hot.toast("tail-b")
+hot.toast("tail-c") -- an even newer one in the tail: it, not tail-b, follows
+until_(2000, function()
+  return #toasts == nt + 2 and toasts[#toasts].hidden ~= nil
+end, "tail case: the fresh toast shows and expires")
+local tc = toasts[#toasts]
+assert(full(ta), "tail case: the older toast keeps its deadline: " .. lasted(ta))
+assert(tc.id == "envi.hotreload.tail-c", "the newest commit in the tail gets the fresh toast: " .. tc.id)
+assert(tc.at >= ta.hidden, "the fresh toast waits for the older one to hide")
+assert(tc.shown_ms - ta.hidden >= 90, "a visible gap between the two: " .. (tc.shown_ms - ta.hidden))
+assert(full(tc), "the fresh toast gets its own full toast_ms: " .. lasted(tc))
+assert(hot.state.toasted["tail-b"], "a superseded waiting toast still counts as notified")
+
+-- A commit just after the toast hid gets its own full toast, after a gap.
+local nx = #toasts
+hot.toast("after-a")
+until_(2000, function()
+  return #toasts == nx + 1 and toasts[#toasts].hidden ~= nil
+end, "after case: first toast expires")
+local xa = toasts[#toasts]
+hot.toast("after-b")
+until_(2000, function()
+  return #toasts == nx + 2 and toasts[#toasts].hidden ~= nil
+end, "after case: its own toast")
+local xb = toasts[#toasts]
+assert(full(xa) and full(xb), ("both full: %d, %d"):format(lasted(xa), lasted(xb)))
+assert(xb.shown_ms - xa.hidden >= 90, "a visible gap after expiry: " .. (xb.shown_ms - xa.hidden))
+assert(hot.state.covered["after-b"] == nil, "not covered: the older toast was gone")
+
+-- Never two config toasts on screen at once.
+for i, a in ipairs(toasts) do
+  for j = i + 1, #toasts do
+    local b = toasts[j]
+    if a.shown_ms and b.shown_ms and a.msg == hot.TOAST and b.msg == hot.TOAST then
+      local a_end, b_end = a.hidden or math.huge, b.hidden or math.huge
+      assert(a_end <= b.shown_ms or b_end <= a.shown_ms, ("two toasts on screen at once: %s, %s"):format(a.id, b.id))
+    end
+  end
+end
+hot.config.toast_ms = 200
 
 -- Queued for a long time (the screen is full): never expired unseen; once
 -- shown it gets its full toast_ms. (The TUI probe holds it for over 60 s.)
