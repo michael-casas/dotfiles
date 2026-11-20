@@ -110,26 +110,100 @@ local function snacks_state(snacks, id)
   return "queued"
 end
 
+-- Whether toast `id` is on screen right now: snacks says shown (not cleared,
+-- not hidden) and its window is valid. Snacks clears `shown` when it takes a
+-- toast off screen for lack of room (a small terminal, higher-priority
+-- notifications) and puts it back in its queue. nil when this snacks can't tell.
+local function on_screen(snacks, id)
+  local ok, history = pcall(snacks.notifier.get_history)
+  if not ok or type(history) ~= "table" then
+    return nil
+  end
+  local found
+  for _, n in ipairs(history) do
+    if n.id == id then
+      found = n
+    end
+  end
+  if not found or not found.shown or found.hidden then
+    return false
+  end
+  if type(found.win) == "table" and type(found.win.win_valid) == "function" then
+    local valid_ok, valid = pcall(found.win.win_valid, found.win)
+    return not valid_ok or valid == true
+  end
+  return true
+end
+
+local lost
+
 -- Toast `id` (for `commit`) is on screen with `left_ms` to go: it is the
 -- visible one until it's hidden by id at its own deadline. Snacks' keep rules
 -- (e.g. while the command line is open) don't stretch it, and a newer commit
--- doesn't cut it short.
+-- doesn't cut it short. While it's visible, a watch checks it is still on
+-- screen: if snacks takes it off before its deadline after it covered a
+-- commit, that commit gets its own toast (see `lost`).
 local function displayed(snacks, id, commit, left_ms)
   if visible and visible.id == id then
     return
   end
   uv.update_time() -- timers count from the loop's clock: a stale one would hide it early
   left_ms = math.max(0, math.floor(left_ms))
-  visible = { id = id, commit = commit, deadline = uv.now() + left_ms }
+  local me = { id = id, commit = commit, deadline = uv.now() + left_ms }
+  visible = me
+  local watch = uv.new_timer()
+  local function unwatch()
+    if not watch:is_closing() then
+      watch:stop()
+      watch:close()
+    end
+  end
+  watch:start(
+    25,
+    25,
+    vim.schedule_wrap(function()
+      if watch:is_closing() then
+        return
+      end
+      if visible ~= me then
+        return unwatch()
+      end
+      if me.covered and on_screen(snacks, id) == false then
+        unwatch()
+        lost(snacks, me)
+      end
+    end)
+  )
   vim.defer_fn(function()
-    pcall(snacks.notifier.hide, id)
-    if visible and visible.id == id then
+    unwatch()
+    if visible == me then
       visible, last_hidden = nil, uv.now()
     end
+    pcall(snacks.notifier.hide, id)
     if toast_id == id then
       toast_id = nil
     end
   end, left_ms)
+end
+
+-- The visible toast `me` is no longer on screen before its deadline. Drop it
+-- (hidden by id, so it can't come back next to a newer one); it had its
+-- display. The newest commit it covered is no longer covered: it goes the
+-- normal way, a toast of its own that waits in snacks' queue for room.
+function lost(snacks, me)
+  if visible == me then
+    visible, last_hidden = nil, uv.now()
+  end
+  pcall(snacks.notifier.hide, me.id)
+  if toast_id == me.id then
+    toast_id = nil
+  end
+  local c = me.covered
+  me.covered = nil
+  if c and M.state.covered[c] then
+    M.state.toasted[c], M.state.covered[c] = nil, nil
+    M.toast(c)
+  end
 end
 
 -- Follow toast `id` from the moment it's handed to snacks. While snacks keeps
@@ -181,6 +255,9 @@ end
 --- these toasts say the same thing, so at most one is on screen:
 --- * one on screen covers a newer commit: no second toast, its deadline
 ---   stays (not cut short, not extended), and the commit counts as notified.
+---   Only one on screen right now covers: if snacks takes it off screen
+---   before its deadline, it's dropped and the newest commit it covered gets
+---   its own toast (shown once there's room).
 ---   A commit in its last `toast_tail_ms` instead gets one fresh toast, shown
 ---   after the old one hides, so it isn't swallowed by a toast about to go.
 --- * one still queued (never shown) is dismissed for the newer commit's.
@@ -204,12 +281,17 @@ function M.toast(commit)
       displayed(snacks, toast_id, current, ms - (realtime() - shown) * 1000)
     end
   end
-  if visible and snacks_state(snacks, visible.id) == "gone" then
-    visible, last_hidden = nil, uv.now() -- dismissed early (e.g. by the person)
+  if visible and on_screen(snacks, visible.id) == false then
+    -- Off screen (displaced, or dismissed): it covers nothing. This newer
+    -- commit's toast replaces it, and with it anything it covered.
+    local gone = visible
+    gone.covered = nil
+    lost(snacks, gone)
   end
   M.state.toasted[commit] = true
   if visible and visible.deadline - uv.now() > M.config.toast_tail_ms then
     M.state.covered[commit] = visible.commit
+    visible.covered = commit -- the newest it covers
     return
   end
   local id = "envi.hotreload." .. commit

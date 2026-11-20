@@ -208,6 +208,10 @@ See `sync/README.md`.
     in the toast's last 0.25 s (`toast_tail_ms`): it gets one fresh toast of
     its own, shown after the old one hides, so it isn't swallowed by a toast
     about to go. A commit after the toast hid gets its own toast too.
+  - Only a toast on screen right now covers. If snacks takes it off screen
+    early (no room: a small terminal, higher-priority notifications), it is
+    dropped, and the newest commit it covered, or the next one to come, gets
+    its own toast once there's room, for its full 4 s.
   - A toast still queued (never shown) is dismissed when a newer commit comes;
     the newer commit's toast takes its place.
   - Toasts never show back to back: there is at least a 0.1 s gap after one

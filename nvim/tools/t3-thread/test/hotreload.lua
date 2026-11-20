@@ -356,6 +356,71 @@ assert(full(xa) and full(xb), ("both full: %d, %d"):format(lasted(xa), lasted(xb
 assert(xb.shown_ms - xa.hidden >= 90, "a visible gap after expiry: " .. (xb.shown_ms - xa.hidden))
 assert(hot.state.covered["after-b"] == nil, "not covered: the older toast was gone")
 
+-- Displaced: snacks can take a shown toast off screen again (no room: a small
+-- terminal, higher-priority notifications) and clear its `shown`. Only a toast
+-- on screen right now covers a commit.
+local function displace(n)
+  display_ms = false -- the screen stays full
+  n.shown = nil
+end
+sleep(150)
+local nd0 = #toasts
+hot.toast("disp-a")
+until_(1000, function()
+  return #toasts == nd0 + 1 and toasts[#toasts].shown_ms
+end, "displaced case: first toast shown")
+local da = toasts[#toasts]
+sleep(100)
+displace(da)
+sleep(60)
+hot.toast("disp-b") -- no config toast on screen: not covered
+assert(hot.state.covered["disp-b"] == nil, "a displaced toast doesn't cover a newer commit")
+until_(1000, function()
+  return #toasts == nd0 + 2
+end, "the newer commit's toast is asked for")
+local db = toasts[#toasts]
+assert(db.id == "envi.hotreload.disp-b" and not db.shown, "it waits in the queue: " .. db.id)
+assert(da.hidden, "the displaced older toast is dropped, so the two never show together")
+sleep(800) -- past the displaced toast's own deadline: still queued
+assert(db.hidden == nil, "the queued newer toast isn't expired unseen")
+display_ms = 30
+show_now(db) -- room returns
+until_(1000, function()
+  return db.hidden ~= nil
+end, "the newer toast expires")
+assert(full(db), "the newer toast gets its full toast_ms from its display: " .. lasted(db))
+assert(#toasts == nd0 + 2, "exactly one toast for the newer commit")
+
+-- Displaced after covering: the commit it covered is shown once room returns.
+sleep(150)
+local nc0 = #toasts
+hot.toast("disp-c")
+until_(1000, function()
+  return #toasts == nc0 + 1 and toasts[#toasts].shown_ms
+end, "covering toast shown")
+local dc = toasts[#toasts]
+hot.toast("disp-d")
+assert(hot.state.covered["disp-d"] == "disp-c", "covered while it is on screen")
+sleep(100)
+displace(dc)
+until_(1000, function()
+  return #toasts == nc0 + 2
+end, "coverage lost: the covered commit's toast is asked for")
+local dd = toasts[#toasts]
+assert(dd.id == "envi.hotreload.disp-d" and hot.state.covered["disp-d"] == nil, "no longer covered: " .. dd.id)
+assert(dc.hidden, "the displaced covering toast is dropped")
+sleep(800)
+assert(dd.hidden == nil and not dd.shown, "it waits for room")
+display_ms = 30
+show_now(dd)
+until_(1000, function()
+  return dd.hidden ~= nil
+end, "the covered commit's toast expires")
+assert(full(dd), "the covered commit's toast gets its full toast_ms: " .. lasted(dd))
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == nc0 + 2, "shown once, not again")
+
 -- Never two config toasts on screen at once.
 for i, a in ipairs(toasts) do
   for j = i + 1, #toasts do
