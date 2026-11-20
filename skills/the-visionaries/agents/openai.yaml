@@ -1,0 +1,4 @@
+interface:
+  display_name: "The Visionaries"
+  short_description: "Three gates for UI work: taste, structure, behavior; three rounds at most"
+  default_prompt: "Use $the-visionaries: as the REP, write the loop charter for the implementer; as the implementer, run the runbook until all three gates pass or round 3 is in, then write the final report."

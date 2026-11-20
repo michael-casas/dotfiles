@@ -65,7 +65,8 @@ mechanics unless the person asks to do them manually.
 
 Do not fork a nontechnical employee's Codex conversation into a new app-managed
 worktree merely to implement code. The employee's agent keeps one worktree per
-repository, created outside every checkout (never `./.worktrees/`), and
+repository, a slot leased from the repository's treehouse pool
+(`<repo>/.treehouse/`; Founder mandate 2026-10-06), and
 operates it from the same thread, or delegates through stable App Server
 thread/workspace handles. Do not create a worktree per task.
 

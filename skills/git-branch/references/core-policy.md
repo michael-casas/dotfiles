@@ -8,7 +8,7 @@ per-Task/Subtask branch-and-worktree hierarchy with claim delivery.
 
 | Role | Pattern | Example |
 |---|---|---|
-| Claim branch | Any short name; Herdr's generated name is fine | `herdr-7f3a` |
+| Claim branch | Any short name, recommended `<type>/<slug>`; never validated | `feat/acm-18-landing` |
 | Hotfix | `HOTFIX/<HOTFIX_HASH>` | `HOTFIX/a81c23f` |
 
 A claim is one implementing Sergeant's seat's approved assigned tickets: **at most three Epics**, with
@@ -37,12 +37,16 @@ skill owns ticket creation and lifecycle; this skill consumes ratified IDs.
    (`development` where it exists, otherwise the repository's documented
    integration base).
 3. Fetch before starting the claim.
-4. Create the claim's worktree with native Herdr in the Herdr worktree root
-   (a seat holds at most one per repository). Never create a worktree inside
-   another checkout and never one per Task or Subtask.
-5. Start a fresh agent and claim branch from the current base in that fresh
-   worktree. Resume an existing worktree only for its current claim, never for a
-   successor claim; retain the stable seat and historical harness session IDs.
+4. Lease the claim's worktree from the repository's treehouse pool, from the
+   repository root: `path=$(treehouse get --lease --lease-holder <seat>)`, then
+   `herdr worktree open --cwd <repo root> --path "$path" --label <slug> --no-focus`
+   (Founder mandate 2026-10-06; spec `~/Workspace/docs/standards/treehouse.md`).
+   A seat holds at most one slot per repository; never one per Task or Subtask.
+   `herdr worktree create`, `git worktree add` and `./.worktrees/` are not used.
+5. Start a fresh agent and create the claim branch inside the slot from the
+   current base (`git -C "$path" switch -c <branch> origin/<base>`; the slot
+   starts detached). Resume an existing slot only for its current claim, never
+   for a successor claim; retain the stable seat and historical harness session IDs.
 
 ## Synchronize
 
@@ -50,6 +54,10 @@ skill owns ticket creation and lifecycle; this skill consumes ratified IDs.
   started; afterwards merge the base in.
 - Never rebase `main`, `staging`, `development`, a department integration
   branch, or an employee branch.
+- Mandate-driven exception (Founder mandate 2026-10-06): when the repository
+  owner orders it, an open PR branch is rebased onto its updated base and pushed
+  with `--force-with-lease`, one PR at a time, by the owner's named seat, keeping
+  its name. The shared branches above are never rebased or force-pushed.
 - Before mutation and before declaring ready, compare the base with the live
   remote.
 - If upstream already contains the fix, stop implementation and record evidence.
@@ -84,8 +92,9 @@ preflight ownership, clean tree, preservation and landed proof; persist intent;
 lift eligible `.agent/` artifacts into the canonical physical checkout's
 `.agent/artifacts/<flattened-branch>/` (branch `/` → `-`), excluding credentials,
 secrets and live sockets/locks/databases; verify the copy; archive the outgoing
-thread before transport loss; remove only the exact worktree and Herdr linkage in
-the verified native sequence; safely delete only the merged local and remote claim
+thread before transport loss; close the Herdr pane and workspace, then
+`treehouse return "$path" --if-lease-holder <seat>` (confirm `available` in
+`treehouse status --json`; never remove or delete the slot); safely delete only the merged local and remote claim
 branch. Ancestry or validated content-equivalence proof can establish landing;
 this does not change merge-commit promotion law or bypass safe-deletion refusals.
 Preserve canonical, integration and employee branches; never broad-prune or remove
