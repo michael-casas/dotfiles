@@ -1,0 +1,9 @@
+[sidebar]
+nvim_bin = "/opt/homebrew/bin/nvim"
+nvim_env = []
+position = "right"
+
+[picker]
+scan_lines = 300
+max_files = 20
+frecency = true

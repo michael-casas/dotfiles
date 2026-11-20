@@ -52,6 +52,7 @@ is the default tool for driving them.
 | [omarchy.md](docs/omarchy.md) | The Omarchy layout: private fork, submodule, sync script, fork changes, keys, what it runs, updating from upstream |
 | [dungeon.md](docs/dungeon.md) | The dungeon mockup: roles by pane, what agent signals drive it, the pi extension |
 | [world.md](docs/world.md) | The 3D world spike: controls, how it draws without WebGL, limits |
+| [sudoku.md](docs/sudoku.md) | The Sudoku dialog: `ctrl-space s`, difficulties, controls, saved state and reset |
 | [views.md](docs/views.md) | Saving the current setup before trying something new, and swapping between saved views |
 | [community.md](docs/community.md) | Installing gallery layouts and mods safely; publishing with `RECIPE.md` |
 | [verification.md](docs/verification.md) | Checking a change: error files, status, `check`, screenshots (`herdr-app shot`, cua-driver), recovery |

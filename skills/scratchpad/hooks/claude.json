@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "startup|resume|clear|compact",
+        "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" session-start --harness claude", "timeout": 15 }] }
+    ],
+    "PreCompact": [
+      { "matcher": "manual|auto",
+        "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" pre-compact --harness claude", "timeout": 15 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" stop --harness claude", "timeout": 10 }] }
+    ]
+  }
+}

@@ -9,31 +9,50 @@ name = "gruvbox"
 
 auto_switch = false
 [keys]
-prefix = "ctrl+space"
-workspace_picker = "prefix+w"
+prefix = "ctrl+z"
+workspace_picker = "prefix+space"
+open_worktree = "prefix+shift+o"
+remove_worktree = "prefix+shift+d"
+close_workspace = "prefix+d"
+previous_tab = "prefix+["
+next_tab = "prefix+]"
+next_agent = "ctrl+n"
+previous_agent = "ctrl+shift+n"
 
 # Workspace/navigate mode — spaces only (keep)
 navigate_workspace_down = "j"
 navigate_workspace_up = "k"
 
-# Prefix mode — previous/next pane on h/l (replace n/p habit)
-cycle_pane_previous = "prefix+h"
-cycle_pane_next = "prefix+l"
-
-# Move default directional focus off h/l so cycle owns those chords
-# (do not use "" — that unsets and shows as unset in the UI)
-focus_pane_left = "prefix+shift+h"
-focus_pane_right = "prefix+shift+l"
-focus_pane_down = "prefix+shift+j"
-focus_pane_up = "prefix+shift+k"
-
-# Move default tab n/p off the old chords so n/p are free
-previous_tab = "prefix+shift+p"
-next_tab = "prefix+shift+n"
-
 [ui]
-agent_panel_sort = "spaces"
+redraw_on_focus_gained = false
+agent_panel_sort = "priority"
 show_agent_labels_on_pane_borders = true
 
 [ui.toast]
 delivery = "herdr"
+
+[ui.sidebar]
+
+[ui.sidebar.agents]
+
+[[keys.command]]
+key = "prefix+alt+h"
+type = "shell"
+command = "\"$HOME/.local/bin/codex-app-herdr\" start"
+description = "Start the background Codex Herdr connection"
+
+[[keys.command]]
+key = "prefix+e"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.toggle"
+description = "Toggle nvim sidebar"
+
+[[keys.command]]
+key = "prefix+o"
+type = "plugin_action"
+command = "chmarax.herdr-nvim.pick-file"
+description = "Open file from agent output"
+
+[experimental]
+kitty_graphics = true
+allow_nested = false

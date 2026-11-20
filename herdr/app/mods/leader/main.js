@@ -4,6 +4,7 @@
 //
 //   /           find a tab or agent by tab name (Herdr's picker)
 //   b           switch workspace
+//   s           sudoku
 //   h j k l     focus pane left/down/up/right (arrows too); repeatable
 //   ctrl-space  send a literal ctrl-space to the focused terminal
 //
@@ -41,7 +42,7 @@ const BINDINGS = [
   [[":"], "command palette", () => (omarchy() ? run("mod.open", { name: "omarchy-palette" }) : run("app.palette"))],
   [["t"], "themes", () => (has("omarchy") ? run("mod.open", { name: "omarchy-themes" }) : run("app.settings", { section: "look" }))],
   [["?"], "all key bindings", () => (has("omarchy") ? run("mod.open", { name: "omarchy-keys" }) : run("app.help"))],
-  [["s"], "toggle sidebar", ["layout.toggle", { id: "sidebar" }]],
+  [["s"], "sudoku", ["mod.open", { name: "sudoku" }]],
   [["L"], "switch layout", ["layout.switch", {}]],
 ];
 

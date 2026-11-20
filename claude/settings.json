@@ -1,5 +1,71 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "apiKeyHelper": "/bin/cat \"$HOME/.claude/.cliproxy-api-key\"",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+  },
+  "permissions": {
+    "defaultMode": "auto"
+  },
   "model": "opus",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.dotfiles/claude/hooks/enable-computer-use.py\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/herdr-agent-state.sh\" session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" session-start --harness claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" pre-compact --harness claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" stop --harness claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "respondToBashCommands": false,
   "statusLine": {
     "type": "command",
     "command": "claudeline -cwd -git-branch -cost"
@@ -7,7 +73,10 @@
   "enabledPlugins": {
     "codex@openai-codex": true,
     "atlassian@claude-plugins-official": true,
-    "github@claude-plugins-official": true
+    "github@claude-plugins-official": true,
+    "expo@claude-plugins-official": true,
+    "whiteboard@devfast": true,
+    "chrome-devtools-mcp@chrome-devtools-plugins": false
   },
   "extraKnownMarketplaces": {
     "openai-codex": {
@@ -15,9 +84,76 @@
         "source": "github",
         "repo": "openai/codex-plugin-cc"
       }
+    },
+    "devfast": {
+      "source": {
+        "source": "github",
+        "repo": "devdotfast/whiteboard",
+        "ref": "v0.2.0",
+        "sparsePaths": [
+          ".claude-plugin",
+          "packages/agent-plugins/claude"
+        ]
+      }
     }
   },
   "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    },
+    "claude-fable-5-1": {
+      "effortLevel": "medium"
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "medium"
+    },
+    "claude": {
+      "effortLevel": "medium"
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "promptSuggestionEnabled": false,
   "autoMemoryEnabled": false,
-  "theme": "dark-ansi"
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "custom:nordic",
+  "idleCompaction": true,
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true,
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "Bash(git push --force*) in ~/.pi scoped beyond CLAUDE.md's stated no-force-push-without-explicit-authorization policy",
+      "Bash(git commit --no-verify*) given README's documented --no-verify bypass path for Husky hooks"
+    ],
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: private (michael-casas/django — confirmed via gh)",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: None configured",
+      "**Default / protected branches**: Default branch `main`; no classic branch protections listed and rulesets not queryable here — treat `main` as potentially protected by ruleset even though none are listed",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Host containment**: None configured — assume Claude Code runs on an ordinary developer machine with open internet",
+      "**Source control**: The trusted repo (michael-casas/django, remote `origin`) and its local mirror remote `no-mistakes` at ~/.no-mistakes/repos/f2a18debc91c.git only — no additional orgs configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: `.env*` files (except `.env-example`), `*.env`, `/agent/agent/keybindings.json`, `/agent/keybindings.json`, and retention-related source (`apps/cua-driver-e2e/native/retention.mjs`, `packages/memory/src/compaction-retention.*`) — share only with audiences cleared at the [named+specifics] bar",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (Nx monorepo — Discord gateway, memory package, agent tooling)",
+      "**Trusted repo**: ~/.pi (michael-casas/django on GitHub, private) and its configured remotes (`origin`, `no-mistakes` local mirror)",
+      "**Org-specific CLIs**: None configured — frequently used repo/dev tooling observed: herdr, treehouse, hermes, pi, opencode, codex, cmux (routine, scoped to this repo and the user's own tooling checkouts)",
+      "No 'routine under <user>/ prefix' qualifiers found"
+    ]
+  }
 }

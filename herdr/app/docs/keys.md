@@ -43,7 +43,8 @@ If you enable it, the OS takes the key first.
 | `c`, `n` / `p`, `1`–`9` | New tab, next / previous tab (repeatable), tab 1–9 |
 | `]` / `[` | Next / previous space (repeatable) |
 | `:` | Command palette (Omarchy's in the Omarchy layout) |
-| `t`, `?`, `s`, `L` | Themes, all key bindings, toggle sidebar, switch layout |
+| `t`, `?`, `L` | Themes, all key bindings, switch layout |
+| `s` | Toggle [Sudoku](sudoku.md); the sidebar remains on `cmd-b` |
 | `ctrl-space` | Send a literal `ctrl-space` (NUL) to the focused terminal, for example for nvim completion |
 | `esc` (or any other key) | Cancel |
 
