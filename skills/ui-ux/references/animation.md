@@ -179,6 +179,10 @@ These are starting values to tune on the target device, not limits.
   scaling and looping. Keep opacity and color changes that carry meaning, such as
   feedback confirming an action.
 - An instant change is often the best alternative.
+- The preference can change while the page is open. Respond to the change and stop
+  what is already running; do not read it once at load.
+- Hover motion gated to hover-capable pointers leaves an equivalent cue on keyboard
+  focus.
 - State must be fully understandable with all animation removed.
 - On native platforms, follow the system setting for reduced motion and prefer the
   platform's own transitions.

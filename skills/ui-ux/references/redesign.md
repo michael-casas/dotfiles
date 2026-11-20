@@ -56,7 +56,10 @@ Change these only with the user's explicit approval:
 - Primary navigation labels and order.
 - Form field names, order and required status.
 - The logo and wordmark.
-- Legal, consent, pricing and factual copy; claims, statistics, testimonials, dates.
+- Legal, consent, pricing and factual copy; claims, statistics, testimonials, customer
+  identities, dates. Never alter or add one of these to make content look more
+  believable. Demo fixtures you author are kept visibly distinct from production
+  content.
 - Element IDs, anchors and event names that analytics or tests depend on.
 - Page titles, descriptions and structured data that search ranking depends on.
 - Existing accessibility wins: focus states, alt text, keyboard paths, contrast.

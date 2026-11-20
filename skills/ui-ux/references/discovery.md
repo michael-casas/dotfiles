@@ -127,6 +127,8 @@ spend that freedom on one of them.
   design, one accent). The tool should disappear into the task.
 - Persuade and Experience: the direction may own the composition. Commit fully; a
   half-committed direction reads as noise.
+- Expression is a permission, not a duty. Use a familiar pattern wherever it lowers
+  effort, and never let novelty hide a control or the content.
 - Either way, a dense tool must not become an airy marketing page, and an expressive
   portfolio must not become an admin panel.
 

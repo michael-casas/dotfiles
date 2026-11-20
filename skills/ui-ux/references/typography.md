@@ -92,12 +92,14 @@ at the return sweep, collisions, glyph clipping and the fallback font's metrics.
 - Check the render after the font has loaded and with it blocked.
 - Preserve browser zoom, user font-size settings and platform text scaling. Never
   disable zoom.
+- Content text stays selectable and copyable. Disable selection only on controls where
+  it interferes with a gesture.
 - Test with the longest real heading, a translated string 30 to 40 percent longer, and a
   narrow container.
 
 ## Audit coverage
 
-AUDIT items `TYPE-02` and `TYPE-03` (measure, glyphs), and `TYPE-04` to `TYPE-09` and
-`TYPE-11`. Clipped glyphs are `TYPE-03`. Related: `SLOP-02` (a face that replaces a required identity cue), `SLOP-03` (false markers),
+AUDIT items `TYPE-02` and `TYPE-03` (measure, glyphs), and `TYPE-04` to `TYPE-09`,
+`TYPE-11` and `TYPE-12` (uncopyable content text). Clipped glyphs are `TYPE-03`. Related: `SLOP-02` (a face that replaces a required identity cue), `SLOP-03` (false markers),
 `SLOP-13` (single-word emphasis), `HIER-01` (roles), `LAYOUT-03` and `A11Y-06`
 (resize and spacing), `PERF-01` (font-loading shifts).

@@ -49,7 +49,9 @@ sketches.
 - Let content size the box. Avoid fixed pixel widths and heights on anything holding
   text. Prevent overflow in flex and grid children with `min-width: 0` and
   `minmax(0, 1fr)`.
-- Visual order follows DOM order, so focus and reading order match what is seen.
+- Visual order follows DOM order, so focus and reading order match what is seen. Dense
+  grid auto-placement, `order` and reversed flex directions move boxes without moving
+  them in the DOM; check the tab order wherever one is used.
 - Fix overflow at its source. Clipping the whole page hides the bug and can hide
   content.
 - Full-height sections: choose the viewport unit for the behavior you want. `svh` is
