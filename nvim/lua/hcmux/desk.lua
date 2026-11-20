@@ -5,7 +5,7 @@
 --   <leader>hi  the "REP | dotfiles" Claude in a centered popover. Toggles:
 --               shows it (attaching, resuming it by name, or creating it with
 --               opus, medium effort, when it has never existed) or hides it.
---               q / <Esc> (normal) and <C-\>i (terminal) hide it too. It runs
+--               :q / <Esc> (normal) and <C-\>i (terminal) hide it too. It runs
 --               in herdr-core like every hcmux terminal, so hiding it, or
 --               quitting nvim, leaves it running.
 --   <leader>h?  keybinder: a T3 thread for config changes and questions
@@ -16,6 +16,7 @@
 local core = require("hcmux.core")
 local term = require("hcmux.term")
 
+local panel_close = require("config.panel-close")
 local M = {}
 
 M.config = {
@@ -121,7 +122,7 @@ local function rep_mark(buf)
   end
   vim.b[buf].hcmux_float = REP
   local opts = { buffer = buf, silent = true, desc = "Hide REP | dotfiles" }
-  vim.keymap.set("n", "q", rep_hide, opts)
+  panel_close.bind(buf, rep_hide, opts.desc)
   vim.keymap.set("n", "<Esc>", rep_hide, opts)
   vim.keymap.set("t", "<C-\\>i", rep_hide, opts)
   -- Leaving the popover hides it (it keeps running; <leader>hi brings it back).
@@ -235,9 +236,9 @@ local function write_prompt()
     "",
     "- <leader>ha: the agent picker. Pick a tool and it starts in the nvim cwd, in a pane of this session.",
     '- <leader>hi: the person\'s main working agent, a Claude Code session named "REP | dotfiles"',
-    "  in a centered popover (<leader>hi toggles; q, <Esc>, <C-\\>i hide it). It builds and changes this config. Runs in herdr-core, so it survives nvim.",
+    "  in a centered popover (<leader>hi toggles; :q, <Esc>, <C-\\>i hide it). It builds and changes this config. Runs in herdr-core, so it survives nvim.",
     "- <leader>h?: keybinder, the config agent on a T3 thread. Not you.",
-    "- <leader>hn: you, the help desk (pi on gpt-6-luna) in a float. Toggle with q or <Esc>.",
+    "- <leader>hn: you, the help desk (pi on gpt-6-luna) in a float. Hide with :q or <Esc>.",
     "",
     "## Where things are",
     "",
@@ -269,7 +270,7 @@ local function mark(buf)
   vim.b[buf].hcmux_desk = true
   vim.bo[buf].buflisted = false
   local opts = { buffer = buf, silent = true, desc = "Hide help desk" }
-  vim.keymap.set("n", "q", hide, opts)
+  panel_close.bind(buf, hide, opts.desc)
   vim.keymap.set("n", "<Esc>", hide, opts)
   vim.keymap.set("t", "<C-\\>?", hide, opts)
   -- Leaving the float hides it (it keeps running; <leader>hn starts a fresh one).

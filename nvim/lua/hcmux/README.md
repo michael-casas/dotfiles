@@ -87,14 +87,15 @@ cursors, folds), plus the terminals labelled `herdr.nvs=<name>`.
 | `nvim-session attach api` (or `nvim-session api`) | attaches to session `api`, starting in its folder |
 | `nvim <file>` | plain editor, no session: safe as `$EDITOR` and for git commits |
 | edit, split, open tabs, start terminals, delete buffers (including Snacks/LazyVim “delete other buffers”) | saved automatically, 1.5 s after things settle; idle/focus loss also schedules a save |
-| `:detach` or `:qd` (also `:Detach`, `<leader>qd`, `:qa`, `:q` on the last window) | **detach**: the layout is saved, the terminals keep running |
+| `:detach` or `:qd` (also `:Detach`, `<leader>qd`, `:qa`, `:q` on the last ordinary edit window) | **detach**: the layout is saved, the terminals keep running |
 | `:reload` (also `:Reload`), in an nvim started by `envi` | **reload**: detach, then the `envi` launcher starts nvim again on the same session, so config changes take effect |
 | graceful quit, SIGHUP or SIGTERM | final synchronous save, waiting up to 10 s for an in-flight save callback first |
 | crash, SIGKILL or power loss | only the last completed save survives; changes inside the debounce/write window can be lost |
 
-All of vim's own quit commands keep their meaning: `:q` closes a window (the
-last one detaches), and `:wq`, `:qa!` work as usual. `:detach` and `:qd` are the
-explicit way to leave a session from anywhere.
+In an ordinary edit window, `:q` closes the window and detaches the session
+when that is the last window. In a terminal viewer, explorer, picker, or panel,
+type `:q` to close that view while keeping the editor open. Normal-mode `q`
+records macros. `:wq`, `:qa!`, `:detach` and `:qd` keep their usual meaning.
 
 - **Two nvims on one session:** the second one says so, shows
   `(read-only)` in the statusline and doesn't save. `:Session take`
@@ -283,10 +284,10 @@ stay off; a closed/misidentified main window is recreated to the sidebar's right
 `t3.attach_in(win, id)` reuses a live client by deterministic name or
 `t3.thread` label, or starts it at that window's size. Switching drops the old
 hidden viewer, never its core client; viewers still shown elsewhere are left
-alone. COMMAND/INSERT maps remain the popover's maps. COMMAND `q` checks the
-**current window's** `envi_t3_main` flag at keypress time and does nothing there;
-the same buffer shown in the popover still hides that float with `q`. INSERT
-`q` remains text. There is no buffer-map swapping on window transitions.
+alone. In COMMAND, `:q` in the main pane detaches its viewer and restores the
+thread-selection placeholder. In the popover, `:q` hides only that float. Shared
+clients keep running, and INSERT `q` remains text. `:q` in the thread bar hides
+the bar.
 
 ### T3 geometry check (`t3layout.lua`)
 
@@ -374,7 +375,7 @@ it is shown on. These answers no longer depend on which window has focus (`nvim_
 the focused window's `winhighlight`). On every popover open, switch and theme change, and
 on `attach_in`, the buffer's answers are re-resolved from what that window shows (the T3 remap, or the editor's
 `Normal` when it has none, e.g. an untinted main pane), so a reused buffer never keeps another view's colours.
-When a view stops showing the client (COMMAND `q`, closing the window, or switching that window to another thread)
+When a view stops showing the client (COMMAND `:q`, closing the window, or switching that window to another thread)
 the answers follow the view that remains, the focused one if it shows the client; with no view left they keep the
 last value until the next attach.
 With a missing/invalid hub a new popover keeps the editor's `Normal`; a shown window keeps its look. Other terminals
@@ -492,7 +493,7 @@ Clearing removes the mark, not the thread; the slot may immediately auto-fill.
 | `Tab` | search in NORMAL, preserving query |
 | `R` | restart/refresh the shared feed |
 | `?` | key help |
-| `q` / `Esc` / `<leader>a` | close |
+| `:q` / `Esc` / `<leader>a` | close |
 
 Search has a full-width rounded input box with a search glyph, an empty
 `Search threads…` placeholder, and a right-aligned filtered/total hit count.
@@ -519,7 +520,7 @@ on text changes and a nonmodifiable buffer in NORMAL.
 | NORMAL | `m1`–`m9`, `x` | mark hit / clear its mark |
 | NORMAL | `i` / `a` / `/` | INSERT at query end |
 | NORMAL | `Tab` | board |
-| NORMAL | `?`, `q` | help / close |
+| NORMAL | `?`, `:q` | help / close |
 | NORMAL | `Esc` | stay in NORMAL |
 
 Marks use versioned core document `envi-agent.<session>`, shape
@@ -540,7 +541,7 @@ and recent-order helpers so both surfaces share colours/order. T3's additive
 ordinary opens, COMMAND/INSERT maps, and client lifecycles unchanged.
 
 `?` opens a centred, two-column key/action help float grouped by Board, Search
-INSERT, and Search NORMAL. `q`, `Esc`, or `?` dismisses help only; closing AGENT
+INSERT, and Search NORMAL. `:q`, `Esc`, or `?` dismisses help only; closing AGENT
 also cleans up help. Both floats recenter on resize. At short heights help uses
 native scrolling instead of truncating the action text.
 
@@ -588,9 +589,9 @@ fuzzy matching uses number, title, branch, author and repository.
 | `r` / `R` | Refresh / pick Repo scope repository |
 | `s` | Confirm review submission (comment / approve / request changes) |
 | `x` | End this PR's hunk and discard drafts, with `y/n` confirmation |
-| `?` | Help; `?`, `q`, `Esc` dismiss help only |
-| `q` / NORMAL `Esc` | Close current overlay or board |
-| Hunk TERMINAL `Ctrl-q` | Capture comments, hide the float, return to board |
+| `?` | Help; `?`, `:q`, `Esc` dismiss help only |
+| `:q` / NORMAL `Esc` | Close current overlay or board |
+| Hunk TERMINAL `Ctrl-q` or NORMAL `:q` | Capture comments, hide the float, return to board |
 
 No printable hunk-buffer keys are mapped: hunk's own `q` and comment editor
 remain intact. `Ctrl-q` is not assigned in hunk 0.21.1's built-in key bindings.
@@ -685,7 +686,7 @@ Native motion/search/yank work. `[s`/`]s` jump headings; Tab outlines; `s` finds
 exact Mermaid source; Enter on a source record opens immutable commit bytes in
 a read-only child; `e` opens the board file as an ordinary editable buffer at
 its original source line, preserving modified and terminal/non-file invokers in their own panes. `R` refreshes, `?`
-helps, `q` closes. Navigation Esc stays; q/Esc in a child dismiss only the child.
+helps, `:q` closes. Navigation Esc stays. `:q` or Esc in a child dismiss only the child.
 Leaving focus keeps the view open. Resize recenters; live theme-hub changes and
 ColorScheme touch only `EnviBoard*`. Invalid saves retain last good **STALE**
 content; deleted/recreated and atomic-save files recover. Close/WinClosed/wipe/

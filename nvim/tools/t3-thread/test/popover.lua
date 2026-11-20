@@ -53,19 +53,12 @@ assert(vim.api.nvim_get_current_win() == win and opened == 1, "focused toggle mu
 M.open()
 M.open("throwaway")
 assert(opened == 1 and vim.api.nvim_win_is_valid(win), "no-arg and same-id open must not replace")
-local maps = vim.api.nvim_buf_get_keymap(buf, "n")
-local q
-for _, map in ipairs(maps) do
-  if map.lhs == "q" then
-    q = map.callback
-  end
-end
-assert(q, "COMMAND q must hide")
+assert(vim.fn.maparg("q", "n") == "", "COMMAND q uses native macro recording")
 for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "t")) do
   assert(map.lhs ~= "q", "INSERT q must remain text")
 end
-q()
-assert(not vim.api.nvim_win_is_valid(win), "COMMAND q must close the float")
+vim.api.nvim_feedkeys(":q\r", "mtx", false)
+assert(not vim.api.nvim_win_is_valid(win), "COMMAND :q must close the float")
 M.open("other")
 local other = vim.api.nvim_get_current_win()
 local other_buf = vim.api.nvim_get_current_buf()

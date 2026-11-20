@@ -1,4 +1,5 @@
 -- AGENT is a buffer-local board/search popover, not an editor-wide key layer.
+local panel_close = require("config.panel-close")
 local M = { active = false }
 local side = require("hcmux.t3side")
 local ui = side.presentation
@@ -454,7 +455,7 @@ local function help()
     { "i / /", "New COMMAND / search INSERT" },
     { "m then 1–9 / x", "Mark (no timeout) / clear mark" },
     { "Tab / R", "Search NORMAL / refresh feed" },
-    { "q / Esc / leader-a", "Close AGENT" },
+    { ":q / Esc / leader-a", "Close AGENT" },
     { "Search INSERT" },
     { "Type", "Fuzzy filter titles live" },
     { "Ctrl-n/p / arrows", "Select next / previous hit" },
@@ -464,8 +465,8 @@ local function help()
     { "Enter / o", "Open selected hit" },
     { "m then 1–9 / x", "Mark hit / clear its mark" },
     { "i / a / /", "INSERT at query end" },
-    { "Tab / q / Esc", "Board / close / stay NORMAL" },
-    { "?", "Help; q / Esc / ? dismiss help" },
+    { "Tab / :q / Esc", "Board / close / stay NORMAL" },
+    { "?", "Help; :q / Esc / ? dismiss help" },
   }
   local width = math.min(68, vim.o.columns - 6)
   local lines, headings = {}, {}
@@ -504,7 +505,8 @@ local function help()
   for _, line in ipairs(headings) do
     vim.api.nvim_buf_set_extmark(help_buf, ns, line, 0, { end_col = #lines[line + 1], hl_group = "EnviT3SideGroup" })
   end
-  for _, key in ipairs({ "q", "<Esc>", "?" }) do
+  panel_close.bind(help_buf, close_help)
+  for _, key in ipairs({ "<Esc>", "?" }) do
     vim.keymap.set("n", key, close_help, { buffer = help_buf, silent = true, nowait = true })
   end
 end
@@ -636,7 +638,7 @@ local function maps()
     side.start(true)
   end)
   map("n", "?", help)
-  map("n", "q", M.close)
+  panel_close.bind(buf, M.close)
   map("n", "<leader>a", M.close)
   map("n", "<Esc>", function()
     if view == "board" then

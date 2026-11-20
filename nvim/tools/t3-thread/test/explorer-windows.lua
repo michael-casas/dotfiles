@@ -52,9 +52,12 @@ local function run(test)
       opts.terminal = require("lazyvim.plugins.util")[1].opts.terminal
       Snacks = require("snacks")
       Snacks.setup(opts)
+      require("plugins.panel-close")[1].opts(nil, opts)
       LazyVim = require("lazyvim.util")
       require("lazy.core.handler").init()
       require("lazyvim.config.keymaps")
+      require("lazyvim.config.autocmds")
+      require("config.autocmds")
 
       vim.cmd.edit("editor.txt")
       editor = vim.api.nvim_get_current_win()
@@ -132,6 +135,70 @@ local tests = {
       assert(lua("return explorer.input:get() == 'editor'"), "navigation preserves the filter query")
     end
   end,
+  terminal_quit = function(lua, keys, wait)
+    -- Make the Snacks terminal the last real split before detaching it.
+    keys("<C-/>")
+    wait("return vim.bo.filetype == 'snacks_terminal' and vim.fn.mode() == 't'", "terminal takes focus")
+    keys("<C-\\><C-n>")
+    wait("return vim.fn.mode() == 'n'", "terminal returns to Normal")
+    lua([[
+      terminal = Snacks.terminal.list()[1]
+      buf = terminal.buf
+      job = vim.b[buf].terminal_job_id
+      local win = vim.api.nvim_get_current_win()
+      for _, other in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if other ~= win and vim.api.nvim_win_is_valid(other) and vim.api.nvim_win_get_config(other).relative == "" then
+          vim.api.nvim_win_close(other, true)
+        end
+      end
+    ]])
+    keys("qa")
+    wait("return vim.fn.reg_recording() == 'a'", "q starts a macro in the terminal")
+    keys("q:q<CR>")
+    wait(
+      "return vim.bo.filetype ~= 'snacks_terminal' and not terminal:win_valid()",
+      ":q detaches the last terminal split"
+    )
+    assert(
+      lua("return vim.api.nvim_buf_is_valid(buf) and vim.fn.jobwait({ job }, 0)[1] == -1"),
+      "terminal job survives"
+    )
+    keys("<C-/>")
+    wait("return terminal:win_valid() and vim.api.nvim_get_current_buf() == buf", "terminal reopens without a new job")
+  end,
+  panel_quit = function(lua, keys, wait)
+    lua([[
+      explorer:close()
+      local api = vim.api
+      local buf = api.nvim_create_buf(false, true)
+      api.nvim_win_set_buf(editor, buf)
+      vim.bo[buf].filetype = "help"
+      panel_buf = buf
+    ]])
+    wait("return vim.fn.maparg('q', 'n') == ''", "LazyVim utility keeps native q")
+    keys(":q<CR>")
+    wait(
+      [[
+      return vim.api.nvim_get_current_win() == editor
+        and vim.api.nvim_get_current_buf() ~= panel_buf
+        and not vim.api.nvim_buf_is_valid(panel_buf)
+    ]],
+      ":q clears a utility panel from the last editor window"
+    )
+  end,
+  picker_quit = function(lua, keys, wait)
+    lua([[
+      explorer:close()
+      picker = Snacks.picker.pick({ items = { { text = "one" }, { text = "two" } } })
+    ]])
+    wait("return picker:current_win() == 'input' and vim.fn.mode() == 'i'", "generic picker input takes focus")
+    keys("<Esc>")
+    wait("return picker:current_win() == 'input' and vim.fn.mode() == 'n'", "generic input returns to Normal")
+    keys("qa")
+    wait("return vim.fn.reg_recording() == 'a'", "q starts a macro in picker input")
+    keys("q:q<CR>")
+    wait("return picker.closed and vim.api.nvim_get_current_win() == editor", ":q closes the generic picker")
+  end,
   escape = function(_, keys, wait)
     keys("i")
     wait("return explorer:current_win() == 'input' and vim.fn.mode() == 'i'", "filter receives Insert focus")
@@ -142,8 +209,12 @@ local tests = {
     )
     keys("<Esc>")
     wait("return not explorer.closed and explorer:current_win() == 'list'", "Escape keeps explorer open in Normal")
-    keys("q")
-    wait("return explorer.closed", "q still closes explorer")
+    keys("qa")
+    wait("return vim.fn.reg_recording() == 'a'", "q starts a macro in the list")
+    keys("jq")
+    wait("return vim.fn.reg_recording() == '' and vim.fn.getreg('a') == 'j'", "q finishes the macro")
+    keys(":q<CR>")
+    wait("return explorer.closed and vim.api.nvim_get_current_win() == editor", ":q closes only the explorer")
   end,
 }
 

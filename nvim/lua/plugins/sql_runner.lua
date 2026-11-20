@@ -137,9 +137,9 @@ return {
         title_pos = "center",
       })
 
-      vim.keymap.set("n", "q", function()
+      require("config.panel-close").bind(buf, function()
         vim.api.nvim_win_close(win, true)
-      end, { buffer = buf, nowait = true, silent = true })
+      end)
       vim.keymap.set("n", "<Esc>", function()
         vim.api.nvim_win_close(win, true)
       end, { buffer = buf, nowait = true, silent = true })

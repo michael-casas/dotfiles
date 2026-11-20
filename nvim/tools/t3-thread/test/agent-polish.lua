@@ -71,14 +71,18 @@ assert(help:find("Board", 1, true) and help:find("Search INSERT", 1, true) and h
 for _, line in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
   assert(vim.fn.strdisplaywidth(line) <= vim.api.nvim_win_get_width(0), "help fits")
 end
-for _, close in ipairs({ "?", "<Esc>", "q" }) do
+for _, close in ipairs({ "?", "<Esc>", ":q" }) do
   if vim.bo.filetype ~= "envi-agent-help" then
     key("?")
   end
-  key(close)
+  if close == ":q" then
+    vim.api.nvim_feedkeys(":q\r", "mtx", false)
+  else
+    key(close)
+  end
   assert(agent.active and vim.bo.filetype == "envi-agent", "close only help")
 end
-key("q")
+vim.api.nvim_feedkeys(":q\r", "mtx", false)
 assert(#vim.api.nvim_list_wins() == base)
 agent.open()
 assert(groups().EnviAgentAuto, "auto labels/borders dim")
@@ -94,7 +98,7 @@ for _, view in ipairs({ "board", "search" }) do
   if view == "search" then
     key("<Esc>", "i")
   end
-  key("q")
+  vim.api.nvim_feedkeys(":q\r", "mtx", false)
   assert(not agent.active and #vim.api.nvim_list_wins() == base, "q leaves no orphan " .. view)
 end
 for _, buf in ipairs(vim.api.nvim_list_bufs()) do

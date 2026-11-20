@@ -267,7 +267,7 @@ scenarios["BATDD-T3STRIKE-03 resize, reopen, switch"] = function()
       label .. " same window/buffer/process"
     )
   end
-  c.input("q") -- COMMAND q hides
+  c.input(":q<CR>") -- COMMAND :q hides
   c.wait(function()
     return c.state().win == nil
   end, 2000, "q to hide the popover")
@@ -333,7 +333,7 @@ scenarios["BATDD-T3STRIKE-06 modes and hide"] = function()
   c.wait(function()
     return c.lua("return vim.api.nvim_get_mode().mode") == "nt"
   end, 2000, "INSERT <C-]> to COMMAND")
-  c.input("q")
+  c.input(":q<CR>")
   c.wait(function()
     return c.state().win == nil
   end, 2000, "COMMAND q to hide")
@@ -365,7 +365,7 @@ scenarios["BATDD-T3STRIKE-07 ordinary terminal isolation"] = function()
   -- The ordinary terminal may query while the themed popover is focused.
   local focused = c.lua("vim.cmd.redraw() return STRIKE.osc(...)", ord.buf)
   check(vim.deep_equal(focused, want), "ordinary OSC answers while the popover is focused: " .. vim.inspect(focused))
-  c.input("q")
+  c.input(":q<CR>")
   c.wait(function()
     return c.state().win == nil
   end, 2000, "hiding the popover")

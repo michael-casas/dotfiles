@@ -54,7 +54,13 @@ local function show_sidebar()
   end
   -- Do not enter/leave the terminal: term's BufEnter auto-insert must not
   -- change COMMAND to INSERT when a sidebar is merely shown.
-  sidebar = vim.api.nvim_open_win(side.buffer(), false, { split = "left", win = main, width = 36 })
+  local sidebar_buf = side.buffer()
+  sidebar = vim.api.nvim_open_win(sidebar_buf, false, { split = "left", win = main, width = 36 })
+  require("config.panel-close").bind(sidebar_buf, function()
+    if vim.api.nvim_get_current_win() == sidebar then
+      M.sidebar_toggle()
+    end
+  end)
   vim.wo[sidebar].winfixwidth = true
   vim.wo[sidebar].number = false
   vim.wo[sidebar].relativenumber = false
@@ -149,6 +155,21 @@ function M.focus_thread_bar()
   vim.cmd.stopinsert()
   vim.api.nvim_set_current_win(sidebar)
   side.focus_card(sidebar, current_thread)
+end
+
+function M.detach_thread()
+  if vim.api.nvim_get_current_win() ~= main then
+    return
+  end
+  local term = require("hcmux.term")
+  local buf = vim.api.nvim_win_get_buf(main)
+  vim.api.nvim_win_set_buf(main, placeholder())
+  vim.wo[main].winbar = ""
+  current_thread = nil
+  side.select(nil)
+  if #vim.fn.win_findbuf(buf) == 0 and term.addr_of(buf) then
+    term.detach(buf)
+  end
 end
 
 function M.open_thread(id)
