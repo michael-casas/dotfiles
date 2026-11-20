@@ -159,6 +159,9 @@ local function start_viewer(buf, addr)
     return false
   end
   vim.b[buf].hcmux_addr = addr
+  require("config.panel-close").bind(buf, function()
+    M.detach(buf)
+  end, "Detach terminal")
   vim.b[buf].hcmux_lazy = nil
   vim.bo[buf].buflisted = true
   set_name(buf, addr)

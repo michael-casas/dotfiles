@@ -1,4 +1,5 @@
 -- PR board owns only its buffers and the hunk terminals it starts. No global keys.
+local panel_close = require("config.panel-close")
 local M = { active = false }
 local gh = require("hcmux.gh")
 local ui = require("hcmux.t3side").presentation
@@ -141,9 +142,8 @@ local function popup(title, lines, ft)
   modal = create(g, ft or "envi-pr-help", true)
   modal.lines = lines
   write(modal, lines)
-  for _, lhs in ipairs({ "q", "<Esc>" }) do
-    map(modal, "n", lhs, close_modal)
-  end
+  panel_close.bind(modal.buf, close_modal)
+  map(modal, "n", "<Esc>", close_modal)
   return modal
 end
 local function current()
@@ -391,7 +391,7 @@ render = function()
       review(current())
     end)
     map(search, "n", "<Esc>", M.close)
-    map(search, "n", "q", M.close)
+    panel_close.bind(search.buf, M.close)
     map(search, "n", "<CR>", function()
       selected = 1
       review(current())
@@ -446,14 +446,13 @@ render = function()
       vim.tbl_extend("force", g, { col = g.col + g.width + 2, width = whole - g.width - 2, title = " Details " })
     if not valid(detail) then
       detail = create(dg, "markdown")
+      panel_close.bind(detail.buf, M.close)
     else
       vim.api.nvim_win_set_config(detail.win, dg)
     end
     vim.wo[detail.win].wrap = true
     write(detail, detail_lines(current()))
-    for _, lhs in ipairs({ "q", "<Esc>" }) do
-      map(detail, "n", lhs, M.close)
-    end
+    map(detail, "n", "<Esc>", M.close)
   elseif detail then
     destroy(detail)
     detail = nil
@@ -838,9 +837,11 @@ review = function(pr)
       g.title = " PR #" .. pr.number .. " · " .. pr.repo .. " "
       vim.api.nvim_win_set_config(win, g)
       window_style(win)
-      vim.keymap.set("t", "<C-q>", function()
+      local function detach_hunk()
         hide_hunk(rec)
-      end, { buffer = b, nowait = true, silent = true })
+      end
+      panel_close.bind(b, detach_hunk)
+      vim.keymap.set("t", "<C-q>", detach_hunk, { buffer = b, nowait = true, silent = true })
       vim.api.nvim_create_autocmd("BufWipeout", {
         group = group,
         buffer = b,
@@ -1071,10 +1072,10 @@ local function help()
     "r / R                           Refresh / pick Repo scope repository",
     "s                               Confirm comment / approve / request changes",
     "x                               Discard drafts and end this PR's hunk",
-    "q / Esc                         Close this view (board leaves hunks alive)",
+    ":q / Esc                         Close this view (board leaves hunks alive)",
     "Hunk <C-q>                      Hide float, capture drafts, return to board",
     "Hunk q                          Hunk's own quit; last captured drafts remain",
-    "?                               Help (q / Esc / ? dismiss)",
+    "?                               Help (:q / Esc / ? dismiss)",
   })
   map(view, "n", "?", close_modal)
 end
@@ -1223,7 +1224,7 @@ local function maps()
   map(board, "n", "r", refresh_scope)
   map(board, "n", "R", pick_repo)
   map(board, "n", "?", help)
-  map(board, "n", "q", M.close)
+  panel_close.bind(board.buf, M.close)
   map(board, "n", "<Esc>", M.close)
 end
 

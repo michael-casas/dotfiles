@@ -28,7 +28,7 @@ Feature: Theme-correct T3 terminal history without destructive redraws
   Scenario: Preserve history across resize, reopen, and thread switching
     Given two owned thread clients have distinct committed history markers under one unchanged theme
     When I resize the terminal from 100 by 30 cells to 80 by 24 cells and back
-    And I hide the popover with COMMAND q and reopen the first client
+    And I hide the popover with COMMAND :q and reopen the first client
     And I switch to the other client and back
     Then each client's committed content remains complete, ordered, and unduplicated
     And ordinary historical cells keep their committed theme background
@@ -64,7 +64,7 @@ Feature: Theme-correct T3 terminal history without destructive redraws
     Then it stays in COMMAND and remains visible
     When I press Ctrl+] in COMMAND and type q
     Then it enters INSERT and q is draft text rather than a hide action
-    When I press Ctrl+] again and press q in COMMAND
+    When I press Ctrl+] again and type :q in COMMAND
     Then only the popover is hidden and the client and draft remain available on reopen
 
   @BATDD-T3STRIKE-07

@@ -25,6 +25,8 @@ const run = promisify(execFile);
 // Read at call time: never a stale default, and tests can point at a fake.
 const base = () => process.env.T3_URL || "http://127.0.0.1:3773";
 export const T3 = process.env.T3_BIN || path.join(os.homedir(), ".t3/bin/t3");
+// The one credential file for every client, whatever the nvim profile (production
+// or envi-dev/<slot>): the production cutover leaves it here (nvim/ENVI.md).
 const SESSION = path.join(os.homedir(), ".local/state/envi/t3-session.json");
 const DEBUG = process.env.T3_THREAD_DEBUG; // file path: log unknown events there
 

@@ -5,7 +5,7 @@
 --   Popover INSERT <Esc>/<C-]> -> COMMAND (dismiss, never raw Esc). In the
 --   T3 layout Esc dismisses overlays first, otherwise focuses the thread bar.
 --   COMMAND i/a/I/A/<C-]> -> INSERT.
---   q in COMMAND hides; <leader>hi / <leader>h? open, focus, or switch the shown
+--   :q in COMMAND hides; <leader>hi / <leader>h? open, focus, or switch the shown
 --   popover to their thread in place (never hide).
 --   :T3Thread            open or focus the popover (first time: thread picker)
 --   :T3Thread <id>       open that thread in the popover
@@ -186,14 +186,16 @@ local function mark(buf)
     return
   end
   vim.b[buf].hcmux_float = MARK
-  local o = { buffer = buf, silent = true, desc = "Hide T3 popover" }
-  vim.keymap.set("n", "q", function()
-    -- A buffer can be shared by the tiled main pane and the popover. Decide
-    -- at keypress time, not by replacing its buffer-local mapping on attach.
-    if not vim.w.envi_t3_main then
-      hide()
+  require("config.panel-close").bind(buf, function()
+    -- The same buffer can be shown in the tiled main pane and the popover.
+    if vim.w.envi_t3_main then
+      require("hcmux.layout").detach_thread()
+    elseif vim.api.nvim_win_get_config(0).relative ~= "" then
+      hide(vim.api.nvim_get_current_win())
+    else
+      require("config.panel-close").close_window()
     end
-  end, o)
+  end, "Detach this T3 viewer")
   -- Private CSI reports go through the viewer job (hc attach) unmodified.
   -- Keep these codes aligned with tools/t3-thread/control.mjs.
   local function send(action)
@@ -330,7 +332,7 @@ local function mark(buf)
   vim.keymap.set("n", "<C-c>", function()
     confirm(5)
   end, { buffer = buf, silent = true, desc = "T3: confirm interrupt" })
-  -- Hiding (q) or closing a window that shows this buffer: follow what remains.
+  -- Hiding (:q) or closing a window that shows this buffer: follow what remains.
   vim.api.nvim_create_autocmd("WinClosed", {
     buffer = buf,
     callback = function(ev)
@@ -555,7 +557,7 @@ function M.attach_in(win, id)
 end
 
 --- Name kept for the <leader>h maps: open, focus, or switch threads in place.
---- It never hides; only `q` in COMMAND mode does.
+--- It never hides; only `:q` in COMMAND mode does.
 function M.toggle(id)
   M.open(id)
 end

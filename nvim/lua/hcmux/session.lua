@@ -3,6 +3,7 @@
 -- herdr-core is the single source of truth. A session is one core document
 -- (`nvs.<name>`) holding nvim's layout (`:mksession` text: tabs, splits, sizes,
 -- buffers, cursors, folds), plus the terminals labelled `herdr.nvs=<name>`.
+-- A dev profile uses `nvsdev.<name>` and `herdr.nvsdev=<name>` instead.
 --
 --   * Plain `nvim` (or `nvim <dir>`) attaches to the session of that folder's
 --     git root; `nvim-session attach <name>` to a named one. `nvim <file>` is
@@ -23,8 +24,19 @@ M.config = {
   sessionoptions = "buffers,curdir,folds,help,tabpages,winsize,terminal",
 }
 
-M.LABEL = "herdr.nvs" -- terminals that belong to a session
-M.INDEX = "nvs-index" -- core document listing sessions by name
+-- A development profile (NVIM_APPNAME envi-dev/<slot>, see nvim/bin/envi-dev)
+-- keeps its sessions in a storage namespace disjoint from production: its own
+-- documents (nvsdev.<name>), index and terminal label, so no dev name can
+-- reach a production session, whatever that one is called. The line below
+-- declares it; nvim/bin/envi-dev refuses a worktree without exactly this one.
+-- envi-dev-protocol: 2
+local appname = vim.env.NVIM_APPNAME or ""
+M.dev = appname == "envi-dev" or appname:sub(1, 9) == "envi-dev/"
+
+local PREFIX = M.dev and "nvsdev." or "nvs." -- core document = PREFIX .. name
+local LABELS = { "herdr.nvs", "herdr.nvsdev" } -- production, dev
+M.LABEL = LABELS[M.dev and 2 or 1] -- terminals that belong to a session
+M.INDEX = M.dev and "nvsdev-index" or "nvs-index" -- core document listing sessions by name
 
 M.name = nil -- attached session
 M.root = nil -- its folder
@@ -35,16 +47,25 @@ local uv = vim.uv or vim.loop
 
 -- ── names and storage (no UI; also used by the nvim-session CLI) ─────────
 
---- Session names are core document names minus the `nvs.` prefix:
---- 1-28 of a-z 0-9 - _ .
-function M.sanitize(s)
+local function clean(s)
+  -- Core document names are at most 32 characters, prefix included.
   s = tostring(s or ""):lower():gsub("[^a-z0-9._-]+", "-"):gsub("^[^a-z0-9]+", ""):gsub("%-+$", "")
-  s = s:sub(1, 28):gsub("[-._]+$", "")
+  s = s:sub(1, 32 - #PREFIX):gsub("[-._]+$", "")
   return s ~= "" and s or "session"
 end
 
+--- Session names are core document names minus their prefix: 1-28 of
+--- a-z 0-9 - _ . (in a dev profile 1-25, always starting with dev-).
+function M.sanitize(s)
+  s = clean(s)
+  if M.dev and s:sub(1, 4) ~= "dev-" then
+    s = clean("dev-" .. s)
+  end
+  return s
+end
+
 function M.doc_name(name)
-  return "nvs." .. name
+  return PREFIX .. name
 end
 
 --- The folder a session belongs to: the git root, else the directory.
@@ -178,12 +199,13 @@ end
 
 --- End a session: its terminals and its document.
 function M.kill(name)
+  local doc = M.doc_name(name)
   for _, t in ipairs(M.terminals(name)) do
     core.exec({ "kill", t.address })
     core.exec({ "rm", t.address })
   end
   local _, ver = M.read(name)
-  core.doc_set(M.doc_name(name), nil, ver or 0)
+  core.doc_set(doc, nil, ver or 0)
   return M.index_update(function(s)
     s[name] = nil
   end)
@@ -499,7 +521,11 @@ function M.list_terminals()
   for _, fact in ipairs(core.list()) do
     local l = fact.labels or {}
     local mine = l[M.LABEL] == name
-    local legacy = l[M.LABEL] == nil and core.is_ours(fact) and l[core.LABEL .. ".cwd"] == root
+    -- Never adopt a terminal of the other namespace (production or dev).
+    local legacy = l[LABELS[1]] == nil
+      and l[LABELS[2]] == nil
+      and core.is_ours(fact)
+      and l[core.LABEL .. ".cwd"] == root
     if (mine or legacy) and not t.buf_of(fact.address) then
       if legacy then
         core.label(fact.address, { [M.LABEL] = name })

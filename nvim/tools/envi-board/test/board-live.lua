@@ -17,7 +17,8 @@ local hub = vim.fn.json_decode(table.concat(vim.fn.readfile("theme/theme.json"),
 local theme_file = dir .. "/theme.json"
 vim.fn.writefile({ vim.json.encode(hub) }, theme_file)
 vim.env.ENVI_THEME_FILE = theme_file
-local M = dofile("nvim/lua/hcmux/board.lua")
+vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
+local M = require("hcmux.board")
 local before, draft = api.nvim_get_current_win(), api.nvim_get_current_buf()
 api.nvim_buf_set_lines(draft, 0, -1, false, { "unsaved draft" })
 local function wait(fn, reason)

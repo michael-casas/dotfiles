@@ -104,23 +104,15 @@ assert(vim.api.nvim_win_is_valid(main) and vim.api.nvim_win_get_width(main) > wi
 assert(vim.api.nvim_win_get_buf(main) == buf and vim.api.nvim_win_get_cursor(main)[1] == 2)
 layout.sidebar_toggle()
 assert(vim.api.nvim_win_get_width(main) == width and vim.api.nvim_win_get_buf(main) == buf)
-local q
-for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
-  if map.lhs == "q" then
-    q = map.callback
-  end
-end
-assert(q)
-vim.api.nvim_set_current_win(main)
-q()
-assert(vim.api.nvim_win_is_valid(main) and vim.api.nvim_tabpage_is_valid(tab))
--- Same buffer in a float still gets popover q; main q must not hide that float.
+assert(vim.fn.maparg("q", "n") == "", "q is available for macros")
+-- :q detaches this layout's view, leaving any shared popover and its core client alive.
 local float = vim.api.nvim_open_win(buf, true, { relative = "editor", width = 30, height = 5, row = 0, col = 0 })
 vim.api.nvim_set_current_win(main)
-q()
-assert(vim.api.nvim_win_is_valid(float))
+vim.api.nvim_feedkeys(":q\r", "mtx", false)
+assert(vim.api.nvim_win_is_valid(main) and vim.api.nvim_tabpage_is_valid(tab))
+assert(vim.api.nvim_win_get_buf(main) ~= buf and vim.api.nvim_win_is_valid(float))
 vim.api.nvim_set_current_win(float)
-q()
+vim.api.nvim_feedkeys(":q\r", "mtx", false)
 assert(not vim.api.nvim_win_is_valid(float) and vim.api.nvim_win_is_valid(main))
 -- Reuse label even when name differs (and deterministic name collides).
 facts["t3-labelled"] = { address = "unrelated", state = "live", labels = { ["t3.thread"] = "other" } }
