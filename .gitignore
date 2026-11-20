@@ -23,6 +23,15 @@ advisor/
 *.bak
 *.swp
 *.swo
+__pycache__/
+*.pyc
+
+# --- Local runtime state ---
+.pi/*.sqlite
+.pi/*.sqlite-*
+
+# --- Licensed skills that must not be redistributed ---
+skills/twg/
 
 # --- Treehouse worktree pool ---
 .treehouse/

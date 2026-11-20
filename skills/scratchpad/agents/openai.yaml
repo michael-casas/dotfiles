@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scratchpad"
+  short_description: "Per-session SQLite scratchpad that survives compaction"
+  default_prompt: "Use $scratchpad to record and restore this session's working state."

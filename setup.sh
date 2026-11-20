@@ -140,8 +140,8 @@ fi
 # --- Agent Skills ---
 SKILLS_SOURCE="$DOTFILES_DIR/skills"
 if [[ -d "$SKILLS_SOURCE" ]]; then
-    echo "==> Linking canonical agent skill entries..."
-    python3 "$DOTFILES_DIR/skill-catalog.py" --apply --include-claude
+    echo "==> Linking dotfiles skills directly into Claude and Agents..."
+    python3 "$DOTFILES_DIR/skill-catalog.py" --apply
 fi
 
 echo "==> Done!"

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gateway": {
+      "npm": "@ai-sdk/openai",
+      "name": "Private gateway",
+      "options": {
+        "baseURL": "https://gateway.example.invalid/v1",
+        "apiKey": "{file:~/.local/share/opencode/secrets/gateway-key}"
+      },
+      "models": {
+        "example-model": {
+          "name": "example-model"
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,60 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+  },
+  "permissions": {
+    "defaultMode": "auto"
+  },
   "model": "opus",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.claude/hooks/herdr-agent-state.sh\"; [ -f \"$f\" ] || exit 0; exec bash \"$f\" session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" session-start --harness claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" pre-compact --harness claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" stop --harness claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "respondToBashCommands": false,
   "statusLine": {
     "type": "command",
     "command": "claudeline -cwd -git-branch -cost"
@@ -7,7 +62,10 @@
   "enabledPlugins": {
     "codex@openai-codex": true,
     "atlassian@claude-plugins-official": true,
-    "github@claude-plugins-official": true
+    "github@claude-plugins-official": true,
+    "expo@claude-plugins-official": true,
+    "whiteboard@devfast": true,
+    "chrome-devtools-mcp@chrome-devtools-plugins": false
   },
   "extraKnownMarketplaces": {
     "openai-codex": {
@@ -15,9 +73,42 @@
         "source": "github",
         "repo": "openai/codex-plugin-cc"
       }
+    },
+    "devfast": {
+      "source": {
+        "source": "github",
+        "repo": "devdotfast/whiteboard",
+        "ref": "v0.2.0",
+        "sparsePaths": [
+          ".claude-plugin",
+          "packages/agent-plugins/claude"
+        ]
+      }
     }
   },
   "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    },
+    "claude-fable-5-1": {
+      "effortLevel": "medium"
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "medium"
+    },
+    "claude": {
+      "effortLevel": "medium"
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "promptSuggestionEnabled": false,
   "autoMemoryEnabled": false,
-  "theme": "dark-ansi"
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "custom:nordic",
+  "idleCompaction": true,
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true
 }
