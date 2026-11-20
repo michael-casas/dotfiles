@@ -62,8 +62,8 @@ window-theme = dark
 macos-titlebar-style = tabs
 
 # --- Shell ---
-# Use fish as the default shell
-command = /opt/homebrew/bin/fish
+# Use Homebrew Bash as the default shell
+command = /opt/homebrew/bin/bash
 
 # --- Scrollback ---
 scrollback-limit = 10000000
@@ -72,5 +72,5 @@ scrollback-limit = 10000000
 mouse-scroll-multiplier = 3
 
 # --- Keybindings ---
-# Option as Meta for tmux compatibility
+# Option as Meta for Herdr and shell keybindings
 macos-option-as-alt = left

@@ -8,6 +8,21 @@ DOTFILES_DIR="$HOME/.dotfiles"
 
 echo "==> Setting up dotfiles from $DOTFILES_DIR"
 
+# --- Retired links ---
+# Earlier versions of this script linked tmux and claude-swap. Remove only a
+# symlink that still points at exactly the old repository path and whose target
+# is gone; real files and links to anything else are left alone.
+remove_retired_link() {
+    local link="$1" target="$2"
+    if [[ -L "$link" && "$(readlink "$link")" == "$target" && ! -e "$link" ]]; then
+        echo "==> Removing retired link $link"
+        rm "$link"
+    fi
+}
+remove_retired_link "$HOME/.tmux.conf" "$DOTFILES_DIR/tmux/tmux.conf"
+remove_retired_link "$HOME/.claude-swap" "$DOTFILES_DIR/claude-swap"
+remove_retired_link "$HOME/.local/bin/claude-swap" "$DOTFILES_DIR/_claude-swap/dist/src/cli.js"
+
 # --- Bash Shell ---
 if [[ -f "$DOTFILES_DIR/bash/.bashrc" ]]; then
     echo "==> Linking bash config..."
@@ -44,12 +59,6 @@ if [[ -d "$DOTFILES_DIR/nvim" ]]; then
         mv "$HOME/.config/nvim" "$HOME/.config/nvim.backup"
     fi
     ln -sfn "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
-fi
-
-# --- Tmux ---
-if [[ -f "$DOTFILES_DIR/tmux/tmux.conf" ]]; then
-    echo "==> Linking tmux config..."
-    ln -sf "$DOTFILES_DIR/tmux/tmux.conf" "$HOME/.tmux.conf"
 fi
 
 # --- Git ---
@@ -97,46 +106,25 @@ if [[ -f "$DOTFILES_DIR/pgcli/config" ]]; then
     ln -sf "$DOTFILES_DIR/pgcli/config" "$HOME/.config/pgcli/config"
 fi
 
+# --- herdr ---
+if [[ -f "$DOTFILES_DIR/herdr/config.toml" ]]; then
+    echo "==> Linking herdr config..."
+    mkdir -p "$HOME/.config/herdr"
+    ln -sf "$DOTFILES_DIR/herdr/config.toml" "$HOME/.config/herdr/config.toml"
+fi
+
 # --- Claude Code ---
-if [[ -d "$DOTFILES_DIR/claude-swap" ]]; then
-    echo "==> Linking claude-swap profile store..."
-    CLAUDE_SWAP_TARGET="$DOTFILES_DIR/claude-swap"
-    CLAUDE_SWAP_LINK="$HOME/.claude-swap"
-    if [[ -e "$CLAUDE_SWAP_LINK" || -L "$CLAUDE_SWAP_LINK" ]]; then
-        CURRENT_TARGET=""
-        if [[ -L "$CLAUDE_SWAP_LINK" ]]; then
-            CURRENT_TARGET="$(readlink "$CLAUDE_SWAP_LINK")"
-        fi
-        if [[ "$CURRENT_TARGET" != "$CLAUDE_SWAP_TARGET" ]]; then
-            BACKUP_PATH="$HOME/.claude-swap.backup.$(date -u +%Y%m%dT%H%M%SZ)"
-            echo "    Backing up existing ~/.claude-swap to $BACKUP_PATH"
-            mv "$CLAUDE_SWAP_LINK" "$BACKUP_PATH"
-        fi
-    fi
-    ln -sfn "$CLAUDE_SWAP_TARGET" "$CLAUDE_SWAP_LINK"
-fi
-
-# --- claude-swap CLI binary ---
-CLAUDE_SWAP_BIN="$DOTFILES_DIR/_claude-swap/dist/src/cli.js"
-if [[ -f "$CLAUDE_SWAP_BIN" ]]; then
-    echo "==> Linking claude-swap binary..."
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$CLAUDE_SWAP_BIN" "$HOME/.local/bin/claude-swap"
-    chmod +x "$CLAUDE_SWAP_BIN"
-fi
-
 if [[ -f "$DOTFILES_DIR/claude/settings.json" ]]; then
-    if [[ -f "$HOME/.claude-swap/state.json" ]]; then
-        echo "==> Skipping Claude Code settings link; ~/.claude is managed by claude-swap"
-    else
-        echo "==> Linking Claude Code settings bootstrap..."
-        mkdir -p "$HOME/.claude"
-        if [[ -f "$HOME/.claude/settings.json" && ! -L "$HOME/.claude/settings.json" ]]; then
-            echo "    Backing up existing ~/.claude/settings.json to ~/.claude/settings.json.backup"
-            mv "$HOME/.claude/settings.json" "$HOME/.claude/settings.json.backup"
-        fi
-        ln -sf "$DOTFILES_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+    echo "==> Linking Claude Code settings..."
+    mkdir -p "$HOME/.claude"
+    if [[ -e "$HOME/.claude/settings.json" && ! -L "$HOME/.claude/settings.json" ]]; then
+        BACKUP_PATH="$HOME/.claude/settings.json.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+        while [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; do
+            BACKUP_PATH="${BACKUP_PATH}.1"
+        done
+        mv "$HOME/.claude/settings.json" "$BACKUP_PATH"
     fi
+    ln -sfn "$DOTFILES_DIR/claude/settings.json" "$HOME/.claude/settings.json"
 fi
 
 # --- OpenCode ---
@@ -160,6 +148,6 @@ echo "==> Done!"
 
 echo ""
 echo "Next steps:"
-echo "  1. Add fish to /etc/shells:  sudo sh -c 'echo /opt/homebrew/bin/fish >> /etc/shells'"
-echo "  2. Change default shell:      chsh -s /opt/homebrew/bin/fish"
-echo "  3. Restart your terminal or run: exec fish"
+echo "  1. Add Bash to /etc/shells:  grep -qxF /opt/homebrew/bin/bash /etc/shells || sudo sh -c 'echo /opt/homebrew/bin/bash >> /etc/shells'"
+echo "  2. Change default shell:     chsh -s /opt/homebrew/bin/bash"
+echo "  3. Restart your terminal or run: exec /opt/homebrew/bin/bash -l"
