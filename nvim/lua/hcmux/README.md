@@ -201,8 +201,17 @@ See `sync/README.md`.
   - While other notifications fill the screen, it waits in the queue as long
     as needed. If it is dismissed before it was ever shown, the next check
     offers it again.
-  - A newer commit's toast replaces an older one, whether showing or still
-    queued, after a 0.1 s gap, and gets its own 4 s.
+  - At most one is on screen; they all say the same thing. A toast on screen
+    keeps its own 4 s: a newer commit never cuts it short or extends it.
+  - A newer commit that lands while one is on screen is covered by it: no
+    second toast, and the commit counts as notified. The exception is a commit
+    in the toast's last 0.25 s (`toast_tail_ms`): it gets one fresh toast of
+    its own, shown after the old one hides, so it isn't swallowed by a toast
+    about to go. A commit after the toast hid gets its own toast too.
+  - A toast still queued (never shown) is dismissed when a newer commit comes;
+    the newer commit's toast takes its place.
+  - Toasts never show back to back: there is at least a 0.1 s gap after one
+    hides.
   - Other notifications keep their own lifetimes.
 - **Robustness:** every watch event re-arms the watch, so a replaced
   `logs/HEAD` (a new inode) keeps working. A check on `FocusGained` and a cheap

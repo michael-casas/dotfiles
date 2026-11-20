@@ -2,7 +2,9 @@
 
 Keeps the production checkout (`~/.dotfiles`) at `origin/main`, so a PR merged
 on GitHub reaches every running nvim: nvim's hot reload (`nvim/lua/hcmux/hotreload.lua`)
-watches the checkout and reloads, or shows a toast.
+watches the checkout and reloads, or shows a toast for 4 s. One toast at a time:
+commits that land while it's on screen are covered by it (see
+`nvim/lua/hcmux/README.md`).
 
 | File | What it is |
 |---|---|
