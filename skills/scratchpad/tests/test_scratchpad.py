@@ -274,6 +274,116 @@ class ScratchpadTests(unittest.TestCase):
             os.umask(previous)
         self.assert_legacy_migrated(store, files, 0o700)
 
+    # --- Another session's files can change or vanish while this one starts ---
+
+    def store_module(self):
+        import importlib
+        import sys
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            return importlib.import_module("scratchpad_store")
+        finally:
+            sys.path.remove(str(SCRIPTS))
+
+    def other_session_with_live_wal(self) -> tuple[sqlite3.Connection, Path]:
+        """A real second session whose open connection holds a WAL file."""
+        self.home.mkdir(parents=True, exist_ok=True)
+        other = self.home / "session-other.db"
+        conn = sqlite3.connect(other)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE fixture (n INTEGER)")
+        conn.execute("INSERT INTO fixture VALUES (1)")
+        conn.commit()
+        self.assertTrue(Path(f"{other}-wal").is_file())
+        return conn, other
+
+    def test_other_session_closing_mid_scan_does_not_block_startup(self) -> None:
+        from unittest import mock
+        store = self.store_module()
+        conn, other = self.other_session_with_live_wal()
+        wal = Path(f"{other}-wal")
+        real_chmod = os.chmod
+        injected = []
+
+        def chmod_after_close(path, mode, *args, **kwargs):
+            if Path(path) == wal and wal.is_file():
+                conn.close()  # SQLite removes the WAL on the last close
+                injected.append(path)
+            return real_chmod(path, mode, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, {"SCRATCHPAD_HOME": str(self.home)}), \
+                mock.patch.object(store.os, "chmod", chmod_after_close):
+            session = store.open_session(SESSION, harness="claude", cwd=self.tempdir.name)
+            session.close()
+        self.assertTrue(injected, "the close was injected before chmod of the listed WAL")
+        self.assertTrue(self.db.is_file(), "the starting session's database exists")
+        self.assertEqual(self.rows("SELECT session_id FROM session_meta"), [(SESSION,)])
+        self.assertEqual(self.mode(other), 0o600, "files still present are still migrated")
+
+    def test_installed_session_start_hook_survives_a_concurrent_close(self) -> None:
+        inject = Path(self.tempdir.name) / "inject"
+        inject.mkdir()
+        (inject / "sitecustomize.py").write_text(
+            "import os, sqlite3, sys\n"
+            "from pathlib import Path\n"
+            "root = os.environ.get('SCRATCHPAD_RACE_ROOT')\n"
+            "if root and 'session-start' in sys.argv:\n"
+            "    root = Path(root); root.mkdir(parents=True, exist_ok=True)\n"
+            "    db = root / 'session-other.db'; wal = Path(f'{db}-wal')\n"
+            "    conn = sqlite3.connect(db); conn.execute('PRAGMA journal_mode=WAL')\n"
+            "    conn.execute('CREATE TABLE IF NOT EXISTS fixture (n INTEGER)')\n"
+            "    conn.execute('INSERT INTO fixture VALUES (1)'); conn.commit()\n"
+            "    real_chmod = os.chmod\n"
+            "    def chmod_after_close(path, mode, *a, **k):\n"
+            "        if Path(path) == wal and wal.is_file():\n"
+            "            conn.close(); (root / 'injected').write_text('closed')\n"
+            "        return real_chmod(path, mode, *a, **k)\n"
+            "    os.chmod = chmod_after_close\n")
+        out = self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"},
+                        CLAUDE_ENV_FILE=str(self.env_file), PYTHONPATH=str(inject),
+                        SCRATCHPAD_RACE_ROOT=str(self.home))
+        self.assertTrue((self.home / "injected").is_file(), "the close was injected")
+        self.assertNotIn("systemMessage", out)
+        self.assertIn(str(self.db), out["hookSpecificOutput"]["additionalContext"])
+        self.assertTrue(self.db.is_file())
+        self.assertIn(f"export SCRATCHPAD_SESSION_ID={SESSION}", self.env_file.read_text())
+
+    def test_other_session_permission_errors_are_best_effort(self) -> None:
+        import contextlib
+        import io
+        from unittest import mock
+        store = self.store_module()
+        conn, other = self.other_session_with_live_wal()
+        conn.close()
+        real_chmod = os.chmod
+
+        def deny_other(path, mode, *args, **kwargs):
+            if Path(path) == other:
+                raise PermissionError(1, "Operation not permitted", str(path))
+            return real_chmod(path, mode, *args, **kwargs)
+
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"SCRATCHPAD_HOME": str(self.home)}), \
+                mock.patch.object(store.os, "chmod", deny_other), contextlib.redirect_stderr(err):
+            store.open_session(SESSION, harness="claude").close()
+        self.assertTrue(self.db.is_file())
+        self.assertIn("session-other.db", err.getvalue())
+
+    def test_current_session_permission_error_still_fails(self) -> None:
+        from unittest import mock
+        store = self.store_module()
+        real_chmod = os.chmod
+
+        def deny_current(path, mode, *args, **kwargs):
+            if Path(path) == self.db:
+                raise PermissionError(1, "Operation not permitted", str(path))
+            return real_chmod(path, mode, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, {"SCRATCHPAD_HOME": str(self.home)}), \
+                mock.patch.object(store.os, "chmod", deny_current):
+            with self.assertRaises(PermissionError):
+                store.open_session(SESSION, harness="claude")
+
 
 if __name__ == "__main__":
     unittest.main()

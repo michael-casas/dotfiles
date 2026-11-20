@@ -7,6 +7,7 @@ import datetime as dt
 import os
 import re
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -92,12 +93,25 @@ def secure_store(root: Path) -> None:
         os.chmod(root, 0o700)
 
 
-def secure_files(db_path: Path) -> None:
-    """Make the session database and its SQLite sidecars 0600."""
+def secure_files(db_path: Path, *, best_effort: bool = False) -> None:
+    """Make the session database and its SQLite sidecars 0600.
+
+    A file can vanish between the check and the chmod: SQLite deletes a
+    session's WAL and SHM when its last connection closes. That path is
+    skipped. With best_effort (another session's files), any other OS error is
+    reported on stderr and skipped too; for the current session it is raised.
+    """
     for suffix in SIDECAR_SUFFIXES:
         path = Path(f"{db_path}{suffix}")
-        if path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid():
-            os.chmod(path, 0o600)
+        try:
+            if path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid():
+                os.chmod(path, 0o600)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if not best_effort:
+                raise
+            print(f"scratchpad: could not make {path} private: {exc}", file=sys.stderr)
 
 
 SESSION_DB_NAME = re.compile(r"^session-(.+)\.db$")
@@ -107,7 +121,8 @@ def secure_existing_sessions(root: Path) -> None:
     """Migrate files an earlier version created with the umask's mode: every
     owner-owned regular `session-<id>.db` in the store, and its sidecars, becomes
     0600, whether or not this run opens it. Symlinks, names that are not session
-    ids, and unrelated files are left alone."""
+    ids, and unrelated files are left alone. Other sessions are migrated
+    best-effort: nothing here stops the current session from opening."""
     try:
         entries = list(root.iterdir())
     except OSError:
@@ -115,7 +130,7 @@ def secure_existing_sessions(root: Path) -> None:
     for path in entries:
         match = SESSION_DB_NAME.fullmatch(path.name)
         if match and SESSION_ID_PATTERN.fullmatch(match.group(1)) and not path.is_symlink() and path.is_file():
-            secure_files(path)
+            secure_files(path, best_effort=True)
 
 
 def connect(db_path: Path, *, must_exist: bool = False) -> sqlite3.Connection:
