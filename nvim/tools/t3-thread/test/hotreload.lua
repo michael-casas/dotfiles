@@ -421,6 +421,37 @@ vim.api.nvim_exec_autocmds("FocusGained", {})
 sleep(300)
 assert(#toasts == nc0 + 2, "shown once, not again")
 
+-- CRT-B r7: a displaced toast that covers nothing and has no successor is
+-- retired too (hidden by id, so snacks never shows that record again); its
+-- commit, still the newest, gets one fresh toast with its full toast_ms.
+sleep(150)
+local nr0 = #toasts
+hot.toast("re-a")
+until_(1000, function()
+  return #toasts == nr0 + 1 and toasts[#toasts].shown_ms
+end, "same-id: shown")
+local ra = toasts[#toasts]
+sleep(100)
+displace(ra)
+until_(1000, function()
+  return ra.hidden ~= nil
+end, "same-id: the displaced toast is retired")
+until_(1000, function()
+  return #toasts == nr0 + 2
+end, "same-id: one fresh toast asked for")
+local rb = toasts[#toasts]
+assert(rb.id == ra.id and rb ~= ra and not rb.shown, "a fresh record for the same commit, waiting for room")
+display_ms = 30
+show_now(rb)
+until_(1000, function()
+  return rb.hidden ~= nil
+end, "same-id: the fresh toast expires")
+assert(full(rb), "the fresh toast gets its full toast_ms: " .. lasted(rb))
+hot.toast("re-a")
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == nr0 + 2, "one fresh toast, not more")
+
 -- CRT-B r6: A covers B, C arrives in A's tail, then A is displaced before its
 -- deadline. Only the newest commit not yet notified (C) may get a toast: C is
 -- shown once room returns, for its full toast_ms; B isn't re-offered.

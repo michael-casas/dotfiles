@@ -82,15 +82,16 @@ end
 -- Every toast says the same thing, so the logic keeps one invariant:
 --   The newest commit not yet notified (`want`) is the only commit that may
 --   get a toast. A commit is notified once a toast for it, or for a newer
---   commit, was on screen, or once it arrived while a config toast was on
---   screen (covered). If that covering toast leaves the screen before its
---   deadline, the coverage is revoked: the commit is `want` again if it is
---   still the newest.
+--   commit, was on screen until its deadline, or once it arrived while a config
+--   toast was on screen (covered). A toast that leaves the screen before its
+--   deadline (displaced) is retired: hidden by id, never shown again. Its
+--   coverage is revoked, and the newest commit, the one it covered or its
+--   own, is `want` again.
 -- One `pump()` enforces it after every event. State:
 --   want:   the newest commit awaiting a toast, or nil.
 --   asked:  { id, commit, ms, at } handed to snacks, not on screen yet.
---   shown:  { id, commit, deadline, since, covers } the toast that was on
---           screen (snacks may have taken it off again: on_screen() checks).
+--   shown:  { id, commit, deadline, since, covers } the toast on screen
+--           (status() checks snacks still has it there).
 --   latest: the newest commit `M.toast` was called for.
 local want, asked, shown, latest
 local last_hidden = -math.huge
@@ -154,42 +155,53 @@ local function entry(s, id)
   return found
 end
 
--- Whether toast `id` is on screen right now: snacks says shown (not cleared,
--- not hidden) and its window is valid. Snacks clears `shown` when it takes a
--- toast off screen for lack of room (a small terminal, higher-priority
--- notifications) and puts it back in its queue; when room returns it sets a
--- new `shown`. So with `since` (the `shown` it had when first displayed), a
--- different one means it was off screen in between, however briefly: false.
--- nil when snacks can't tell.
-local function on_screen(s, id, since)
-  local n = entry(s, id)
+-- Where the shown toast `me` is right now: "on" (snacks says shown, not
+-- cleared, not hidden, and its window is valid), "displaced" (snacks took it
+-- off screen for lack of room: a small terminal, higher-priority
+-- notifications; it clears `shown`, puts it back in its queue, and sets a new
+-- `shown` if it brings it back, so a `shown` other than `me.since` means it
+-- was off screen in between, however briefly), "hidden" (hidden or gone:
+-- snacks' own timeout, or dismissed), or nil when snacks can't tell.
+local function status(s, me)
+  local n = entry(s, me.id)
   if n == false then
     return nil
   end
-  if not n or not n.shown or n.hidden or (since and n.shown ~= since) then
-    return false
+  if not n or n.hidden then
+    return "hidden"
+  end
+  if not n.shown or (me.since and n.shown ~= me.since) then
+    return "displaced"
   end
   if type(n.win) == "table" and type(n.win.win_valid) == "function" then
     local ok, valid = pcall(n.win.win_valid, n.win)
-    return not ok or valid == true
+    if ok and valid ~= true then
+      return "displaced"
+    end
   end
-  return true
+  return "on"
 end
 
 local pump
 
--- Hide the shown toast now: at its deadline, or `early` when it left the
--- screen before it. Only our own ids are ever hidden.
-local function drop(s, early)
+-- Retire the shown toast: hide it by id, so snacks never shows this id again.
+-- `how`: "deadline" (it ran its course), "hidden" (snacks or the person hid
+-- it: seen), or "displaced" (it left the screen before its deadline: what it
+-- stood for isn't delivered). A displaced toast's coverage is revoked, and
+-- the newest commit, the one it covered or its own, is awaiting a toast again.
+local function drop(s, how)
   local me = shown
   shown, last_hidden = nil, now()
   pcall(s.notifier.hide, me.id)
+  if how ~= "displaced" then
+    return
+  end
   local c = me.covers
-  if early and c and M.state.covered[c] then
-    M.state.covered[c] = nil -- the coverer is gone before its deadline: revoked
-    if c == latest and not want then
-      want = c -- still the newest awaiting a notice
-    end
+  if c then
+    M.state.covered[c] = nil
+  end
+  if not want and (c == latest or me.commit == latest) then
+    want = latest
   end
 end
 
@@ -209,7 +221,8 @@ local function observe(s)
     shown, asked = me, nil
     timer(math.max(0, math.floor(left)), function()
       if shown == me then
-        drop(s)
+        -- Reconcile first: displaced since the last watch tick, it's no delivery.
+        drop(s, status(s, me) == "displaced" and "displaced" or "deadline")
         pump()
       end
     end)
@@ -243,8 +256,11 @@ function pump()
     return
   end
   observe(s)
-  if shown and on_screen(s, shown.id, shown.since) == false and (want or shown.covers) then
-    drop(s, true) -- off screen: it covers nothing, and it can't come back beside a newer one
+  if shown then
+    local where = status(s, shown)
+    if where == "displaced" or where == "hidden" then
+      drop(s, where) -- off screen: retired, it covers nothing and never comes back
+    end
   end
   if want then
     if asked and asked.commit ~= want then
