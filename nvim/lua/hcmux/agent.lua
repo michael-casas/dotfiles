@@ -304,8 +304,8 @@ render = function()
     end
   end
   local hint = view == "board"
-      and "1–9 open · hjkl move · i new · / search · mN mark · x clear · Tab · R · ? · q/Esc"
-    or "j/k move · Enter open · i search · mN mark · x clear · Tab board · ? · q"
+      and "1–9 open · hjkl move · i new · / search · mN mark · x clear · Tab · R · ? · :q/Esc"
+    or "j/k move · Enter open · i search · mN mark · x clear · Tab board · ? · :q"
   lines[height] = ui.truncate(message and ("T3 unavailable: " .. message) or hint, width)
   for i = 1, height do
     lines[i] = lines[i] or ""
