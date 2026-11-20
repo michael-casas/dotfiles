@@ -192,6 +192,8 @@ local function mark(buf)
       require("hcmux.layout").detach_thread()
     elseif vim.api.nvim_win_get_config(0).relative ~= "" then
       hide(vim.api.nvim_get_current_win())
+    else
+      require("config.panel-close").close_window()
     end
   end, "Detach this T3 viewer")
   -- Private CSI reports go through the viewer job (hc attach) unmodified.

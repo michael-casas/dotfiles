@@ -79,6 +79,57 @@ local function run(test)
   return ok, err
 end
 
+local function history_quit(input)
+  return function(lua, keys, wait)
+    keys(":q<CR>")
+    wait("return explorer.closed and vim.api.nvim_get_current_win() == editor", ":q closes the explorer")
+    lua([[
+      vim.cmd.split()
+      replay_win = vim.api.nvim_get_current_win()
+      vim.v.errmsg = ""
+    ]])
+    keys(input)
+    wait("return not vim.api.nvim_win_is_valid(replay_win)", input .. " closes the ordinary split through history")
+    assert(lua("return vim.v.errmsg == '' and vim.api.nvim_win_is_valid(editor)"), "history replay raises no error")
+  end
+end
+
+local function split_quit(view)
+  return function(lua, keys, wait)
+    lua(
+      [[
+      local view = ...
+      local api = vim.api
+      local viewer = api.nvim_create_buf(false, true)
+      local fact = { address = "synthetic", state = "live", labels = { ["t3.thread"] = "fixture" } }
+      package.loaded["hcmux.core"] = { get = function() return fact end }
+      package.loaded["hcmux.term"] = {
+        addr_of = function(buf) return buf == viewer and fact.address or nil end,
+        buf_of = function() return viewer end,
+        attach = function() return viewer end,
+      }
+      local side = require("hcmux.t3side")
+      side.start = function() end
+      local layout = require("hcmux.layout")
+      layout.go("T3")
+      if view == "viewer" then
+        layout.open_thread("fixture")
+        vim.cmd.stopinsert()
+      end
+      real_win = api.nvim_get_current_win()
+      split = api.nvim_open_win(api.nvim_get_current_buf(), true, { split = "below", win = real_win })
+      assert(not vim.w[split].envi_t3_main and api.nvim_win_get_config(split).relative == "")
+    ]],
+      view
+    )
+    keys(":q<CR>")
+    wait(
+      "return not vim.api.nvim_win_is_valid(split) and vim.api.nvim_win_is_valid(real_win)",
+      ":q closes the plain " .. view .. " split"
+    )
+  end
+end
+
 local tests = {
   layering = function(lua, keys, wait)
     keys("<M-m>")
@@ -187,6 +238,86 @@ local tests = {
     ]],
       ":q clears a utility panel from the last editor window"
     )
+  end,
+  file_quit = function(lua, keys, wait)
+    lua([[
+      explorer:close()
+      vim.o.hidden = false
+      vim.cmd.split("other.txt")
+      doc_win = vim.api.nvim_get_current_win()
+      doc = vim.api.nvim_get_current_buf()
+      vim.bo[doc].filetype = "help"
+      assert(vim.bo[doc].buftype == "")
+      vim.api.nvim_buf_set_lines(doc, 0, -1, false, { "unsaved help edit" })
+      vim.v.errmsg = ""
+    ]])
+    keys(":q<CR>")
+    wait(
+      [[
+      return vim.api.nvim_buf_is_valid(doc)
+        and vim.bo[doc].modified
+        and vim.api.nvim_buf_get_lines(doc, 0, 1, false)[1] == "unsaved help edit"
+        and vim.v.errmsg:find("E37", 1, true) ~= nil
+    ]],
+      ":q refuses to discard a modified real help file"
+    )
+    lua("vim.o.hidden = true")
+    keys(":q<CR>")
+    wait(
+      [[
+      return not vim.api.nvim_win_is_valid(doc_win)
+        and vim.api.nvim_buf_is_valid(doc)
+        and vim.bo[doc].modified
+        and vim.api.nvim_buf_get_lines(doc, 0, 1, false)[1] == "unsaved help edit"
+    ]],
+      ":q hides a modified real help file when hidden is enabled"
+    )
+    lua([[
+      vim.cmd.sbuffer({ args = { tostring(doc) } })
+      doc_win = vim.api.nvim_get_current_win()
+      vim.o.hidden = false
+    ]])
+    keys(":q!<CR>")
+    wait("return not vim.api.nvim_win_is_valid(doc_win) and vim.api.nvim_win_is_valid(editor)", ":q! honors the bang")
+    assert(lua("return vim.fn.readfile('other.txt')[1] == 'another buffer'"), "native quit never writes the file")
+  end,
+  adopted_file_quit = function(lua, keys, wait)
+    lua([[
+      explorer:close()
+      vim.o.hidden = false
+      vim.cmd.split("other.txt")
+      doc = vim.api.nvim_get_current_buf()
+      vim.api.nvim_buf_set_lines(doc, 0, -1, false, { "unsaved adopted edit" })
+      vim.keymap.set("n", "q", "<cmd>bd!<CR>", { buffer = doc })
+      require("config.panel-close").adopt(doc)
+      vim.v.errmsg = ""
+    ]])
+    keys(":q<CR>")
+    wait(
+      [[
+      return vim.api.nvim_buf_is_valid(doc)
+        and vim.bo[doc].modified
+        and vim.v.errmsg:find("E37", 1, true) ~= nil
+    ]],
+      ":q preserves a modified real buffer with an adopted force-delete mapping"
+    )
+  end,
+  history_register = history_quit("@:"),
+  history_up = history_quit(":<Up><CR>"),
+  t3_viewer_quit = split_quit("viewer"),
+  t3_sidebar_quit = split_quit("sidebar"),
+  quit_alias = function(lua, keys, wait)
+    for _, alias in ipairs({ "quit", "qu", "qui!" }) do
+      keys(":" .. alias .. "<CR>")
+      wait(
+        "return explorer.closed and vim.api.nvim_get_current_win() == editor",
+        ":" .. alias .. " closes the explorer"
+      )
+      local routed = alias:sub(-1) == "!" and "EnviClose!" or "EnviClose"
+      assert(lua("return vim.fn.histget(':', -1) == ...", routed), ":" .. alias .. " uses the same close action as :q")
+      lua("explorer = Snacks.explorer({ git_status = false, diagnostics = false, watch = false })")
+      wait("return explorer and explorer:current_win() == 'list'", "reopen explorer")
+    end
   end,
   picker_quit = function(lua, keys, wait)
     lua([[

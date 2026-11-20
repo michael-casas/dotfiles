@@ -94,8 +94,10 @@ cursors, folds), plus the terminals labelled `herdr.nvs=<name>`.
 
 In an ordinary edit window, `:q` closes the window and detaches the session
 when that is the last window. In a terminal viewer, explorer, picker, or panel,
-type `:q` to close that view while keeping the editor open. Normal-mode `q`
-records macros. `:wq`, `:qa!`, `:detach` and `:qd` keep their usual meaning.
+type `:q` or `:quit` to close that view while keeping the editor open. The
+abbreviations `:qu` and `:qui` and the bang forms work too. Quit commands with an
+address, a count, or a `|` chain use native Vim behavior. Normal-mode `q` records
+macros. `:wq`, `:qa!`, `:detach` and `:qd` keep their usual meaning.
 
 - **Two nvims on one session:** the second one says so, shows
   `(read-only)` in the statusline and doesn't save. `:Session take`

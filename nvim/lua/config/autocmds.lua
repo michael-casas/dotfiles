@@ -22,7 +22,10 @@ if ok and #defaults > 0 then
     end, defaults),
     callback = function(ev)
       vim.bo[ev.buf].buflisted = false
-      close.bind(ev.buf, function()
+      close.bind(ev.buf, function(opts)
+        if vim.bo[ev.buf].buftype == "" then
+          return close.native_quit(opts)
+        end
         close.close_window()
         if api.nvim_buf_is_valid(ev.buf) then
           api.nvim_buf_delete(ev.buf, { force = true })

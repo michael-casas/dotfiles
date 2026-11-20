@@ -1,6 +1,14 @@
 local M = {}
 local api = vim.api
 
+function M.native_quit(opts)
+  vim.cmd.quit({ bang = opts.bang })
+end
+
+-- Command history records the routed command. Replay in an ordinary buffer
+-- should quit natively, while a buffer-local action takes precedence.
+api.nvim_create_user_command("EnviClose", M.native_quit, { bang = true, desc = "Quit or close an envi view" })
+
 -- Scope the interactive Ex command to buffers that have a view owner.
 -- Ordinary edit buffers and commands like :qa, :wq, and :normal q stay native.
 api.nvim_create_autocmd("CmdlineLeave", {
@@ -11,8 +19,10 @@ api.nvim_create_autocmd("CmdlineLeave", {
       return
     end
     local line = vim.trim(vim.fn.getcmdline())
-    if (line == "q" or line == "q!") and api.nvim_buf_get_commands(0, {}).EnviClose then
-      vim.fn.setcmdline("EnviClose" .. line:sub(2))
+    local command = line:match("^(qu?i?t?)!?$")
+    if command and vim.startswith("quit", command) and api.nvim_buf_get_commands(0, {}).EnviClose then
+      local bang = line:sub(-1) == "!" and "!" or ""
+      vim.fn.setcmdline("EnviClose" .. bang)
     end
   end,
 })
@@ -56,7 +66,10 @@ function M.adopt(buf, before_close)
   for _, map in ipairs(api.nvim_buf_get_keymap(buf, "n")) do
     if map.lhs == "q" then
       vim.keymap.del("n", "q", { buffer = buf })
-      M.bind(buf, function()
+      M.bind(buf, function(opts)
+        if vim.bo[buf].buftype == "" then
+          return M.native_quit(opts)
+        end
         if before_close then
           before_close()
         end

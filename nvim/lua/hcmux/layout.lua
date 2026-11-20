@@ -59,6 +59,8 @@ local function show_sidebar()
   require("config.panel-close").bind(sidebar_buf, function()
     if vim.api.nvim_get_current_win() == sidebar then
       M.sidebar_toggle()
+    else
+      require("config.panel-close").close_window()
     end
   end)
   vim.wo[sidebar].winfixwidth = true
