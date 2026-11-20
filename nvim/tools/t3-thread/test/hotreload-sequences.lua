@@ -1,0 +1,357 @@
+-- Sequence test for the hot-reload config toast (Amendment B-2):
+--   nvim/tools/t3-thread/test/run-lua.sh hotreload-sequences
+-- hcmux/hotreload.lua runs on a virtual clock (its vim.uv, vim.defer_fn and
+-- vim.schedule_wrap are fakes) against a fake snacks.notifier with a screen
+-- that can run out of room. Every ordering of up to 3 commit arrivals (now, or
+-- in the on-screen toast's 250 ms tail) interleaved with up to 3 events (show,
+-- mid-life, displace, room returns, expire, FocusGained) is played, then the
+-- run settles (room, time, FocusGained) and the invariant is checked:
+-- * the newest commit was displayed exactly once, or covered by a toast that
+--   stayed on screen from its arrival to its own deadline and had more than
+--   the 250 ms tail left when it arrived;
+-- * never more than one config toast on screen; no commit displayed twice;
+--   only the newest commit is ever handed to snacks;
+-- * each displayed toast lives 3750-4250 ms from its first display (never
+--   longer when snacks took it off screen early); 100 ms between toasts;
+-- * an unrelated notification is never hidden.
+-- HOTRELOAD_SEQ_IMPL=<file> checks another version of hotreload.lua;
+-- HOTRELOAD_SEQ_ONLY=<seq>,<seq> plays only those (letters as in `run`).
+local here = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h")
+local impl = vim.env.HOTRELOAD_SEQ_IMPL or vim.fn.fnamemodify(here, ":h:h:h") .. "/lua/hcmux/hotreload.lua"
+local chunk = assert(loadfile(impl))
+
+-- ── virtual clock ──────────────────────────────────────────────────────────
+local vnow, vseq, events = 0, 0, {}
+local function at(ms, fn) -- one event; returns it (ev.live = false cancels)
+  vseq = vseq + 1
+  local ev = { due = vnow + ms, seq = vseq, fn = fn, live = true }
+  events[#events + 1] = ev
+  return ev
+end
+local function advance(ms)
+  local target = vnow + ms
+  while true do
+    local best, live = nil, {}
+    for _, ev in ipairs(events) do
+      if ev.live then
+        live[#live + 1] = ev
+        if ev.due <= target and (not best or ev.due < best.due or (ev.due == best.due and ev.seq < best.seq)) then
+          best = ev
+        end
+      end
+    end
+    events = live
+    if not best then
+      break
+    end
+    best.live = false
+    vnow = math.max(vnow, best.due)
+    best.fn()
+  end
+  vnow = target
+end
+local function realtime()
+  return 1e6 + vnow / 1000
+end
+local fake_uv = setmetatable({
+  now = function()
+    return vnow
+  end,
+  update_time = function() end,
+  hrtime = function()
+    return vnow * 1e6
+  end,
+  clock_gettime = function()
+    local t = realtime()
+    return { sec = math.floor(t), nsec = math.floor((t % 1) * 1e9 + 0.5) }
+  end,
+  gettimeofday = function()
+    local t = realtime()
+    return math.floor(t), math.floor((t % 1) * 1e6)
+  end,
+  new_timer = function()
+    local t = { closing = false }
+    function t:start(timeout, rep, cb)
+      self:stop()
+      local function arm(ms)
+        self.ev = at(ms, function()
+          if rep and rep > 0 then
+            arm(rep)
+          end
+          cb()
+        end)
+      end
+      arm(timeout)
+      return 0
+    end
+    function t:stop()
+      if self.ev then
+        self.ev.live = false
+      end
+    end
+    function t:close()
+      self:stop()
+      self.closing = true
+    end
+    function t:is_closing()
+      return self.closing
+    end
+    return t
+  end,
+}, { __index = vim.uv })
+local fake_vim = setmetatable({
+  uv = fake_uv,
+  loop = fake_uv,
+  defer_fn = function(fn, ms)
+    at(ms, fn)
+  end,
+  schedule = function(fn)
+    at(0, fn)
+  end,
+  schedule_wrap = function(fn)
+    return fn
+  end,
+  notify = function() end,
+}, { __index = vim })
+setfenv(chunk, setmetatable({ vim = fake_vim }, { __index = _G }))
+
+-- ── fake snacks.notifier ───────────────────────────────────────────────────
+-- Shows what's queued 10 ms after a change while there's room; a displace
+-- clears `shown` of everything on screen (back in the queue), as snacks'
+-- layout does when there's no room.
+local TOAST = "Your configuration has changed since the last time you reloaded, run :Reload"
+local S -- per-run state
+local function count_on_screen()
+  local c = 0
+  for _, n in ipairs(S.hist) do
+    if n.msg == TOAST and n.shown and not n.hidden then
+      c = c + 1
+    end
+  end
+  S.max_on = math.max(S.max_on, c)
+end
+local function update()
+  if not S.room then
+    return
+  end
+  for _, n in ipairs(S.hist) do
+    if not n.hidden and not n.shown then
+      n.shown = realtime()
+      n.first_ms = n.first_ms or vnow
+    end
+  end
+  count_on_screen()
+end
+local function new_snacks()
+  return {
+    notifier = {
+      notify = function(msg, _, opts)
+        local n = { id = opts.id, msg = msg, asked_ms = vnow, displaced = {} }
+        if msg == TOAST then
+          n.newest = S.latest
+        end
+        S.hist[#S.hist + 1] = n
+        at(10, update)
+        return n.id
+      end,
+      hide = function(id)
+        for i = #S.hist, 1, -1 do
+          local n = S.hist[i]
+          if n.id == id and not n.hidden then
+            n.hidden, n.hidden_ms = realtime(), vnow
+            return
+          end
+        end
+      end,
+      get_history = function()
+        return S.hist
+      end,
+    },
+  }
+end
+local function displace()
+  S.room = false
+  for _, n in ipairs(S.hist) do
+    if n.shown and not n.hidden then
+      n.shown = nil
+      n.displaced[#n.displaced + 1] = vnow
+    end
+  end
+end
+local function room()
+  S.room = true
+  at(10, update)
+end
+
+-- ── one run ────────────────────────────────────────────────────────────────
+local function run(seq)
+  vnow, vseq, events = 0, 0, {}
+  S = { hist = {}, room = true, max_on = 0, arrived = {}, k = 0 }
+  _G.Snacks = new_snacks()
+  local hot = chunk() -- a fresh module
+  Snacks.notifier.notify("unrelated", vim.log.levels.INFO, { id = "unrelated" })
+  advance(20)
+  local function arrive()
+    S.k = S.k + 1
+    local c = "c" .. S.k
+    S.latest, S.arrived[c] = c, vnow
+    hot.toast(c)
+  end
+  for i = 1, #seq do
+    local e = seq:sub(i, i)
+    if e == "a" then -- a commit arrives now
+      arrive()
+    elseif e == "t" then -- ... in the on-screen toast's tail (150 ms left)
+      for _, n in ipairs(S.hist) do
+        if n.msg == TOAST and n.shown and not n.hidden then
+          advance(math.max(0, n.first_ms + 4000 - 150 - vnow))
+          break
+        end
+      end
+      arrive()
+    elseif e == "s" then -- snacks shows what's queued
+      advance(50)
+    elseif e == "m" then -- mid-life
+      advance(1000)
+    elseif e == "D" then
+      displace()
+      advance(1)
+    elseif e == "R" then
+      room()
+    elseif e == "E" then -- long enough for any toast on screen to expire
+      advance(5000)
+    elseif e == "F" then -- FocusGained: the check offers the newest commit
+      if S.latest then
+        hot.toast(S.latest)
+      end
+    end
+  end
+  -- settle
+  room()
+  advance(10000)
+  hot.toast(S.latest)
+  advance(10000)
+  hot.toast(S.latest)
+  advance(10000)
+
+  local bad = {}
+  local function fail(fmt, ...)
+    bad[#bad + 1] = fmt:format(...)
+  end
+  if S.max_on > 1 then
+    fail("%d config toasts on screen at once", S.max_on)
+  end
+  local displays, toasts = {}, {}
+  for _, n in ipairs(S.hist) do
+    if n.id == "unrelated" then
+      if n.hidden then
+        fail("the unrelated notification was hidden")
+      end
+    elseif n.msg == TOAST then
+      local c = n.id:match("^envi%.hotreload%.(.+)$")
+      if n.newest ~= c then
+        fail("a toast for %s while %s was the newest", tostring(c), tostring(n.newest))
+      end
+      if n.first_ms then
+        displays[c] = (displays[c] or 0) + 1
+        toasts[#toasts + 1] = n
+        if not n.hidden_ms then
+          fail("%s never hidden", c)
+        else
+          local life = n.hidden_ms - n.first_ms
+          if #n.displaced == 0 and (life < 3750 or life > 4250) then
+            fail("%s on screen %d ms", c, life)
+          elseif life > 4250 then
+            fail("%s kept %d ms (displaced)", c, life)
+          end
+        end
+      end
+    end
+  end
+  for c, d in pairs(displays) do
+    if d > 1 then
+      fail("%s displayed %d times", c, d)
+    end
+  end
+  table.sort(toasts, function(x, y)
+    return x.first_ms < y.first_ms
+  end)
+  for i = 2, #toasts do
+    local p, n = toasts[i - 1], toasts[i]
+    if p.hidden_ms and p.hidden_ms <= n.first_ms and n.first_ms - p.hidden_ms < 100 then
+      fail("only %d ms between toasts", n.first_ms - p.hidden_ms)
+    end
+  end
+  local L = S.latest
+  if (displays[L] or 0) ~= 1 then
+    local by = (hot.state.covered or {})[L]
+    local ok = false
+    for _, n in ipairs(S.hist) do
+      if by and n.id == "envi.hotreload." .. by and n.first_ms and n.hidden_ms then
+        local life = n.hidden_ms - n.first_ms
+        local stayed = true
+        for _, d in ipairs(n.displaced) do
+          if d >= S.arrived[L] then
+            stayed = false
+          end
+        end
+        -- and it had more than the 250 ms tail left when L arrived
+        ok = stayed
+          and life >= 3750
+          and life <= 4250
+          and n.first_ms <= S.arrived[L]
+          and n.hidden_ms - S.arrived[L] > 250
+      end
+    end
+    if not ok then
+      fail(
+        "newest %s displayed %d times and not covered by a toast that stayed (covered by %s)",
+        L,
+        displays[L] or 0,
+        tostring(by)
+      )
+    end
+  end
+  return bad
+end
+
+-- ── every ordering ─────────────────────────────────────────────────────────
+local ARRIVALS, OTHERS = { "a", "t" }, { "s", "m", "D", "R", "E", "F" }
+local seqs = {}
+local function gen(prefix, k, j, maxk, maxj)
+  if k >= 1 then
+    seqs[#seqs + 1] = prefix
+  end
+  if k < maxk then
+    for _, e in ipairs(ARRIVALS) do
+      gen(prefix .. e, k + 1, j, maxk, maxj)
+    end
+  end
+  if j < maxj then
+    for _, e in ipairs(OTHERS) do
+      gen(prefix .. e, k, j + 1, maxk, maxj)
+    end
+  end
+end
+gen("", 0, 0, 3, 3)
+if vim.env.HOTRELOAD_SEQ_ONLY then
+  seqs = vim.split(vim.env.HOTRELOAD_SEQ_ONLY, ",", { trimempty = true })
+end
+local failed, kinds, example = 0, {}, {}
+for _, seq in ipairs(seqs) do
+  local bad = run(seq)
+  if #bad > 0 then
+    failed = failed + 1
+    for _, b in ipairs(bad) do
+      local kind = b:gsub("c%d", "cN"):gsub("%d+", "#")
+      kinds[kind] = (kinds[kind] or 0) + 1
+      example[kind] = example[kind] or seq
+    end
+  end
+end
+for kind, n in vim.spairs(kinds) do
+  io.stderr:write(("FAIL %d sequence(s), e.g. %s: %s\n"):format(n, example[kind], kind))
+end
+_G.Snacks = nil
+print(("hot reload sequences: %d cases, %d failed"):format(#seqs, failed))
+assert(failed == 0, ("%d of %d sequences break the toast invariant"):format(failed, #seqs))

@@ -182,22 +182,73 @@ in the plugin spec to turn all of this off.
 
 ## Hot reload on commit (`hotreload.lua`)
 
-Every nvim started by `envi` watches the git checkout its config comes from
-(the git dir's `logs/HEAD`, plus a check on `FocusGained`). When a new commit
-changes files under the config dir, it reloads itself with `:reload`.
+On by default in every interactive nvim. Each nvim watches the git checkout its
+config comes from (the git dir's `logs/HEAD`). When new commits change files
+under the config dir, it picks them up. After a PR merges, `sync/dotfiles-sync`
+fast-forwards `~/.dotfiles` (a LaunchAgent runs it every 60 s; run
+`dotfiles-sync now` right after merging), and every nvim on that checkout reacts.
+See `sync/README.md`.
 
-- **Ignored:** commits that only touch `*.md`, or files outside the config dir.
-- **When:** it waits until the editor is safe to restart: normal mode, no unsaved
-  buffers, and no key pressed for 3 s. It waits while you type in INSERT or in a
-  T3 popover (TERMINAL). With unsaved buffers it says so once and keeps waiting.
-- **Notices:** you see "commit abc1234 changed N config file(s); reloading when
-  idle", then "reloaded for commit abc1234" in the new nvim.
-- **Scope:** an nvim not started by `envi` can't restart itself, so it only
-  reports the new commit. T3 TUI clients keep running their old code; use
-  `:T3Restart` for those.
-- **Commands:** `:EnviHotReload on|off|status`. `ENVI_HOT_RELOAD_ROOT=<dir>`
-  watches another config dir (used for testing). Headless test:
-  `test/hotreload.lua`.
+- **Ignored:** new commits that only touch `*.md`, or only files outside the
+  config dir. No reload and no toast. If git can't list a commit's files, that
+  is not taken as a config change: the next check tries again.
+- **Started by `envi`:** it reloads itself (`:reload`) once that's safe: normal
+  mode, no unsaved buffers, and no key pressed for 3 s. While you type (INSERT, or
+  a T3 popover in TERMINAL) it waits silently. With unsaved buffers it shows the
+  toast once per commit and keeps waiting; save, and it reloads. If the quit is
+  cancelled at a prompt, it stops retrying that commit and shows the toast. The
+  new nvim says "reloaded for commit abc1234".
+- **Any other nvim** (a plain `nvim file`) can't restart itself. It shows the
+  toast once per commit and nothing else. There, `:Reload` says to close and
+  reopen nvim (or use envi).
+- **The toast:** "Your configuration has changed since the last time you
+  reloaded, run :Reload".
+  - It appears top right (snacks.notifier), at most once per new commit per
+    nvim.
+  - It stays 4 s in total, counted from the moment it is actually on screen,
+    and is hidden at its own deadline even while the command line is open.
+  - While other notifications fill the screen, it waits in the queue as long
+    as needed. If it is dismissed before it was ever shown, the next check
+    offers it again, once.
+  - One rule decides who gets a toast: only the newest commit not yet
+    notified. A commit is notified once a toast for it (or a newer commit)
+    was on screen, or once it arrived while a config toast was on screen that
+    then stayed there to its deadline.
+  - At most one is on screen; they all say the same thing. A toast on screen
+    keeps its own 4 s: a newer commit never cuts it short or extends it.
+  - A newer commit that lands while one is on screen is covered by it: no
+    second toast, and the commit counts as notified. The exception is a commit
+    in the toast's last 0.25 s (`toast_tail_ms`): it gets one fresh toast of
+    its own, shown after the old one hides, so it isn't swallowed by a toast
+    about to go. A commit after the toast hid gets its own toast too.
+  - Only a toast on screen right now covers. If snacks takes it off screen
+    early (no room: a small terminal, higher-priority notifications), even
+    briefly, it is dropped and its coverage revoked. The newest commit not yet
+    notified, whether the one it covered or a newer one waiting after it,
+    gets its own toast once there's room, for its full 4 s.
+  - A toast still queued (never shown) is dismissed when a newer commit comes;
+    the newer commit's toast takes its place.
+  - Toasts never show back to back: there is at least a 0.1 s gap after one
+    hides.
+  - Other notifications keep their own lifetimes.
+- **Robustness:** every watch event re-arms the watch, so a replaced
+  `logs/HEAD` (a new inode) keeps working. A check on `FocusGained` and a cheap
+  one every 60 s (`recheck_ms`) re-arm it and catch anything missed, for example
+  after hours idle.
+- **Commands:** `:EnviHotReload on|off|status`. `status` shows:
+  - the watched path;
+  - the loaded commit, the current HEAD and the pending commit;
+  - whether this nvim can reload itself;
+  - the last sync result, for example `sync blocked: local changes in <paths>`,
+    or `sync moved the wrong branch: …` with the recovery command.
+
+  `ENVI_HOT_RELOAD_ROOT=<dir>` watches another config dir (used for testing).
+  Setup in the plugin spec: `hot_reload = false` turns it off, and a table
+  overrides `idle_ms`, `recheck_ms`, `toast_ms` and so on. Headless nvims never
+  start it. Tests: `test/hotreload.lua`, and `test/hotreload-sequences.lua`
+  (every ordering of up to 3 commits with show, displace, room, expire and
+  FocusGained, on a virtual clock against a stand-in for snacks).
+- **Scope:** T3 TUI clients keep running their old code; use `:T3Restart` for those.
 
 ## Labels
 
