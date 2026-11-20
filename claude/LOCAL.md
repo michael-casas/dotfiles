@@ -52,10 +52,16 @@ file, which OpenCode merges over the global config:
    shell picks up the variable. A server that was already running keeps the
    environment it started with. Restart it once after changing `local.bash`:
 
+   <!-- opencode-restart -->
    ```bash
    pkill -f "opencode serve --port 2313"
-   exec bash -l   # the new login shell autostarts the server with OPENCODE_CONFIG
+   exec env -u OPENCODE_CONFIG bash -l
    ```
+
+   `env -u OPENCODE_CONFIG` drops the value the current shell holds, so the
+   fresh login starts from the current `local.bash`: a changed export takes
+   effect, and a removed one leaves the new server without the provider layer.
+   The login shell then autostarts the server.
 
 ## Herdr agent state for Claude: hook-only install
 
