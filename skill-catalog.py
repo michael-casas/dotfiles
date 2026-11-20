@@ -18,7 +18,7 @@ HOME = Path.home()
 CANONICAL = Path(__file__).resolve().parent / "skills"
 TARGETS = [HOME / ".claude/skills", HOME / ".agents/skills"]
 # Skills this repository used to ship.
-RETIRED = ("herdr-bridge",)
+RETIRED = ("herdr-bridge", "frontend-design")
 # Every directory an earlier version of this script linked skills into, and the
 # index it generated.
 LEGACY_DIRS = [HOME / p for p in (".local/share/agent-skills/catalog", ".agents/skills",
