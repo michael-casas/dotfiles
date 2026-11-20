@@ -9,7 +9,8 @@
 -- before the deadline, then the run settles (room, time, FocusGained) and the
 -- invariant is checked. Every transition onto the screen counts, including a
 -- re-show of the same id:
--- * a toast that left the screen never comes back (it is retired);
+-- * a toast that left the screen never comes back (it is retired), and no
+--   id is ever on screen in two notifications;
 -- * the newest commit had exactly one full display (on screen from its first
 --   display to its deadline, never displaced), or was covered by a toast that
 --   stayed on screen from its arrival to its own deadline and had more than
@@ -271,7 +272,7 @@ local function run(seq, margin)
         fail("the unrelated notification was hidden")
       end
     elseif n.msg == TOAST then
-      local c = n.id:match("^envi%.hotreload%.(.+)$")
+      local c = n.id:match("^envi%.hotreload%.([^#]+)")
       if n.newest ~= c then
         fail("a toast for %s while %s was the newest", tostring(c), tostring(n.newest))
       end
@@ -295,6 +296,13 @@ local function run(seq, margin)
         end
       end
     end
+  end
+  local ids = {}
+  for _, n in ipairs(toasts) do
+    if ids[n.id] then
+      fail("id %s on screen in two notifications", n.id)
+    end
+    ids[n.id] = true
   end
   for c, d in pairs(full) do
     if d > 1 then

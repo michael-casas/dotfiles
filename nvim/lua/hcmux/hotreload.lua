@@ -36,6 +36,8 @@ M.config = {
 -- toasted[sha]: that commit was notified, or its toast is on the way.
 -- covered[sha]: the commit whose toast, on screen, covers it.
 -- reoffered[sha]: its toast was dropped unseen and offered again (once).
+-- retired[sha]: how many of its displayed toasts left the screen early; the
+-- fresh one is "envi.hotreload.<sha>#<n>", so a retired id never shows again.
 -- toasts: how many toasts were handed to snacks. held[sha]: a reload for it
 -- was cancelled (a quit prompt said no), so it isn't retried automatically.
 M.state = {
@@ -46,6 +48,7 @@ M.state = {
   toasted = {},
   covered = {},
   reoffered = {},
+  retired = {},
   held = {},
   toasts = 0,
 }
@@ -200,6 +203,10 @@ local function drop(s, how)
   if c then
     M.state.covered[c] = nil
   end
+  if me.commit == latest then
+    -- Its fresh toast gets an id of its own, so this one never comes back.
+    M.state.retired[latest] = (M.state.retired[latest] or 0) + 1
+  end
   if not want and (c == latest or me.commit == latest) then
     want = latest
   end
@@ -285,7 +292,8 @@ function pump()
         end)
       else
         local ms = M.config.toast_ms
-        local id = "envi.hotreload." .. want
+        local n = M.state.retired[want]
+        local id = "envi.hotreload." .. want .. (n and ("#" .. n) or "")
         M.state.toasts = M.state.toasts + 1
         if pcall(s.notifier.notify, M.TOAST, vim.log.levels.WARN, { id = id, title = "envi", timeout = ms }) then
           asked = { id = id, commit = want, ms = ms, at = now() }

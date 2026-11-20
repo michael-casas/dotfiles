@@ -440,7 +440,7 @@ until_(1000, function()
   return #toasts == nr0 + 2
 end, "same-id: one fresh toast asked for")
 local rb = toasts[#toasts]
-assert(rb.id == ra.id and rb ~= ra and not rb.shown, "a fresh record for the same commit, waiting for room")
+assert(rb.id == ra.id .. "#1" and not rb.shown, "a fresh toast with an id of its own, waiting for room: " .. rb.id)
 display_ms = 30
 show_now(rb)
 until_(1000, function()

@@ -224,7 +224,8 @@ See `sync/README.md`.
   - Only a toast on screen right now covers. If snacks takes it off screen
     before its deadline (no room: a small terminal, higher-priority
     notifications), even briefly or a few milliseconds before the deadline, it
-    is retired: hidden for good, so snacks never brings it back. Its coverage
+    is retired: hidden for good, so snacks never brings it back (a fresh
+    toast for the same commit has an id of its own). Its coverage
     is revoked, and the newest commit (its own, the one it covered, or a newer
     one waiting after it) gets one fresh toast once there's room, for its
     full 4 s. Hot reload checks this every 25 ms and again at the deadline.
