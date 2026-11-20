@@ -2,6 +2,11 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 
+-- Resize the focused window without macOS intercepting Ctrl+arrow keys.
+-- Ctrl+punctuation requires a terminal that supports extended key encoding.
+vim.keymap.set("n", "<C-,>", "<cmd>vertical resize -2<cr>", { desc = "Decrease Window Width" })
+vim.keymap.set("n", "<C-.>", "<cmd>vertical resize +2<cr>", { desc = "Increase Window Width" })
+
 -- Override LazyVim's <leader>n (notification history) — moved to <leader>on
 -- We MUST defer the delete so it runs after snacks.nvim registers its default <leader>n.
 -- Otherwise vim.keymap.del fires too early and snacks re-adds it, breaking <leader>nxg/nxr.
