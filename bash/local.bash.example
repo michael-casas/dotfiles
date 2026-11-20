@@ -12,12 +12,15 @@
 # The tracked ~/.claude/settings.json holds no gateway credential, endpoint or
 # project-specific auto-mode policy. To use them, keep them together in one
 # local profile (template: claude/local.settings.json.example) and load it only
-# from launches that opt in:
-# claude() { command claude --settings "$HOME/.config/claude/local.settings.json" "$@"; }
+# from launches that opt in. The wrapper clears any ordinary Anthropic
+# credential first, so the gateway receives only its own:
+# claude() { env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claude --settings "$HOME/.config/claude/local.settings.json" "$@"; }
 
 # --- OpenCode: local provider layer ---
 # Private providers stay out of the tracked opencode/opencode.json.
-# OpenCode merges this file over it (template: opencode/opencode.local.json.example):
+# OpenCode merges this file over it (template: opencode/opencode.local.json.example).
+# bash/.bashrc sources this file before it autostarts the background OpenCode
+# server, so a new server inherits the variable; restart a running one once.
 # export OPENCODE_CONFIG="$HOME/.config/opencode-local/opencode.json"
 
 # --- Private helpers ---

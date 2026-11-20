@@ -164,12 +164,6 @@ ask() {
   return "$exit_code"
 }
 
-# --- Django Systems Architect Agent (OpenCode serve on port 2313) ---
-# Auto-start the long-lived server if not already running
-if ! pgrep -f "opencode serve --port 2313" >/dev/null 2>&1; then
-  nohup opencode serve --port 2313 --hostname 127.0.0.1 >/dev/null 2>&1 &
-fi
-
 # --- Editor ---
 export EDITOR=nvim
 export VISUAL=nvim
@@ -188,11 +182,21 @@ fi
 
 # --- Machine-local overrides (untracked) ---
 # Host- and work-specific values, private helpers and opt-in profiles stay out
-# of this public repo, in ~/.config/bash/local.bash. It is sourced last so it
-# can override anything above. Template:
+# of this public repo, in ~/.config/bash/local.bash. It is sourced after the
+# rest of the configuration so it can override it; only the OpenCode autostart,
+# which must inherit it, and the Kiro post block follow. Template:
 # bash/local.bash.example.
 if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/bash/local.bash" ]]; then
   source "${XDG_CONFIG_HOME:-$HOME/.config}/bash/local.bash"
+fi
+
+# --- Django Systems Architect Agent (OpenCode serve on port 2313) ---
+# Auto-start the long-lived server if not already running. This runs after
+# local.bash so the server inherits its environment (for example
+# OPENCODE_CONFIG). A server that is already running keeps the environment it
+# started with; see claude/LOCAL.md to restart it.
+if ! pgrep -f "opencode serve --port 2313" >/dev/null 2>&1; then
+  nohup opencode serve --port 2313 --hostname 127.0.0.1 >/dev/null 2>&1 &
 fi
 
 # --- Kiro CLI post block. Keep at the bottom of this file. ---
