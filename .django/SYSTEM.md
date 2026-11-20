@@ -10,21 +10,15 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via bar
 
 ```
 ~/.dotfiles/
-├── fish/                    → ~/.config/fish/   (default shell)
-│   ├── config.fish          # Shell config (loads .env, sets PATH)
-│   ├── functions/           # Custom fish functions
-│   └── completions/         # Shell completions
-├── bash/                    → ~/ (preserved for POSIX scripting)
+├── bash/                    → ~/ (primary shell)
 │   ├── .bashrc
 │   └── .bash_profile
 ├── nvim/                    → ~/.config/nvim/   (LazyVim-based)
 │   └── lua/plugins/opencode.lua  # Multi-tool AI session manager
-├── tmux/tmux.conf           → ~/.tmux.conf
+├── herdr/config.toml        → ~/.config/herdr/config.toml
 ├── git/.gitconfig           → ~/.gitconfig
 ├── starship/starship.toml   → ~/.config/starship.toml (Gruvbox Dark)
 ├── claude/settings.json     → ~/.claude/settings.json
-├── claude-swap/             → ~/.claude-swap/   (Claude Code profile store)
-├── _claude-swap/            # Standalone claude-swap source (ignored by parent git)
 ├── .agent/SYSTEM.md         # Full documentation (31KB, previously canonical)
 ├── opencode/                # OpenCode AI runtime config
 │   ├── agent/               # Agent definition files (Django, SYS_* agents, etc.)
@@ -58,27 +52,25 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via bar
 
 | Component | Choice | Notes |
 |-----------|--------|-------|
-| Shell | fish (default) | Syntax highlighting, auto-suggestions, completions out of box |
-| Fallback shell | bash 5.3 (Homebrew) | POSIX scripting compatibility |
+| Shell | Bash (Homebrew) | Canonical interactive and login shell |
 | Prompt | Starship | Gruvbox Dark palette, cross-shell |
 | Editor | Neovim (LazyVim) | Lua-based, AI-integrated via opencode plugin |
-| Terminal multiplexer | tmux | `prefix + I` for plugin install |
+| Terminal multiplexer | Herdr | Bash login shells; keybindings to be aligned with Neovim |
 | AI CLI runtimes | OpenCode, Claude Code, Codex, Kiro | Multi-tool agent system via `opencode/agent/` |
 
 ---
 
 ## Shell Configuration
 
-- **fish**: `config.fish` loads `~/.dotfiles/.env` (gitignored secrets) via native parser on every startup
+- **Bash**: `.bashrc` sources `~/.dotfiles/.env` with automatic export enabled, then the untracked `~/.config/bash/local.bash` for machine-local values
 - **direnv**: Available for per-project overrides, supplemental to global .env
-- **bash**: Preserved `.bashrc` + `.bash_profile` with ble.sh for syntax highlighting
-- **fzf**: Bindings active in both fish and bash
+- **ble.sh**: Bash syntax highlighting, auto-suggestions, and completion
+- **fzf**: Bash bindings and completion
 
 ## Editor Configuration
 
 - **LazyVim** (lua-based): Modern Neovim config with LSP, Telescope, which-key
 - **opencode.lua**: Neovim plugin integrating OpenCode, Codex, Claude, Kiro as session tools
-- **claude-swap**: Profile management for Claude Code agent personas
 
 ---
 

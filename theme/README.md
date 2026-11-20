@@ -231,12 +231,6 @@ builder/publication step. No such builder is implemented this round.
 - **Ghostty — generated include.** Target
   `~/.local/state/envi/theme/ghostty.conf`; reference with `config-file` from
   `ghostty/config`, replacing the inline palette. Reload is required.
-- **Alacritty — generated TOML.** Target
-  `~/.local/state/envi/theme/alacritty-colors.toml`, imported from
-  `alacritty/alacritty.toml`; supports live reload.
-- **WezTerm — runtime read.** Target `wezterm/wezterm.lua`, reading resolved
-  `~/.local/state/envi/theme/current.json` via `wezterm.json_parse`/`io.open`
-  and registering `add_to_config_reload_watch_list`.
 - **Starship — generated whole file.** Target
   `~/.local/state/envi/theme/starship.toml`, rendered from the existing
   `starship/starship.toml` template, selected via `STARSHIP_CONFIG`. Starship
