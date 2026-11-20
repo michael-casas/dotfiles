@@ -100,10 +100,29 @@ def secure_files(db_path: Path) -> None:
             os.chmod(path, 0o600)
 
 
+SESSION_DB_NAME = re.compile(r"^session-(.+)\.db$")
+
+
+def secure_existing_sessions(root: Path) -> None:
+    """Migrate files an earlier version created with the umask's mode: every
+    owner-owned regular `session-<id>.db` in the store, and its sidecars, becomes
+    0600, whether or not this run opens it. Symlinks, names that are not session
+    ids, and unrelated files are left alone."""
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return
+    for path in entries:
+        match = SESSION_DB_NAME.fullmatch(path.name)
+        if match and SESSION_ID_PATTERN.fullmatch(match.group(1)) and not path.is_symlink() and path.is_file():
+            secure_files(path)
+
+
 def connect(db_path: Path, *, must_exist: bool = False) -> sqlite3.Connection:
     if must_exist and not db_path.is_file():
         raise ScratchpadError(f"session scratchpad does not exist: {db_path}")
     secure_store(db_path.parent)
+    secure_existing_sessions(db_path.parent)
     if not db_path.exists():
         # Create the file 0600 first; SQLite gives its WAL and SHM files the
         # database file's mode.

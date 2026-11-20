@@ -211,6 +211,69 @@ class ScratchpadTests(unittest.TestCase):
         self.assertEqual(self.mode(unrelated), 0o644)
         self.assert_private_files()
 
+    def legacy_store(self, store: Path, dir_mode: int) -> dict[str, Path]:
+        """A store left by an earlier version: several sessions at 0644 with
+        sidecars, plus things that are not ours to change."""
+        store.mkdir(parents=True, exist_ok=True)
+        os.chmod(store, dir_mode)
+        files = {}
+        for sid in ("legacy-one", "legacy-two", SESSION):
+            db = store / f"session-{sid}.db"
+            conn = sqlite3.connect(db)
+            conn.execute("CREATE TABLE t (x)")
+            conn.commit()
+            conn.close()
+            files[sid] = db
+        for suffix in ("-wal", "-shm"):
+            Path(f"{files['legacy-two']}{suffix}").write_bytes(b"")
+        outside = Path(self.tempdir.name) / "outside.db"
+        outside.write_bytes(b"")
+        files["outside"] = outside
+        files["link"] = store / "session-linked.db"
+        files["link"].symlink_to(outside)
+        files["unrelated"] = store / "notes.txt"
+        files["unrelated"].write_text("not ours")
+        files["odd"] = store / "session-bad name.db"
+        files["odd"].write_bytes(b"")
+        for path in store.iterdir():
+            if not path.is_symlink():
+                os.chmod(path, 0o644)
+        os.chmod(outside, 0o644)
+        return files
+
+    def assert_legacy_migrated(self, store: Path, files: dict[str, Path], dir_mode: int) -> None:
+        for sid in ("legacy-one", "legacy-two", SESSION):
+            self.assertEqual(self.mode(files[sid]), 0o600, f"{sid} database")
+        for suffix in ("-wal", "-shm"):
+            self.assertEqual(self.mode(Path(f"{files['legacy-two']}{suffix}")), 0o600, f"unopened {suffix}")
+        self.assertEqual(self.mode(files["unrelated"]), 0o644, "unrelated file")
+        self.assertEqual(self.mode(files["odd"]), 0o644, "a name that is not a session id")
+        self.assertTrue(files["link"].is_symlink())
+        self.assertEqual(self.mode(files["outside"]), 0o644, "a symlink's target is not ours")
+        self.assertEqual(self.mode(store), dir_mode)
+
+    def test_upgrade_tightens_every_legacy_session_in_a_custom_store(self) -> None:
+        files = self.legacy_store(self.home, 0o755)
+        previous = os.umask(0o022)
+        try:
+            self.cli("add", "note", "opens only the current session")
+        finally:
+            os.umask(previous)
+        self.assert_legacy_migrated(self.home, files, 0o755)
+
+    def test_upgrade_tightens_every_legacy_session_in_the_default_store(self) -> None:
+        data = Path(self.tempdir.name) / "data"
+        store = data / "agent-scratchpad"
+        files = self.legacy_store(store, 0o755)
+        self.env.pop("SCRATCHPAD_HOME")
+        self.env["XDG_DATA_HOME"] = str(data)
+        previous = os.umask(0o022)
+        try:
+            self.hook("session-start", {"hook_event_name": "SessionStart", "source": "startup"})
+        finally:
+            os.umask(previous)
+        self.assert_legacy_migrated(store, files, 0o700)
+
 
 if __name__ == "__main__":
     unittest.main()
