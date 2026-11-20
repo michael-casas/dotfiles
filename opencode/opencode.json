@@ -4,6 +4,13 @@
     "build": {
       "disable": true
     },
+    "Researcher": {
+      "model": "opencode-go/deepseek-v4-flash",
+      "prompt": "You are a Lead Researcher. You send fan out lackey subagents n surfaces and they each generate markdown reports in .agent/reports/lackey/ then you combine them together for a full coverage report in .agent/reports/"
+    },
+    "lackey": {
+      "model": "opencode-go/deepseek-v4-flash"
+    },
     "Conduit": {
       "options": {
         "n": 1,

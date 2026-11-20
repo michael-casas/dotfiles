@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "^(startup|resume|clear|compact)$",
+        "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" session-start --harness codex", "statusMessage": "Loading session scratchpad", "timeout": 15 }] }
+    ],
+    "PreCompact": [
+      { "matcher": "^(manual|auto)$",
+        "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" pre-compact --harness codex", "statusMessage": "Checkpointing session scratchpad", "timeout": 15 }] }
+    ],
+    "PostCompact": [
+      { "matcher": "^(manual|auto)$",
+        "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" post-compact --harness codex", "statusMessage": "Recording compaction", "timeout": 15 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "python3 \"$HOME/.agents/skills/scratchpad/scripts/hook.py\" stop --harness codex", "timeout": 10 }] }
+    ]
+  }
+}
