@@ -421,6 +421,44 @@ vim.api.nvim_exec_autocmds("FocusGained", {})
 sleep(300)
 assert(#toasts == nc0 + 2, "shown once, not again")
 
+-- CRT-B r6: A covers B, C arrives in A's tail, then A is displaced before its
+-- deadline. Only the newest commit not yet notified (C) may get a toast: C is
+-- shown once room returns, for its full toast_ms; B isn't re-offered.
+sleep(150)
+local nt0 = #toasts
+hot.toast("td-a")
+until_(1000, function()
+  return #toasts == nt0 + 1 and toasts[#toasts].shown_ms
+end, "tail-displaced: A shown")
+local ta2 = toasts[#toasts]
+hot.toast("td-b")
+assert(hot.state.covered["td-b"] == "td-a", "A covers B")
+until_(1000, function()
+  return vim.uv.now() - ta2.shown_ms >= 500
+end, "into A's tail")
+hot.toast("td-c") -- in the tail: C waits for its own toast
+displace(ta2) -- before A's deadline
+until_(1000, function()
+  return #toasts == nt0 + 2
+end, "C's toast is asked for")
+local tc2 = toasts[#toasts]
+assert(tc2.id == "envi.hotreload.td-c", "the newest commit gets the toast, not B: " .. tc2.id)
+assert(ta2.hidden and lasted(ta2) < 600, "A was dropped when it left the screen")
+assert(hot.state.covered["td-b"] == nil, "B's coverage was revoked")
+sleep(800)
+assert(tc2.hidden == nil and not tc2.shown, "C waits for room")
+display_ms = 30
+show_now(tc2)
+until_(1000, function()
+  return tc2.hidden ~= nil
+end, "C's toast expires")
+assert(full(tc2), "C gets its full toast_ms: " .. lasted(tc2))
+hot.toast("td-b")
+hot.toast("td-c")
+vim.api.nvim_exec_autocmds("FocusGained", {})
+sleep(300)
+assert(#toasts == nt0 + 2, "no repeat for B or C: " .. (#toasts - nt0))
+
 -- Never two config toasts on screen at once.
 for i, a in ipairs(toasts) do
   for j = i + 1, #toasts do

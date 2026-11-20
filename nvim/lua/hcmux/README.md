@@ -200,7 +200,11 @@ See `sync/README.md`.
     and is hidden at its own deadline even while the command line is open.
   - While other notifications fill the screen, it waits in the queue as long
     as needed. If it is dismissed before it was ever shown, the next check
-    offers it again.
+    offers it again, once.
+  - One rule decides who gets a toast: only the newest commit not yet
+    notified. A commit is notified once a toast for it (or a newer commit)
+    was on screen, or once it arrived while a config toast was on screen that
+    then stayed there to its deadline.
   - At most one is on screen; they all say the same thing. A toast on screen
     keeps its own 4 s: a newer commit never cuts it short or extends it.
   - A newer commit that lands while one is on screen is covered by it: no
@@ -209,9 +213,10 @@ See `sync/README.md`.
     its own, shown after the old one hides, so it isn't swallowed by a toast
     about to go. A commit after the toast hid gets its own toast too.
   - Only a toast on screen right now covers. If snacks takes it off screen
-    early (no room: a small terminal, higher-priority notifications), it is
-    dropped, and the newest commit it covered, or the next one to come, gets
-    its own toast once there's room, for its full 4 s.
+    early (no room: a small terminal, higher-priority notifications), even
+    briefly, it is dropped and its coverage revoked. The newest commit not yet
+    notified, whether the one it covered or a newer one waiting after it,
+    gets its own toast once there's room, for its full 4 s.
   - A toast still queued (never shown) is dismissed when a newer commit comes;
     the newer commit's toast takes its place.
   - Toasts never show back to back: there is at least a 0.1 s gap after one
@@ -231,7 +236,9 @@ See `sync/README.md`.
   `ENVI_HOT_RELOAD_ROOT=<dir>` watches another config dir (used for testing).
   Setup in the plugin spec: `hot_reload = false` turns it off, and a table
   overrides `idle_ms`, `recheck_ms`, `toast_ms` and so on. Headless nvims never
-  start it. Test: `test/hotreload.lua`.
+  start it. Tests: `test/hotreload.lua`, and `test/hotreload-sequences.lua`
+  (every ordering of up to 3 commits with show, displace, room, expire and
+  FocusGained, on a virtual clock against a stand-in for snacks).
 - **Scope:** T3 TUI clients keep running their old code; use `:T3Restart` for those.
 
 ## Labels
