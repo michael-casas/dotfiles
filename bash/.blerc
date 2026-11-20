@@ -10,10 +10,63 @@ bleopt complete_menu_complete=1
 # Auto-fill common prefixes from history
 bleopt complete_auto_history=1
 
-# Clean transient prompt (starship handles the prompt)
+# Accept the visible autosuggestion with Tab; keep normal Tab completion otherwise.
+ble-bind -m auto_complete -f TAB auto_complete/insert
+ble-bind -m auto_complete -f C-i auto_complete/insert
+
+# Nordic autosuggestion text instead of ble.sh's light-gray block default.
+ble-face auto_complete='fg=#60728A'
+
+# Clean transient prompt
 bleopt prompt_ps1_transient=trim
+
+# Ghostty's Bash integration marks prompts with OSC 133 `redraw=last`, which
+# tells Ghostty that only the last prompt line is redrawn after a resize.
+# ble.sh redraws the whole prompt. Adapt only the installed prompt-start marker,
+# and restore the original integration when ble detaches or unloads.
+function blerc/ghostty-full-redraw {
+  declare -F __ghostty_precmd >/dev/null || return 0
+  local def marker='\e]133;A;redraw=last;cl=line;aid=%s\a'
+  def=$(declare -f __ghostty_precmd) || return
+  if [[ $def == *"$marker"* ]]; then
+    local patched=${def/"$marker"/"${marker/redraw=last/redraw=1}"}
+    builtin eval "$patched" || return
+    _blerc_ghostty_original=$def
+    _blerc_ghostty_patched=$patched
+  elif [[ ! ${_blerc_ghostty_patched-} || $def != "$_blerc_ghostty_patched" ]]; then
+    return 0
+  fi
+  blehook PRECMD-=blerc/ghostty-full-redraw || :
+}
+function blerc/ghostty-restore-redraw {
+  [[ ${_blerc_ghostty_original-} ]] || return 0
+  local def
+  def=$(declare -f __ghostty_precmd) || return
+  # Do not overwrite another integration's later replacement.
+  if [[ $def == "$_blerc_ghostty_patched" ]]; then
+    builtin eval "$_blerc_ghostty_original" || return
+  fi
+  unset _blerc_ghostty_original _blerc_ghostty_patched
+}
+# Injection sources .bashrc before defining __ghostty_precmd. A resources path
+# alone can be inherited by Herdr or another terminal and is not integration.
+if [[ ${__ghostty_bash_flags-} || ${ghostty_bash_inject-} ]] ||
+    declare -F __ghostty_precmd >/dev/null; then
+  blehook ATTACH!=blerc/ghostty-full-redraw
+  blehook PRECMD!=blerc/ghostty-full-redraw
+  blehook DETACH!=blerc/ghostty-restore-redraw
+  blehook unload!=blerc/ghostty-restore-redraw
+fi
 
 # Enable syntax highlighting
 bleopt highlight_syntax=1
 bleopt highlight_filename=1
 bleopt highlight_variable=1
+
+# Disable all ble.sh command and editing markers
+bleopt exec_errexit_mark=
+bleopt exec_exit_mark=
+bleopt exec_elapsed_mark=
+bleopt prompt_eol_mark=
+bleopt edit_marker=
+bleopt edit_marker_error=

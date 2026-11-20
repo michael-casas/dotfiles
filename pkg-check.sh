@@ -72,9 +72,8 @@ declare -a PKGS=(
     # Core
     "git|Git|git|core|true|bin|git|git|git|git|"
     "bash|Bash (5.3+)|bash|core|true|ver:5|bash|bash|bash|bash|"
-    "fish|Fish Shell|fish|core|true|bin|fish|fish|fish|fish|"
+    "herdr|Herdr|herdr|core|true|bin|||||Install Herdr using its official distribution (https://herdr.dev)"
     "nvim|Neovim|nvim|core|true|bin|neovim|neovim|neovim|neovim|"
-    "tmux|Tmux|tmux|core|true|bin|tmux|tmux|tmux|tmux|"
     "starship|Starship Prompt|starship|core|true|bin|starship|starship|starship|starship|"
     "fzf|fzf (fuzzy finder)|fzf|core|true|bin|fzf|fzf|fzf|fzf|"
     "fd|fd (fast file finder)|fd|core|true|bin|fd|fd-find|fd|fd|"
@@ -220,14 +219,6 @@ for entry in "${PKGS[@]}"; do
         MISSING+=("$entry")
     fi
 done
-
-# ── Special: TPM ────────────────────────────────────────────────────────
-if [[ -d "$HOME/.tmux/plugins/tpm" ]]; then
-    _ok "TPM (Tmux Plugin Manager)"
-else
-    _ko "TPM (Tmux Plugin Manager)"
-    MISSING_SPECIAL+=("TPM|git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm")
-fi
 
 # ── Summary ─────────────────────────────────────────────────────────────
 

@@ -1,0 +1,25 @@
+# ~/.config/bash/local.bash: machine-local Bash overrides (never committed).
+#
+# bash/.bashrc sources this file last, if it exists, so anything here
+# overrides the tracked config. Copy this template to
+# ${XDG_CONFIG_HOME:-$HOME/.config}/bash/local.bash and uncomment only what this
+# machine needs. Everything below is a placeholder.
+
+# --- Work and host paths ---
+# export ESTIMATING_DIRECTORY_HOME="$HOME/<work folder>/ESTIMATING"
+
+# --- Claude Code: opt-in gateway and auto-mode profile ---
+# The tracked ~/.claude/settings.json holds no gateway credential, endpoint or
+# project-specific auto-mode policy. To use them, keep them together in one
+# local profile (template: claude/local.settings.json.example) and load it only
+# from launches that opt in:
+# claude() { command claude --settings "$HOME/.config/claude/local.settings.json" "$@"; }
+
+# --- OpenCode: local provider layer ---
+# Private providers stay out of the tracked opencode/opencode.json.
+# OpenCode merges this file over it (template: opencode/opencode.local.json.example):
+# export OPENCODE_CONFIG="$HOME/.config/opencode-local/opencode.json"
+
+# --- Private helpers ---
+# Workspace wrappers, SSH-alias shortcuts, credential copiers and other
+# personal functions belong here, not in bash/.bashrc.
