@@ -5,9 +5,32 @@ default_shell = "/opt/homebrew/bin/bash"
 shell_mode = "login"
 
 [theme]
-name = "gruvbox"
+name = "nord"
 
 auto_switch = false
+
+# Nordic (nordic.nvim) colors over the built-in Nord base.
+[theme.custom]
+panel_bg = "#242933"
+sidebar_bg = "#1E222A"
+active_row_bg = "#2E3440"
+selection_bg = "#3B4252"
+surface0 = "#2E3440"
+surface1 = "#3B4252"
+surface_dim = "#222630"
+overlay0 = "#4C566A"
+overlay1 = "#60728A"
+text = "#C0C8D8"
+subtext0 = "#BBC3D4"
+accent = "#D08770"
+mauve = "#B48EAD"
+green = "#A3BE8C"
+yellow = "#EBCB8B"
+red = "#BF616A"
+blue = "#81A1C1"
+teal = "#8FBCBB"
+peach = "#D08770"
+
 [keys]
 prefix = "ctrl+space"
 workspace_picker = "prefix+w"

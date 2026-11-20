@@ -3,7 +3,7 @@
 # This template file has been automatically created at the following
 # path since Ghostty couldn't find any existing config files on your system:
 #
-#   /Users/mcasa_atlantis/Library/Application Support/com.mitchellh.ghostty/config
+#   ~/Library/Application Support/com.mitchellh.ghostty/config
 #
 # The template does not set any default options, since Ghostty ships
 # with sensible defaults for all options. Users should only need to set
@@ -49,10 +49,33 @@
 # resize-overlay-duration = 4s 200ms
 
 # --- Theme ---
-theme = "Gruvbox Dark Hard"
+# Nordic (AlexvZyl/nordic.nvim, reduced_blue). Ghostty bundles no Nordic theme,
+# and its "Nord" theme is a different palette, so the colors are inlined.
+# ANSI 0-15 match nordic.nvim's terminal_color_* mapping.
+background = #242933
+foreground = #C0C8D8
+cursor-color = #C0C8D8
+selection-background = #2E3440
+selection-foreground = #C0C8D8
+palette = 0=#191D24
+palette = 1=#BF616A
+palette = 2=#A3BE8C
+palette = 3=#EBCB8B
+palette = 4=#5E81AC
+palette = 5=#B48EAD
+palette = 6=#8FBCBB
+palette = 7=#C0C8D8
+palette = 8=#3B4252
+palette = 9=#C5727A
+palette = 10=#B1C89D
+palette = 11=#EFD49F
+palette = 12=#88C0D0
+palette = 13=#BE9DB8
+palette = 14=#9FC6C5
+palette = 15=#D8DEE9
 
 # --- Font ---
-font-family = "JetBrainsMono Nerd Font"
+font-family = "Cascadia Code NF"
 font-size = 14
 
 # --- Window ---
@@ -60,17 +83,37 @@ window-padding-x = 4
 window-padding-y = 4
 window-theme = dark
 macos-titlebar-style = tabs
+window-title-font-family = "Cascadia Code NF"
+# Native macOS 26 glass behind the window and the titlebar tabs. Glass needs
+# opacity below 1; cells with their own background (Neovim, Herdr) stay solid.
+# Set background-opacity = 1 to return to a solid window.
+background-opacity = 0.94
+background-blur = macos-glass-regular
+# Align redraws with the display to limit CPU and power use under load.
+window-vsync = true
 
 # --- Shell ---
 # Use Homebrew Bash as the default shell
 command = /opt/homebrew/bin/bash
 
 # --- Scrollback ---
-scrollback-limit = 10000000
+# Outer-terminal history budget in bytes; Herdr owns per-pane scrollback.
+scrollback-limit = 100000
 
 # --- Mouse ---
 mouse-scroll-multiplier = 3
 
+# --- Custom Shader ---
+# Leave `custom-shader` unset unless you intentionally want a shader effect.
+# If you enable one, keep animation scoped to the focused surface to avoid
+# burning CPU across cmux panes/surfaces.
+custom-shader-animation = false
+
 # --- Keybindings ---
 # Option as Meta for Herdr and shell keybindings
 macos-option-as-alt = left
+
+# BEGIN herdr-agent-usage font
+font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max"
+font-codepoint-map = U+E1C0-U+E1C5="Herdr Agent Icons Max"
+# END herdr-agent-usage font
