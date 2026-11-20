@@ -7,6 +7,7 @@ import datetime as dt
 import os
 import re
 import sqlite3
+import stat
 import sys
 import time
 from pathlib import Path
@@ -104,7 +105,8 @@ def secure_files(db_path: Path, *, best_effort: bool = False) -> None:
     for suffix in SIDECAR_SUFFIXES:
         path = Path(f"{db_path}{suffix}")
         try:
-            if path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid():
+            metadata = path.lstat()
+            if stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid():
                 os.chmod(path, 0o600)
         except FileNotFoundError:
             continue
@@ -129,8 +131,17 @@ def secure_existing_sessions(root: Path) -> None:
         return
     for path in entries:
         match = SESSION_DB_NAME.fullmatch(path.name)
-        if match and SESSION_ID_PATTERN.fullmatch(match.group(1)) and not path.is_symlink() and path.is_file():
-            secure_files(path, best_effort=True)
+        if not (match and SESSION_ID_PATTERN.fullmatch(match.group(1))):
+            continue
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                continue
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            print(f"scratchpad: could not inspect {path}: {exc}", file=sys.stderr)
+            continue
+        secure_files(path, best_effort=True)
 
 
 def connect(db_path: Path, *, must_exist: bool = False) -> sqlite3.Connection:

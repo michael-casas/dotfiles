@@ -369,6 +369,51 @@ class ScratchpadTests(unittest.TestCase):
         self.assertTrue(self.db.is_file())
         self.assertIn("session-other.db", err.getvalue())
 
+    def deny_metadata(self, path: Path) -> None:
+        """Apply a macOS ACL that denies the owner `readattr` on path, so lstat
+        raises EACCES while the file itself stays in place."""
+        import shutil
+        import sys
+        if sys.platform != "darwin" or not shutil.which("chmod"):
+            self.skipTest("needs macOS ACLs (chmod +a)")
+        user = subprocess.check_output(["id", "-un"], text=True).strip()
+        entry = f"{user} deny readattr"
+        if subprocess.run(["chmod", "+a", entry, str(path)], capture_output=True).returncode != 0:
+            self.skipTest("this filesystem does not accept ACLs")
+        self.addCleanup(subprocess.run, ["chmod", "-a", entry, str(path)], capture_output=True)
+        try:
+            os.lstat(path)
+        except PermissionError:
+            return
+        self.skipTest("the ACL did not deny lstat here")
+
+    def test_unreadable_legacy_metadata_is_diagnosed_not_fatal(self) -> None:
+        """A legacy session file whose metadata cannot be read must not stop
+        the starting session; the migration reports it and moves on. Runs the
+        SessionStart hook with the interpreter running this suite."""
+        import sys
+        self.home.mkdir(mode=0o755)
+        legacy = self.home / "session-other.db"
+        conn = sqlite3.connect(legacy)
+        conn.execute("CREATE TABLE fixture (value TEXT)")
+        conn.commit()
+        conn.close()
+        os.chmod(legacy, 0o644)
+        self.deny_metadata(legacy)
+        result = subprocess.run(
+            [sys.executable, str(HOOK), "session-start", "--harness", "claude"],
+            input=json.dumps({"session_id": SESSION, "cwd": self.tempdir.name,
+                              "hook_event_name": "SessionStart", "source": "startup"}),
+            text=True, capture_output=True,
+            env={**self.env, "CLAUDE_ENV_FILE": str(self.env_file), "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout)
+        self.assertNotIn("systemMessage", out)
+        self.assertIn(str(self.db), out["hookSpecificOutput"]["additionalContext"])
+        self.assertTrue(self.db.is_file(), "the starting session's database exists")
+        self.assertIn(f"export SCRATCHPAD_SESSION_ID={SESSION}", self.env_file.read_text())
+        self.assertIn("session-other.db", result.stderr, "the skipped legacy file is reported")
+
     def test_current_session_permission_error_still_fails(self) -> None:
         from unittest import mock
         store = self.store_module()
