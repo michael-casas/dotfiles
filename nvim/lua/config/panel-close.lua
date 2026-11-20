@@ -26,7 +26,8 @@ local function last_split(win)
     return false
   end
   return not vim.iter(api.nvim_tabpage_list_wins(api.nvim_win_get_tabpage(win))):any(function(other)
-    return other ~= win and api.nvim_win_get_config(other).relative == ""
+    -- A picker root can remain briefly while Snacks schedules its teardown.
+    return other ~= win and api.nvim_win_get_config(other).relative == "" and not vim.w[other].snacks_layout
   end)
 end
 

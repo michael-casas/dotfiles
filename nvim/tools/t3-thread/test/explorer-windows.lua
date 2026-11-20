@@ -174,6 +174,8 @@ local tests = {
       api.nvim_win_set_buf(editor, buf)
       vim.bo[buf].filetype = "help"
       panel_buf = buf
+      layout_box = api.nvim_open_win(api.nvim_create_buf(false, true), false, { split = "left", win = editor })
+      vim.w[layout_box].snacks_layout = true
     ]])
     wait("return vim.fn.maparg('q', 'n') == ''", "LazyVim utility keeps native q")
     keys(":q<CR>")
