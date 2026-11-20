@@ -54,21 +54,30 @@ one branch through one PR. Three is a fixed interim cap until the owner selects
 a ticket-based model/effort matrix, not a usual-size recommendation. Additional
 tickets may enter only before review starts and within the cap; assignments
 received after review starts wait for the next claim. Review repairs stay within
-the existing claim scope. Branch names carry no meaning — Herdr's generated name
-is fine. Jira keys live in commits: every Subtask commit carries a
+the existing claim scope. Branch names carry no meaning and are never validated
+(Founder mandate 2026-10-06: the `<EPIC>/<TASK>` lock is removed everywhere);
+the recommended form is `<type>/<slug>`. Jira keys live in commits: every Subtask commit carries a
 `Refs: <SUBTASK-KEY>` footer and each Epic closes with an Epic commit carrying
 `Refs: <EPIC-KEY>`. Do not create Task, Subtask or Epic-integration branches for
 agent work.
 
 ## Worktree rule
 
-One worktree per claim, never per Task or Subtask. Create it with native Herdr
-in the Herdr worktree root, outside every checkout; never nest a worktree
-inside a repository (no `./.worktrees/`). A seat holds at most one worktree per
+One worktree per claim, never per Task or Subtask. It is a slot leased from the
+repository's own treehouse pool (`<repo>/.treehouse/`, configured by the
+committed `treehouse.toml` with `root = "./"`; Founder mandate 2026-10-06, spec
+`~/Workspace/docs/standards/treehouse.md`). From the repository root:
+`path=$(treehouse get --lease --lease-holder <seat>)`, create the claim branch
+inside the slot from the fetched base (`git -C "$path" switch -c <branch>
+origin/<base>`; the slot starts detached), then open it in Herdr with
+`herdr worktree open --cwd <repo root> --path "$path" --label <slug> --no-focus`
+and seat the agent in the returned root pane. `herdr worktree create`,
+`git worktree add`, `~/.herdr/worktrees/` and `./.worktrees/` are not used for
+new work. A seat holds at most one slot per
 repository, and it lives exactly as long as the claim: once the claim settles
-(accepted and merged), the Lieutenant (the General for `~/Workspace`) removes it through verified cleanup. The
+(accepted and merged), the Lieutenant (the General for `~/Workspace`) returns it through verified cleanup. The
 stable seat outlives the agent and worktree, retains historical harness session
-IDs, and starts each new claim with a fresh agent in a fresh Herdr worktree.
+IDs, and starts each new claim with a fresh agent in a freshly leased slot.
 Archive the outgoing thread before transport loss (see cleanup below).
 For an interactive nontechnical employee, keep the
 conversation in its existing workspace and operate the employee's single
@@ -110,7 +119,12 @@ missing write lease prevents safe stashing, stop and report the blocker.
 - Agents may commit, push the owning claim branch, and open its PR when authorized.
 - Only an explicitly authorized technical release authority merges or promotes.
 - Use merge commits at every hierarchy boundary; do not require linear history.
-- Never force-push or bypass hooks.
+- Never force-push or bypass hooks. One exception (Founder mandate 2026-10-06):
+  when the repository owner orders a mandate-driven rebase of an open PR, that
+  PR branch alone is rebased onto its updated base and pushed with
+  `--force-with-lease`, one PR at a time, by the owner's named seat; the branch
+  keeps its name. Canonical, integration and employee branches are never
+  rebased or force-pushed.
 
 Use the human-readable templates under [`assets/`](assets/). PR text stays
 short: what changed, why, validation, base/target, and remaining risk. Machine
@@ -145,10 +159,12 @@ accepted claim (owner answers 2026-10-03). Settlement always triggers cleanup;
    record, then `/exit`; leave the transcript in place and copy nothing.
    Codex uses `codex archive <SESSION>`. For another harness, verify its mechanism;
    archival is not deletion of session history.
-4. Remove only the exact claim worktree registration/directory and Herdr linkage
-   using the verified native teardown sequence. A targeted `git worktree remove
-   <path>` is used only where that sequence requires it; never broad-prune or assume
-   Git removal and Herdr unlink are interchangeable, or blindly remove twice.
+4. Close the slot's Herdr pane and workspace, then release the slot with
+   `treehouse return "$path" --if-lease-holder <seat>`. The slot stays registered
+   in the pool: never `git worktree remove`/`prune` it, never delete the directory,
+   and never pass `--force`, `destroy` or `--include-*` for routine cleanup. On
+   treehouse v2.1.0 a dirty slot aborts with exit 0, so confirm the slot reads
+   `available` in `treehouse status --json`; exit 0 is not proof of release.
 5. Safely delete only the proven merged local and remote claim branch after landed
    proof. Local deletion uses plain `git branch -d`; a refusal stops, never escalates
    automatically to `-D` or `--force`. Reconcile hosting auto-deletion and refuse

@@ -253,3 +253,31 @@ Owner rulings 35 and 36 supersede Amendment 3’s unresolved Claude/Codex archiv
 ### Amendment 4: rank terminology — supplement (2026-10-04)
 
 Workspace owner ruling 64 and Architect consensus 65 adopt General → Lieutenant → Sergeant. This supplements the existing Amendment 4 on archival without renumbering or rewriting accepted history. The General is the owner's interface; the Lieutenant owns project delivery and settlement under relayed grants, with the General acting as Lieutenant for `~/Workspace`. The implementing Sergeant's seat owns its claim; seat identity and `SETTLED <seat> <claim>` remain unchanged. Earlier Coordinator references map to that project Lieutenant duty. Rank grants no additional authority; the current skill procedure governs.
+
+## Amendment 5 — treehouse worktrees and the removed branch lock (Founder mandates 2026-10-06)
+
+**Authority:** the Founder's mandates of 2026-10-06, relayed by the General; canonical spec
+`~/Workspace/docs/standards/treehouse.md` (rulings R1 and R2 recorded there).
+
+Supersedes the worktree placement in Amendments 1–3 ("outside every checkout, never
+nested inside a repository") and retires the branch-name rules of the original decision
+and of *Alternatives considered* for every repository.
+
+- **Treehouse worktrees only.** Every agent worktree is a slot leased from the
+  repository's own pool under `<repo>/.treehouse/`, configured by a committed
+  `treehouse.toml` (`max_trees = 16`, `root = "./"`) with `.treehouse/` ignored. The
+  slot is opened in Herdr with `herdr worktree open` and released with
+  `treehouse return`. `herdr worktree create`, `git worktree add`,
+  `~/.herdr/worktrees/` and `./.worktrees/` are not used for new work.
+- **No branch-name lock.** No workflow, script, hook or commitlint rule may require a
+  branch name pattern; the `<EPIC>/<TASK>` lock is removed. Branch names are
+  free-form, recommended `<type>/<slug>`, never validated. Jira keys stay where the
+  repository's law already puts them: commits and the PR title or body.
+- **Open PRs inherit the mandates by rebase.** Existing PR branches keep their names
+  and are rebased onto their updated base once it carries the hotfix, pushed with
+  `--force-with-lease`, one PR at a time, by the owner's named seat. Canonical,
+  integration and employee branches are never rebased or force-pushed. Held lanes are
+  listed, not rebased, until their hold lifts.
+
+The ref-name constraint in *Context* (`AES-13` cannot coexist with `AES-13/AES-45`)
+remains true of Git and is one more reason not to encode hierarchy in branch names.
