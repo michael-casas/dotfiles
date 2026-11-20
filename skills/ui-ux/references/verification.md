@@ -27,10 +27,14 @@ Capture what the change touches, at minimum:
   where the layout changes, the user's own viewport when known). For native and
   fixed-size work, capture the supported device classes, orientations or output sizes.
 - **Themes:** every supported theme.
-- **States:** populated, loading, empty, error, long content, and each interactive state
-  that changed (hover, focus, open, selected, disabled, invalid).
-- **Flow:** the primary task end to end, plus cancel and back.
+- **States:** populated, loading, empty, error, long content, no permission, and each
+  interactive state that changed (hover, focus, open, selected, disabled, invalid).
+- **Flow:** the primary task end to end, plus validation, recovery, cancel and back.
 - **Preferences:** reduced motion; 200 percent zoom; forced colors where relevant.
+- **Input and locale, where in scope:** touch against pointer; a translated locale and a
+  right-to-left one.
+- **Motion that changed:** interruption, repeated input, and cleanup after leaving the
+  view, from a recording or timed interaction.
 - **Native:** each shipped device class, from a simulator, emulator or device; dark
   appearance and a large text size.
 
@@ -43,10 +47,30 @@ Capture what the change touches, at minimum:
   half-loaded state, no wrong page.
 - Name files by page, state, theme and width, and keep them where findings can cite
   them.
-- Keep private data out of screenshots.
-- Check the console for errors, failed requests, and missing fonts or images.
+- Keep private data and credentials out of screenshots, logs and reports.
+- Check the console for errors, failed requests, and missing fonts or images, and check
+  each width for unintended horizontal overflow.
 
-### 1.3 When you cannot render
+### 1.3 Driving a browser from a script
+
+Applies with any browser-automation tool. Use the project's own test runner when it has
+one.
+
+- A capture script is not test coverage. For changed behavior, add the readiness wait,
+  the interaction and the assertion that prove it.
+- Wait for the signal the task defines: an element, a response, a state. Do not rely on
+  a fixed sleep, and do not wait for the network to go idle in an application that
+  holds a connection open (polling, streaming, sockets); it never does.
+- Find elements the way a user does, by role and accessible name or by label. A locator
+  that only works through a class name or test id says nothing about accessibility.
+- Read the tool's help before using a flag you have not used. Do not guess options.
+- Run the app from inside the environment you are in, at its own address and port. A
+  host-mapped port belongs to the person viewing from outside.
+- Before starting a dev server, check whether one is already running; do not start a
+  second. Keep its log where it can be read.
+- A smoke test that proves the tooling works is not evidence about the interface.
+
+### 1.4 When you cannot render
 
 If no browser, simulator or device is available, ask the user for screenshots at the
 widths above, or review the source only and say so. State exactly which claims are
@@ -54,14 +78,17 @@ unverified. Do not describe the appearance of something you have not seen.
 
 ## 2. Self-review during a build
 
-1. Build the whole thing to the plan.
+1. Build the whole thing to the plan. When changing existing behavior, first add or
+   update a check that fails for the old behavior, then make it pass; never weaken a
+   check to get there.
 2. Run one batched inspection: the capture matrix, the primary flow, the keyboard path.
 3. Compare the render with the brief and with the plan from the direction step. Ask
    what a visitor would remember after one viewport, and whether that is what the plan
    intended.
 4. List the findings, order them by section 4, and fix them in one batch.
 5. Run one confirming inspection of what changed.
-6. Run `AUDIT.md` and report (section 9).
+6. Run the repository's own checks (lint, types, the affected tests).
+7. Run `AUDIT.md` and report (section 9).
 
 Two inspection rounds is the ceiling for cosmetic polish. Open-ended self-polishing
 costs time and tends to dilute a committed direction. A failed non-negotiable
@@ -233,7 +260,8 @@ field result.
 
 - Review the source diff: remove accidental churn, debug output, orphaned styles and
   temporary files.
-- Keep any dev server you started available for the user, or stop it; say which.
+- Keep any dev server you started available for the user, or stop it. Say which, say
+  who started it, and give its address.
 - Hand off with the structure in `SKILL.md` section 7.
 
 ## 9. Running the AUDIT gate
@@ -270,4 +298,4 @@ defines its own procedure, severities and report format; where this section and
 ## Audit coverage
 
 This file is the procedure for running all of `AUDIT.md`. Section 7 corresponds to
-`PERF-01` to `PERF-03`, and to `PERF-04` to `PERF-06`.
+`PERF-01` to `PERF-03`, and to `PERF-04` to `PERF-07`.

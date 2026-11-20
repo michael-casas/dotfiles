@@ -75,6 +75,8 @@ Put this content through the design before calling it done:
 - Routine success is quiet: the interface updates. Reserve celebration for effort or
   consequence that merits it.
 - Announce changes that happen away from focus through a live region, sparingly.
+- Progress and pending indicators sit on the action they belong to. With two requests
+  in flight, it is clear which control each indicator reports.
 
 ## 3. Forms
 
@@ -87,6 +89,8 @@ Put this content through the design before calling it done:
 - Use the right input type, `autocomplete` token and `inputmode`, so keyboards and
   autofill work.
 - State format and eligibility rules before submission, not after.
+- Progressive disclosure may hide advanced options. It never hides a requirement the
+  user must meet to finish.
 - Prefer a sensible default to a question. Prefer selection to free text when the
   options are few and known.
 - Long forms: split into steps only when the steps are real, show progress, allow going
@@ -124,6 +128,9 @@ Put this content through the design before calling it done:
 - Toasts do not steal focus, stay long enough to read, pause on hover and focus, and are
   not the only record of anything important.
 - Use the project's existing overlay primitives, which already handle nesting and focus.
+- Rendering an overlay outside its parent (a portal or top layer) stops clipping. It
+  does not position the overlay, manage its focus or order it against other layers;
+  those still have to be handled and tested at scroll, resize and zoom.
 
 ## 5. Data-dense interfaces
 
@@ -197,10 +204,16 @@ observed research.
 - Keep server-rendered and first client markup deterministic: no random values or
   current-time output during render.
 - One failing component does not take down the screen. Contain errors to their region.
+- Identify each row of a dynamic list by its record, not its position, so input, focus
+  and selection stay with the row when the list reorders or shrinks.
+- Hiding or disabling a control is not access control; the server enforces permission.
+- Treat HTML from users or third parties as untrusted.
+
+For React projects, `react.md` gives the framework-specific form of these rules.
 
 ## Audit coverage
 
-AUDIT items `INTER-01` to `INTER-08`, and `INTER-09` to `INTER-16`. Error
+AUDIT items `INTER-01` to `INTER-08`, and `INTER-09` to `INTER-18`. Error
 recovery is `INTER-07`. Related: `A11Y-01` to `A11Y-03`, `PERF-02` (feedback latency),
 `DARK-01` to `DARK-03` (consent, exit and destructive actions), `CONTENT-01` and
 `CONTENT-02`.

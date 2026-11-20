@@ -125,7 +125,10 @@ not allowed in identity.
   content. Do not let the image invent commercial claims.
 - When a detail is unreadable, generate a fresh, closer image of that part. Do not crop
   and enlarge an old one.
-- Generate what resolves a real decision. More images are not more design.
+- Generate what resolves a real decision, within a budget the user has approved. More
+  images are not more design.
+- Generation and other external services receive what you send them. Do not send
+  private source, unreleased assets or customer data to one without authorization.
 - For an app, the screens form a believable flow: each follows from an action on the
   previous one.
 

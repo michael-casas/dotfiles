@@ -171,6 +171,9 @@ Report **ready** only when each applicable item has evidence and every hit has a
 - [ ] **TYPE-11** · major · Text that carries meaning is baked into a raster image (a headline, a button label, a table screenshot) where live text could be used.
   - Detect — Inspect raster headings, controls and tables for text that can be represented as live text. Allow essential presentation such as logos and user-customizable presentation.
   - Fix — Set the text as live text over the image.
+- [ ] **TYPE-12** · minor · Content text cannot be selected or copied because selection is disabled on the page or on text containers.
+  - Detect — Try to select a paragraph, a table cell, an error message and a code sample. Grep `user-select:\s*none|select-none` outside draggable controls.
+  - Fix — Remove the restriction from content and keep it only on controls where selection interferes with a gesture.
 
 ## Color and contrast
 
@@ -246,6 +249,12 @@ Report **ready** only when each applicable item has evidence and every hit has a
 - [ ] **INTER-16** · minor · A full-screen spinner replaces the whole view between every state, or existing content is wiped while it refreshes.
   - Detect — Trigger a refresh and a pagination load on a populated view and record what remains visible.
   - Fix — Keep prior content during refresh and scope the indicator to the part that is loading.
+- [ ] **INTER-17** · major · List rows are identified by position, so after a reorder, filter, insert or delete a row shows another row's typed value, selection, focus or expanded state.
+  - Detect — Type into the second row of an editable list, expand or select a third, then delete or reorder the first. Check that each value and state stayed with its record. Grep list rendering keyed by index for candidates.
+  - Fix — Identify each row by a stable identifier from its record.
+- [ ] **INTER-18** · major · Leaving and re-entering a view leaves earlier timers, listeners or subscriptions running, so one action fires twice, duplicate toasts appear, or a closed view keeps updating.
+  - Detect — Open the view, navigate away and back three times, then perform one action. Count the resulting requests, messages and handlers. In development, check the view under double mounting where the framework offers it.
+  - Fix — Stop everything the view started when it goes away.
 
 ## Content and copy
 
@@ -495,6 +504,9 @@ Report **ready** only when each applicable item has evidence and every hit has a
 - [ ] **PERF-06** · minor · A viewport-wide scrolling blur, grain layer or persistent will-change causes long frames or excessive layer allocation in a representative trace.
   - Detect — Grep `backdrop-filter|filter:\s*blur|will-change`. Record scrolling on a mid-range phone profile and look for long frames.
   - Fix — Confine the effect to a small fixed layer and remove standing `will-change`.
+- [ ] **PERF-07** · major · The server-rendered page and the first client render disagree (a date, a random id, a locale format, a value read from the browser), so content flashes, jumps or is replaced on load, or the console reports a hydration error.
+  - Detect — Hard-reload with the cache disabled on a throttled connection and record the first second. Check the console for hydration or mismatch warnings. Repeat in a second time zone or locale.
+  - Fix — Produce the same markup in both renders and apply browser-only values after the first render.
 
 ## Dark patterns and deceptive UX
 
