@@ -41,6 +41,8 @@ Use templates/DIRECTIVE.md as the complete description, not just a link to a tem
 - Suspected cause explicitly labeled as a hypothesis, or unknown.
 - Regression contract: fail on the defect through a faithful harness, pass on the repair, preserve adjacent supported behavior and forbidden effects.
 
+Review or critique findings on in-flight work are filed as Bug tickets via the Jira write seat, linked to their parent tickets, before fixes start. One Bug per finding that needs a repair; the implementer fixes against the returned key and does not write Jira itself.
+
 Do not prescribe a speculative fix as acceptance. Retain meaningful RED, frozen behavior, applicable layers, self-review, cleanup and independent review. Production access or reproduction against live data requires its own authority.
 
 ## Draft versus executable issuance

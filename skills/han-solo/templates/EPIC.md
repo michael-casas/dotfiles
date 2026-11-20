@@ -52,13 +52,13 @@ After introspection, every approved child in the delivery scope is included or e
 
 ## Delivery and aggregate completion
 
-- Claim, worktree, branch and PR: <implementing Sergeant's seat; one Herdr worktree and one PR per repository for the whole claim of 1–3 Epics; branch name carries no meaning>.
+- Claim, worktree, branch and PR: <implementing Sergeant's seat; one leased treehouse slot (`<repo>/.treehouse/`, opened in Herdr) and one PR per repository for the whole claim of 1–3 Epics; branch name carries no meaning, recommended `<type>/<slug>`>.
 - Commit, push and PR-readiness authority: <exact grant>.
 - Jira read/write authority: <default read only; exact granted writes if any>.
 - Aggregate gates: <resolved checks, integration, public surface, cleanup>.
 - Baseline exceptions: <accepted exceptions and authority, or none>.
 - Implementation finish: all required task receipts and aggregate proof, final PR heads verified, PRs ready for review.
-- Commits: one per Subtask (`Refs: <SUBTASK-KEY>`), then one Epic commit with the reconciliation and Subtask SHAs.
+- Commits: one per Subtask (`Refs: <SUBTASK-KEY>`, or the repository's key convention), then one Epic commit with the reconciliation and Subtask SHAs.
 - Acceptance: independent PR review; Jira Done only after review approval and merge, by the authority holding those grants.
 
 For a long-lived Epic, these completion gates apply to the approved delivery slice;

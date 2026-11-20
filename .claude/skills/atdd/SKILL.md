@@ -1,6 +1,7 @@
 ---
 name: atdd
-description: ATDD (Acceptance Test-Driven Development) is the bridge between problem identification and agent implementation. Instead of vague requirements, write black-box test scenarios that define what "done" means. This umbrella consolidates two complementary skills: (1) atdd-spec — single-seam ATDD specifications for one boundary at a time, and (2) atdd-dag-generation — wave-DAG task sets with executable validation, used when the Kanban dispatcher orchestrates multi-lane implementation. Load this skill BEFORE writing any spec the implementing agent (Sonnet, Codex, OpenCode) will execute against, and BEFORE defining a wave-DAG with executable gates for parallel worker dispatch.
+description: >-
+  ATDD (Acceptance Test-Driven Development) is the bridge between problem identification and agent implementation. Instead of vague requirements, write black-box test scenarios that define what "done" means. This umbrella consolidates two complementary skills: (1) atdd-spec — single-seam ATDD specifications for one boundary at a time, and (2) atdd-dag-generation — wave-DAG task sets with executable validation, used when the Kanban dispatcher orchestrates multi-lane implementation. Load this skill BEFORE writing any spec the implementing agent (Sonnet, Codex, OpenCode) will execute against, and BEFORE defining a wave-DAG with executable gates for parallel worker dispatch.
 version: 1.0.0
 author: Django
 license: MIT

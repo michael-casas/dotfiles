@@ -2,14 +2,14 @@
 name: ticketing
 description: Transform user intent into structured Jira tickets. Epics are technical Feature Charters; Tasks are Directives; Subtasks are evidence-based fulfilment requirements; Bugs use the canonical Directive description with reproduction and regression proof. Use to draft, refine, split, create, or update tickets, not to execute their implementation.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Ticketing — Claude Code
 
 Read applicable CLAUDE.md, AGENTS.md and README.md. Use Jira connectors and task/todo tools actually exposed in Claude Code; do not require Codex or Pi APIs.
 
-Read [the authoring contract](references/authoring.md), then classify and draft from evidence. Prepare the Epic batch first; deeply inspect each Epic before writing its Tasks. Each Subtask names one parent-Directive obligation and closing evidence. Use [the Epic template](templates/EPIC.md) for features and [the Directive template](templates/DIRECTIVE.md) for child Tasks and Bugs. Bug Directives use Class: fix and include repro, actual/expected behavior, impact, Severity and regression obligations.
+Read [the authoring contract](references/authoring.md), then classify and draft from evidence. Prepare the Epic batch first; deeply inspect each Epic before writing its Tasks. Each Subtask names one parent-Directive obligation and closing evidence. Use [the Epic template](templates/EPIC.md) for features and [the Directive template](templates/DIRECTIVE.md) for child Tasks and Bugs. Bug Directives use Class: fix and include repro, actual/expected behavior, impact, Severity and regression obligations. Review or critique findings on in-flight work are filed as Bug tickets via the Jira write seat, linked to their parent tickets, before fixes start.
 
 Distinguish a publishable ticket draft from an issued executable Directive. Missing execution bindings are explicit dispatch prerequisites, never fabricated values. Publish only within the user's Jira write authority, read back the result, and report actual issue links. Otherwise return complete drafts and unresolved decisions.
 

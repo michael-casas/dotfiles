@@ -6,7 +6,7 @@ Use this reference only for a confirmed production repair.
 
 1. Inspect and verify live `origin/main`.
 2. Create `HOTFIX/<HOTFIX_HASH>` from that exact revision in an isolated
-   worktree.
+   worktree leased from the repository's treehouse pool (`treehouse get --lease`).
 3. Make the smallest repair, run affected validation, and prove application or
    server boot plus a representative interaction where applicable.
 4. Never push red.
