@@ -15,6 +15,11 @@
 --        connected through Dadbod, refused with a pointer to the URL form
 --   BAD  libpq rejects what would run (or its port is not a number): refuse
 --   OK   accept it
+-- libpq reads secrets other than `password` too: sslpassword (the client
+-- key's passphrase) and, from libpq 18, oauth_client_secret. Both count as a
+-- password. libpq before 18 doesn't know oauth_* options and rejects them, so
+-- those rows' anchors depend on the version: "PW>=18:BAD" means PW with
+-- libpq 18 or later, BAD before.
 local PW = "SYNTHETIC-PW-123"
 
 local rows = {
@@ -132,6 +137,28 @@ local rows = {
   { "opaque query, conninfo text in a value", "S:demo?application_name=x password=" .. PW },
   { "opaque kv before a query", "S:host=h password=" .. PW .. "?sslmode=disable", "KV" },
   -- Not a libpq URI designator (case-sensitive): psql reads a literal name.
+  -- Other libpq secrets, refused like password (owner ruling F10).
+  { "query sslpassword", "S://demo@127.0.0.1:1/demo?sslpassword=" .. PW, "PW" },
+  { "query sslpassword, once-encoded key", "S://demo@127.0.0.1:1/demo?ss%6Cpassword=" .. PW, "PW" },
+  { "query sslpassword, multi-host", "S://demo@127.0.0.1:1,127.0.0.2:2/demo?sslpassword=" .. PW, "PW" },
+  { "short URL sslpassword", "S:demo?sslpassword=" .. PW, "PW" },
+  { "short URL service, encoded sslpassword key", "S:?service=dadbod_demo&ssl%70assword=" .. PW, "PW" },
+  { "query sslpassword, empty value", "S://demo@127.0.0.1:1/demo?sslpassword=", "OK" },
+  { "query sslkey path, no secret", "S://demo@127.0.0.1:1/demo?sslkey=/tmp/client.key", "OK" },
+  { "short URL sslcert path, no secret", "S:demo?sslcert=/tmp/client.crt", "OK" },
+  { "query oauth_client_secret", "S://demo@127.0.0.1:1/demo?oauth_client_secret=" .. PW, "PW>=18:BAD" },
+  {
+    "query oauth_client_secret, once-encoded key",
+    "S://demo@127.0.0.1:1/demo?oauth%5Fclient%5Fsecret=" .. PW,
+    "PW>=18:BAD",
+  },
+  { "short URL oauth_client_secret", "S:demo?oauth_client_secret=" .. PW, "PW>=18:BAD" },
+  {
+    "short URL service, encoded oauth_client_secret key",
+    "S:?service=dadbod_demo&oauth_client_%73ecret=" .. PW,
+    "PW>=18:BAD",
+  },
+  { "query oauth_client_id, no secret", "S://demo@127.0.0.1:1/demo?oauth_client_id=envi", "OK>=18:BAD" },
   { "upper-case scheme with userinfo", "POSTGRESQL://demo:" .. PW .. "@127.0.0.1:1/demo", "OK" },
 }
 

@@ -83,6 +83,11 @@ for _, c in ipairs(S.cases()) do
   local truth = S.label(url)
   counts[truth] = counts[truth] + 1
   if anchor then
+    -- "HI>=18:LO": HI with libpq 18 or later, LO before (oauth_* options).
+    local hi, lo = anchor:match("^(%u+)>=18:(%u+)$")
+    if hi then
+      anchor = pq.version() >= 180000 and hi or lo
+    end
     expect(truth == anchor, label .. ": libpq's label matches the hand-checked anchor")
   end
 
