@@ -2,7 +2,8 @@
 
 dotbot follows a symlinked directory and writes into its target. So every
 existing directory on the way to a managed destination's parent, and every
-cleanup root, must be a real directory. The paths come from the same config
+cleanup root, must be a real directory: below HOME from HOME down, and for an
+XDG_CONFIG_HOME outside HOME from the filesystem root down. The paths come from the same config
 files dotbot reads and from skill-catalog.py's own targets, so the declared
 paths and this guard cannot diverge. The leaf itself is dotbot's to judge.
 
@@ -27,7 +28,10 @@ def load_yaml(dotbot):
 
 
 def expand(path):
-    return os.path.abspath(os.path.expanduser(os.path.expandvars(path)))
+    """As dotbot expands it, but with every component kept as written: no
+    normalisation, so a symlink and a `..` after it both stay visible."""
+    path = os.path.expanduser(os.path.expandvars(path))
+    return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
 
 
 def declared(yaml, configs):
@@ -52,29 +56,46 @@ def skill_roots(base):
     spec = importlib.util.spec_from_file_location('skill_catalog', catalog)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # module level only defines constants
-    return [os.path.abspath(str(target)) for target in module.TARGETS]
+    return [str(target) for target in module.TARGETS]
 
 
-def anchor(path, home, xdg):
-    """The directory a walk starts below. XDG_CONFIG_HOME outside HOME is a
-    managed root, so it is checked itself; HOME is taken as given."""
-    for top, checked in ((home, False), (xdg, True)):
-        if path == top or path.startswith(top.rstrip(os.sep) + os.sep):
-            return top, checked
-    return os.sep, False
+# macOS's own top-level aliases (/tmp -> private/tmp and so on). Rewritten
+# before the walk, and only when they are exactly the system's links, so a
+# symlink the caller made anywhere is still reported.
+DARWIN_ALIASES = ('tmp', 'var', 'etc')
 
 
-def problems(path, home, xdg):
-    """Walk from the anchor down to `path`; stop at the first missing one."""
-    top, checked = anchor(path, home, xdg)
-    steps = [top] if checked else []
-    rest = os.path.relpath(path, top)
-    if rest != os.curdir:
-        current = top
-        for part in rest.split(os.sep):
-            current = os.path.join(current, part)
-            steps.append(current)
-    for step in steps:
+def unalias(path):
+    if sys.platform != 'darwin':
+        return path
+    for name in DARWIN_ALIASES:
+        alias = os.sep + name
+        if (path == alias or path.startswith(alias + os.sep)) and os.path.islink(alias) \
+                and os.readlink(alias) == 'private/' + name:
+            return os.sep + 'private' + path
+    return path
+
+
+def walk(path, home):
+    """Every directory a write to `path` passes through, in order. Below HOME
+    the walk starts at HOME, which is taken as given; anywhere else (an
+    XDG_CONFIG_HOME outside HOME) it starts at the filesystem root."""
+    top = home.rstrip(os.sep) or os.sep
+    if path == top or path.startswith(top + os.sep):
+        rest = path[len(top):]
+    else:
+        top, rest = os.sep, unalias(path)
+    current = top
+    for part in rest.split(os.sep):
+        if part in ('', os.curdir):
+            continue
+        current = os.path.join(current, part)
+        yield current
+
+
+def problems(path, home):
+    """The first bad directory on the way to `path`; stop at the first missing one."""
+    for step in walk(path, home):
         if os.path.islink(step):
             yield 'symlink', step
             return
@@ -90,8 +111,7 @@ def main(argv):
         print(__doc__.strip().splitlines()[-3], file=sys.stderr)
         return 2
     dotbot, base, configs = argv[1], argv[2], argv[3:]
-    home = os.path.abspath(os.path.expanduser('~'))
-    xdg = os.path.abspath(os.environ.get('XDG_CONFIG_HOME') or os.path.join(home, '.config'))
+    home = os.path.expanduser('~')
     try:
         links, roots = declared(load_yaml(dotbot), configs)
         roots += skill_roots(base)
@@ -100,7 +120,7 @@ def main(argv):
         return 2
     seen, bad = set(), []
     for path in [os.path.dirname(link) for link in links] + roots:
-        for problem in problems(path, home, xdg):
+        for problem in problems(path, home):
             if problem[1] not in seen:
                 seen.add(problem[1])
                 bad.append(problem)
