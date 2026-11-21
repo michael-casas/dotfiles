@@ -63,6 +63,18 @@ class PolicyTests(unittest.TestCase):
                                       capture_output=True, text=True, check=True).stdout[:6]
                 self.assertEqual(mode, '100755', f'{source} must be tracked as executable')
 
+    def test_workflow_actions_are_pinned_to_full_commits(self):
+        workflows = sorted((REPO / '.github' / 'workflows').glob('*.yml'))
+        self.assertTrue(workflows)
+        for workflow in workflows:
+            for line in workflow.read_text().splitlines():
+                ref = line.strip().removeprefix('- ').strip()
+                if not ref.startswith('uses:'):
+                    continue
+                action = ref.split()[1]
+                self.assertRegex(action, r'^[\w.-]+/[\w.-]+@[0-9a-f]{40}$', f'{workflow.name}: {line}')
+                self.assertRegex(ref, r'# v\d+\.\d+\.\d+$', f'{workflow.name}: name the release: {line}')
+
     def test_dotbot_submodule_is_pinned_and_ignores_dirty(self):
         modules = configparser.ConfigParser()
         modules.read(REPO / '.gitmodules')

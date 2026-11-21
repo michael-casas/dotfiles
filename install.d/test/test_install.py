@@ -6,78 +6,15 @@ interpreter path (/bin/bash 3.2, /usr/bin/python3). Ported from the slot 1
 dotbot harness (tests/test_setup.py).
 """
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
-import tempfile
 import unittest
 
-from support import CONFIGS, DOTBOT, REPO, expand, links_for_this_os
-
-DECLARED = links_for_this_os()
-GIT = ['git', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
-       '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false']
+from harness import DECLARED, InstallCase, stub
 
 
-def stub(directory, name, body):
-    path = directory / name
-    path.write_text('#!/bin/sh\n' + body + '\n')
-    path.chmod(0o755)
-
-
-class InstallTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='dotfiles install ')
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name).resolve()
-        self.repo = self.root / 'checkout with spaces'
-        self.home = self.root / 'home'
-        self.home.mkdir()
-        self.make_checkout(self.repo)
-        self.env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.home), 'LC_ALL': 'C',
-                    'DOTBOT_BIN': str(DOTBOT), 'PYTHONDONTWRITEBYTECODE': '1'}
-
-    def make_checkout(self, repo, git=True):
-        (repo / 'install.d').mkdir(parents=True)
-        for name in ['install'] + CONFIGS:
-            shutil.copy2(REPO / name, repo / name)
-        for script in (REPO / 'install.d').glob('*.sh'):
-            shutil.copy2(script, repo / 'install.d' / script.name)
-        for _, source in DECLARED:
-            path = repo / source
-            if (REPO / source).is_dir():
-                path.mkdir(parents=True, exist_ok=True)
-                (path / 'fixture').write_text('fixture\n')
-            else:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('fixture\n')
-        if git:
-            self.git(repo, 'init', '-q')
-            self.git(repo, 'add', '-A')
-            self.git(repo, 'commit', '-q', '-m', 'fixture')
-
-    def git(self, repo, *args):
-        subprocess.run(GIT + ['-C', str(repo), *args], check=True, capture_output=True,
-                       env={'PATH': '/usr/bin:/bin', 'HOME': str(self.root)})
-
-    def run_install(self, *args, repo=None):
-        script = (repo or self.repo) / 'install'
-        return subprocess.run(['/bin/bash', str(script), *args], cwd=self.root, env=self.env,
-                              capture_output=True, text=True, timeout=60)
-
-    def home_entries(self):
-        return sorted(str(p.relative_to(self.home)) for p in self.home.rglob('*'))
-
-    def lines(self, result, status):
-        return [line for line in result.stdout.splitlines() if line.startswith(status + ' ')]
-
-    def link_everything(self, xdg=None):
-        for dest, source in DECLARED:
-            path = expand(dest, self.home, xdg)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.symlink_to(self.repo / source)
-
+class InstallTests(InstallCase):
     # --- plan ---------------------------------------------------------------
     def test_plan_on_empty_home_lists_every_link_and_writes_nothing(self):
         result = self.run_install('plan')
@@ -129,7 +66,7 @@ class InstallTests(unittest.TestCase):
         (self.repo / 'install.conf.yaml').write_text('- link: [unclosed\n')
         result = self.run_install('plan')
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn('dotbot could not plan the links', result.stdout)
+        self.assertIn('could not check the managed directories: error ', result.stdout)
         self.assertEqual(self.lines(result, 'CONFLICT'), [])
         self.assertEqual(self.home_entries(), [])
 
@@ -199,7 +136,7 @@ class InstallTests(unittest.TestCase):
         self.make_checkout(bare, git=False)
         result = self.run_install('plan', repo=bare)
         self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
-        self.assertIn('not a git checkout', result.stderr)
+        self.assertIn('not the top of a git checkout', result.stderr)
 
     def test_linked_worktree_with_sandbox_home_checks_itself(self):
         slot = self.root / 'slot one'
