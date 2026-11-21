@@ -84,7 +84,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         would = [line for line in result.stdout.splitlines() if 'Would create symlink ' in line]
         self.assertEqual(len(would), len(DECLARED), result.stdout)
-        self.assertIn(f'{len(DECLARED)} links to create', result.stdout)
+        self.assertIn(f'{len(DECLARED)} links to create, 0 dead links to remove', result.stdout)
         self.assertEqual(self.home_entries(), [])
 
     def test_plan_honours_xdg_config_home_with_a_space(self):
@@ -111,7 +111,26 @@ class InstallTests(unittest.TestCase):
     def test_doctor_reports_drift_on_an_empty_home(self):
         result = self.run_install('doctor')
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn(f'not converged: {len(DECLARED)} links to create', result.stdout)
+        self.assertIn(f'{len(DECLARED)} links to create', result.stdout)
+        self.assertTrue(any(line.startswith('FAIL     links') for line in result.stdout.splitlines()))
+        self.assertEqual(self.home_entries(), [])
+
+    def test_dead_link_into_the_checkout_is_planned_not_removed(self):
+        self.link_everything()
+        retired = self.home / '.tmux.conf'
+        retired.symlink_to(self.repo / 'tmux' / 'tmux.conf')
+        result = self.run_install('plan')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('0 links to create, 1 dead links to remove', result.stdout)
+        self.assertIn(f'Would remove invalid link {retired}', result.stdout)
+        self.assertTrue(retired.is_symlink())
+
+    def test_an_unreadable_config_is_a_failure_not_a_conflict(self):
+        (self.repo / 'install.conf.yaml').write_text('- link: [unclosed\n')
+        result = self.run_install('plan')
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('dotbot could not plan the links', result.stdout)
+        self.assertEqual(self.lines(result, 'CONFLICT'), [])
         self.assertEqual(self.home_entries(), [])
 
     def test_conflicts_exit_4_and_stay_untouched(self):

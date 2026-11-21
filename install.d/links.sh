@@ -12,7 +12,7 @@ links_configs() {  # the dotbot config files for this OS, one per line
 }
 
 links_check() {    # links_check plan|doctor
-    local mode="$1" parent out rc=0 exists pending shadow state
+    local mode="$1" parent out rc=0 exists pending dead refused shadow state
     local -a configs=()
     while IFS= read -r parent; do configs+=("$parent"); done < <(links_configs)
 
@@ -43,15 +43,19 @@ links_check() {    # links_check plan|doctor
     out="$("$DOTBOT" -v --no-color -d "$BASE" --dry-run --only link create clean -c "${configs[@]}" 2>&1)" || rc=$?
     exists="$(printf '%s\n' "$out" | grep -c '^Link exists ' || true)"
     pending="$(printf '%s\n' "$out" | grep -c '^Would create symlink ' || true)"
+    dead="$(printf '%s\n' "$out" | grep -c '^Would remove invalid link ' || true)"
+    refused="$(printf '%s\n' "$out" | grep -c -e ' already exists but ' -e '^Incorrect link ' -e '^Invalid link ' || true)"
     out="$(printf '%s\n' "$out" | grep -v -e '^Link exists ' -e '^All .* successfully$' -e '^All .*been .*$' \
         -e '^Some .* successfully' -e ' not removed\.$' -e '^$' || true)"
     report ok links "$exists declared links in place (base $BASE)"
-    if [ "$rc" -ne 0 ]; then
+    if [ "$rc" -ne 0 ] && [ "$refused" -gt 0 ]; then
         CONFLICTS=$((CONFLICTS + 1))
-        report CONFLICT links "dotbot refuses some links and would create $pending; each is listed below, nothing is touched"
-    elif [ "$pending" -gt 0 ] || [ -n "$out" ]; then
-        if [ "$mode" = doctor ]; then report FAIL links "not converged: $pending links to create"
-        else report plan links "$pending links to create"; fi
+        report CONFLICT links "dotbot refuses $refused links and would create $pending; each is listed below, nothing is touched"
+    elif [ "$rc" -ne 0 ]; then
+        report FAIL links "dotbot could not plan the links (exit $rc); its output is below"
+    elif [ "$pending" -gt 0 ] || [ "$dead" -gt 0 ]; then
+        if [ "$mode" = doctor ]; then state=FAIL; else state=plan; fi
+        report "$state" links "$pending links to create, $dead dead links to remove"
     fi
     if [ -n "$out" ]; then printf '%s\n' "$out" | detail; fi
 
