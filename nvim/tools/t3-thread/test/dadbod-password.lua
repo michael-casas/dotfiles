@@ -73,6 +73,9 @@ local function dbname(cmd)
 end
 local input = vim.fn.tempname() .. "/password=" .. S.password .. ".sql"
 local counts = { PW = 0, KV = 0, BAD = 0, OK = 0 }
+-- $DADBOD_MATRIX_DUMP: write one line per case (ids and outcomes, never the
+-- URL), to compare the classification across platforms and libpq builds.
+local dump = {}
 
 for _, c in ipairs(S.cases()) do
   local id, scheme, url, anchor = c[1], c[2], c[3], c[4]
@@ -101,6 +104,7 @@ for _, c in ipairs(S.cases()) do
 
   -- Command build, on the raw URL.
   local op_verdict = pq.classify(S.operand(url))
+  table.insert(dump, table.concat({ scheme, id, truth, op_verdict, ok and "accepted" or "refused" }, "|"))
   for _, fn in ipairs({ "interactive", "filter", "input" }) do
     local bok, cmd
     if fn == "input" then
@@ -125,6 +129,10 @@ for _, c in ipairs(S.cases()) do
       )
     end
   end
+end
+
+if vim.env.DADBOD_MATRIX_DUMP and vim.env.DADBOD_MATRIX_DUMP ~= "" then
+  vim.fn.writefile(dump, vim.env.DADBOD_MATRIX_DUMP)
 end
 
 -- Enough of each kind that a regression can't hide in an empty bucket.
