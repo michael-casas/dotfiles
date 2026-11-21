@@ -3,16 +3,66 @@
 # FAIL: the installer cannot work here. warn: a tool is missing or too old;
 # the packages phase (step 3) will install it. MANUAL: a person must act.
 
-# Some tools write state on any start (nvim's log, gh's device id, starship's
-# cache), so a version probe runs with HOME and the XDG dirs in a throwaway
-# directory, never the real ones.
+# Version probes. Some tools write on any start (nvim's log, gh's device id,
+# starship's cache) and honour inherited settings such as NVIM_LOG_FILE or
+# TMPDIR. So a probe runs under `env -i` with only PATH and the locale passed
+# through, and HOME, TMPDIR and every XDG dir set to a private directory under
+# a system scratch root (DOTFILES_PROBE_ROOT, default /tmp). That root must lie
+# outside every home, XDG root and checkout. No scratch directory: no probe.
+PROBE=""          # this run's scratch directory; ./install removes it on exit
+PROBE_ERR=""
+
+probe_open() {
+    local root="${DOTFILES_PROBE_ROOT:-/tmp}" canon p
+    if ! canon="$(cd -- "$root" 2>/dev/null && pwd -P)"; then
+        PROBE_ERR="scratch root $root does not exist"
+        return 1
+    fi
+    for p in "$HOME" "$ACCOUNT_HOME" "$XDG_CONFIG_HOME" "${XDG_CACHE_HOME:-}" "${XDG_DATA_HOME:-}" \
+        "${XDG_STATE_HOME:-}" "${XDG_RUNTIME_DIR:-}" "$CHECKOUT" "$BASE"; do
+        if [ -z "$p" ]; then continue; fi
+        p="$( (cd -- "$p" 2>/dev/null && pwd -P) || printf '%s' "$p")"
+        case "$canon/" in
+            "${p%/}"/*) PROBE_ERR="scratch root $canon is inside $p"; return 1 ;;
+        esac
+    done
+    if ! PROBE="$(mktemp -d "$canon/dotfiles-probe.XXXXXX" 2>/dev/null)"; then
+        PROBE=""
+        PROBE_ERR="cannot create a directory under $canon"
+        return 1
+    fi
+}
+
+probe_close() {
+    if [ -n "$PROBE" ]; then rm -rf -- "$PROBE"; fi
+}
+
+# macOS /usr/bin/git and /usr/bin/python3 are xcrun shims, and xcrun keys its
+# cache in the per-user temp dir on HOME, so a probe with a private HOME would
+# write a new cache entry every run. Probe the tool behind the shim instead;
+# `xcrun --find` runs with this process's own environment, so it reads the
+# cache as every other git call here does.
+probe_target() {
+    local path real
+    path="$(command -v "$1")"
+    if [ "$OS" = Darwin ] && [ "${path%/*}" = /usr/bin ] && [ -x /usr/bin/xcrun ] &&
+        real="$(/usr/bin/xcrun --find "$1" 2>/dev/null)" && [ -x "$real" ]; then
+        path="$real"
+    fi
+    printf '%s\n' "$path"
+}
+
 version_of() {    # first dotted number in the first line of `<cmd> --version`
-    local probe
-    probe="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-probe.XXXXXX")"
-    { env HOME="$probe" XDG_CONFIG_HOME="$probe" XDG_CACHE_HOME="$probe" XDG_STATE_HOME="$probe" \
-        XDG_DATA_HOME="$probe" "$@" --version 2>&1 </dev/null || true; } | head -n 1 |
+    local dir target
+    if [ -z "$PROBE" ] || ! dir="$(mktemp -d "$PROBE/probe.XXXXXX" 2>/dev/null)"; then
+        return 2
+    fi
+    target="$(probe_target "$1")"
+    { env -i PATH="$PATH" LC_ALL=C HOME="$dir" TMPDIR="$dir" XDG_CONFIG_HOME="$dir" \
+        XDG_CACHE_HOME="$dir" XDG_DATA_HOME="$dir" XDG_STATE_HOME="$dir" XDG_RUNTIME_DIR="$dir" \
+        "$target" --version 2>&1 </dev/null || true; } | head -n 1 |
         sed -n 's/[^0-9]*\([0-9][0-9]*\(\.[0-9][0-9]*\)\{1,\}\).*/\1/p'
-    rm -rf -- "$probe"
+    rm -rf -- "$dir"
 }
 
 version_ge() {    # version_ge 3.2.57 3.2: true when $1 >= $2
@@ -32,7 +82,10 @@ need() {          # need <status-if-bad> <command> <minimum or ""> <why>
         report ok tools "$cmd present"
         return
     fi
-    v="$(version_of "$cmd")"
+    if ! v="$(version_of "$cmd")"; then
+        report "$bad" tools "$cmd version probe failed: ${PROBE_ERR:-no private scratch directory}"
+        return
+    fi
     if [ -z "$v" ] || ! version_ge "$v" "$min"; then
         report "$bad" tools "$cmd ${v:-unknown version} is older than $min ($why)"
     else
@@ -42,6 +95,7 @@ need() {          # need <status-if-bad> <command> <minimum or ""> <why>
 
 compat_check() {
     local arch brew prefix
+    probe_open || true      # on failure every version probe reports PROBE_ERR
     arch="$(uname -m)"
     # shellcheck disable=SC1091
     case "$OS" in

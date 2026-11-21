@@ -78,7 +78,8 @@ print(d["sources"], d["links_needed"], len(d["skipped_user_owned"]), len(d["reti
             return
         }
         local sources needed kept retired
-        read -r sources needed kept retired <<<"$out"
+        # Process substitution, not a here-string: Bash 3.2 writes those to a temp file.
+        read -r sources needed kept retired < <(printf '%s\n' "$out")
         if [ "$needed" -eq 0 ] && [ "$retired" -eq 0 ]; then report ok skills "$sources skills linked"
         elif [ "$mode" = doctor ]; then report FAIL skills "$needed skill links to create, $retired retired links to remove"
         else report plan skills "$needed skill links to create, $retired retired links to remove"; fi
