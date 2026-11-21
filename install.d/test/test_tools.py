@@ -56,6 +56,7 @@ class AppleShimTests(InstallCase):
         shutil.copy2(Path(__file__).resolve().parents[2] / 'skill-catalog.py', self.repo)
 
     def assert_clean_run(self, dev):
+        dev = os.path.realpath(dev)   # the installer reports canonical paths
         self.with_skills()
         self.link_everything()
         before = xcrun_cache()
