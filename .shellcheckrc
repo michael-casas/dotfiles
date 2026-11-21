@@ -1,0 +1,4 @@
+# Follow `. "$CHECKOUT/install.d/..."` so a bare `shellcheck install` checks
+# the installer with its sourced phase files.
+external-sources=true
+source-path=SCRIPTDIR
