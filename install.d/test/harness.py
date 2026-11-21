@@ -77,10 +77,14 @@ class InstallCase(unittest.TestCase):
         return subprocess.run(GIT + ['-C', str(repo), *args], check=True, capture_output=True,
                               text=True, env={'PATH': '/usr/bin:/bin', 'HOME': str(self.root)})
 
-    def run_install(self, *args, repo=None, wrapper=()):
-        script = (repo or self.repo) / 'install'
-        return subprocess.run([*wrapper, '/bin/bash', str(script), *args], cwd=self.root,
+    def run_install(self, *args, repo=None, wrapper=(), cwd=None, script=None):
+        """Run ./install. `script` may be relative to `cwd` (default: the temp root)."""
+        script = script or (repo or self.repo) / 'install'
+        return subprocess.run([*wrapper, '/bin/bash', str(script), *args], cwd=cwd or self.root,
                               env=self.env, capture_output=True, text=True, timeout=120)
+
+    def checkout_status(self, repo=None):
+        return self.git(repo or self.repo, 'status', '--porcelain', '--ignored').stdout
 
     def home_entries(self):
         return sorted(str(p.relative_to(self.home)) for p in self.home.rglob('*'))

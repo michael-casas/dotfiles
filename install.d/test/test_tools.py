@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import time
 import unittest
 
 from harness import DECLARED, InstallCase, stub
@@ -59,7 +60,7 @@ class AppleShimTests(InstallCase):
         dev = os.path.realpath(dev)   # the installer reports canonical paths
         self.with_skills()
         self.link_everything()
-        before = xcrun_cache()
+        before, started = xcrun_cache(), time.monotonic()
         for command, code in (('plan', 0), ('doctor', 1)):
             with self.subTest(command=command, dev=dev):
                 result = self.run_install(command, wrapper=self.sandbox(
@@ -75,7 +76,78 @@ class AppleShimTests(InstallCase):
                                     for l in lines), result.stdout)
                 self.assertIn(f'{len(DECLARED)} declared links in place', result.stdout)
                 self.assertIn('2 skill links to create, 0 retired links to remove', result.stdout)
-        self.assertEqual(xcrun_cache(), before, 'xcrun cache changed')
+        self.assert_cache_unchanged(before, time.monotonic() - started)
+
+    def assert_cache_unchanged(self, before, duration):
+        """The write-deny profile is the proof; this equality is a cross-check.
+        Other processes in the session update the same cache, so when it
+        changed, an idle control window of the same length decides: if the
+        cache moves with no installer running either, only this check is
+        skipped, with the reason."""
+        after = xcrun_cache()
+        if after == before:
+            return
+        idle = xcrun_cache()
+        time.sleep(max(duration, 1.0))
+        if xcrun_cache() != idle:
+            with self.subTest(check='xcrun cache equality'):
+                self.skipTest(f'xcrun cache also changed in an idle {duration:.1f}s control '
+                              'window; another process is writing it')
+            return
+        self.assertEqual(after, before, 'xcrun cache changed, and it was quiet without the installer')
+
+    def assert_shim_spelling(self, path_env, dev=None):
+        if dev:
+            self.env['DEVELOPER_DIR'] = dev
+        self.env['PATH'] = path_env
+        expected = os.path.realpath(dev or developer_dir())
+        result = self.run_install('plan', wrapper=self.sandbox(
+            deny_exec=('/usr/bin/git', '/usr/bin/python3', '/usr/bin/xcrun')))
+        out = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, out)
+        self.assertNotIn('Operation not permitted', out)
+        lines = result.stdout.splitlines()
+        for tool in ('git 2.', 'python3 3.'):
+            self.assertTrue(any(l.startswith(f'ok       tools     {tool}') and expected in l
+                                for l in lines), result.stdout)
+
+    def shim_links(self):
+        links = self.root / 'shim links'
+        links.mkdir()
+        (links / 'git').symlink_to('/usr/bin/git')
+        (links / 'python3').symlink_to('/usr/bin/python3')
+        return links
+
+    def layouts(self):
+        found = [None]
+        for dev in ('/Applications/Xcode.app/Contents/Developer', '/Library/Developer/CommandLineTools'):
+            if os.path.isfile(dev + '/usr/bin/git') and os.path.isfile(dev + '/usr/bin/python3'):
+                found.append(dev)
+        return found
+
+    def test_f14_redundant_slash_reaches_the_developer_dir(self):
+        for dev in self.layouts():
+            with self.subTest(dev=dev):
+                self.assert_shim_spelling('/usr/bin//:/bin', dev)
+
+    def test_f14_symlinked_shim_dir_reaches_the_developer_dir(self):
+        links = self.shim_links()
+        for dev in self.layouts():
+            with self.subTest(dev=dev):
+                self.assert_shim_spelling(f'{links}:/usr/bin:/bin', dev)
+
+    def test_f14_other_spellings_with_an_unmappable_developer_dir(self):
+        marker = self.marker_dotbot()
+        self.env['DEVELOPER_DIR'] = str(self.root / 'no developer dir')
+        for path_env in ('/usr/bin//:/bin', f'{self.shim_links()}:/usr/bin:/bin'):
+            with self.subTest(path=path_env):
+                self.env['PATH'] = path_env
+                result = self.run_install('plan', wrapper=self.sandbox(
+                    deny_exec=('/usr/bin/git', '/usr/bin/python3', '/usr/bin/xcrun')))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('is an xcrun shim', result.stderr)
+                self.assertNotIn('not the top of a git checkout', result.stderr)
+                self.assertFalse(marker.exists())
 
     def test_cold_home_with_the_selected_developer_dir(self):
         self.assert_clean_run(developer_dir())
@@ -187,6 +259,134 @@ class GitTraceTests(test_guards.DotbotPinTests):
         self.test_mismatched_pin_stops_before_dotbot()
         for target in targets:
             self.assertFalse(target.exists(), f'git traced to {target}')
+
+
+def real_tool(name):
+    """The real executable a fresh machine would run for `name`."""
+    if DARWIN:
+        return os.path.join(os.path.realpath(developer_dir()), 'usr', 'bin', name)
+    return shutil.which(name, path='/usr/bin:/bin')
+
+
+class SelectionTests(InstallCase):
+    """F14 and F18 on every OS: selection does not depend on how PATH spells a
+    directory, on the working directory, on CDPATH or on shell functions."""
+
+    def relbin(self):
+        relbin = self.root / 'relbin'
+        relbin.mkdir()
+        for name in ('git', 'python3'):
+            stub(relbin, name, f'exec "{real_tool(name)}" "$@"')
+        return relbin
+
+    def test_caller_relative_path_entry_matches_the_absolute_one(self):
+        relbin = self.relbin()
+        self.env['PATH'] = f'{relbin}:/usr/bin:/bin'
+        absolute = self.run_install('plan')
+        self.assertEqual(absolute.returncode, 0, absolute.stdout + absolute.stderr)
+        self.assertIn(f'({relbin}/git)', absolute.stdout)
+        for cdpath in (None, str(self.decoy())):
+            with self.subTest(cdpath=cdpath):
+                self.env['PATH'] = 'relbin:/usr/bin:/bin'
+                if cdpath:
+                    self.env['CDPATH'] = cdpath
+                relative = self.run_install('plan', cwd=self.root)
+                self.assertEqual(relative.returncode, 0, relative.stdout + relative.stderr)
+                self.assertEqual(relative.stdout, absolute.stdout)
+
+    def decoy(self):
+        decoy = self.root / 'decoy'
+        (decoy / self.repo.name / 'install.d').mkdir(parents=True)
+        (decoy / 'relbin').mkdir()
+        return decoy
+
+    def test_cdpath_does_not_move_the_checkout(self):
+        control = self.run_install('plan', cwd=self.root, script=f'{self.repo.name}/install')
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.env['CDPATH'] = str(self.decoy())
+        for command, code in (('plan', 0), ('doctor', 1)):
+            with self.subTest(command=command):
+                result = self.run_install(command, cwd=self.root, script=f'{self.repo.name}/install')
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.splitlines()[0], f'== dotfiles {command} ({self.repo})')
+        self.assertEqual(result.stdout.replace('doctor', 'plan').splitlines()[0],
+                         control.stdout.splitlines()[0])
+
+    def test_an_exported_git_function_is_not_selected(self):
+        self.env['BASH_FUNC_git%%'] = '() {  echo hijacked; return 1\n}'
+        result = self.run_install('plan')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('hijacked', result.stdout + result.stderr)
+        self.assertTrue(any(l.startswith('ok       tools     git 2.') and '(/' in l
+                            for l in result.stdout.splitlines()), result.stdout)
+
+
+def fsmonitor_supported():
+    probe = subprocess.run(['git', 'fsmonitor--daemon', 'status'], capture_output=True, text=True,
+                           cwd=REPO_DIR)
+    return 'not supported' not in (probe.stdout + probe.stderr)
+
+
+REPO_DIR = Path(__file__).resolve().parents[2]
+
+
+@unittest.skipUnless(fsmonitor_supported(), "git's builtin fsmonitor is not available here")
+class FsmonitorTests(test_guards.DotbotPinTests):
+    """F16: no read-only git call starts the fsmonitor daemon, whatever scope
+    turns it on, and none rewrites the index."""
+
+    def git_dirs(self):
+        return [self.repo / '.git', self.repo / 'dotbot' / '.git']
+
+    def stop_daemons(self):
+        for repo in (self.repo, self.repo / 'dotbot'):
+            subprocess.run(GIT_ENVLESS + ['-C', str(repo), 'fsmonitor--daemon', 'stop'],
+                           capture_output=True)
+
+    def assert_no_daemon(self, expected):
+        self.addCleanup(self.stop_daemons)
+        for command, code in expected:
+            with self.subTest(command=command):
+                result = self.run_install(command)
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        for git_dir in self.git_dirs():
+            self.assertEqual([p.name for p in git_dir.iterdir() if p.name.startswith('fsmonitor--daemon')],
+                             [], f'fsmonitor daemon state in {git_dir}')
+        for repo in (self.repo, self.repo / 'dotbot'):
+            status = subprocess.run(GIT_ENVLESS + ['-C', str(repo), 'fsmonitor--daemon', 'status'],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(status.returncode, 0, status.stdout)
+
+    def test_fsmonitor_in_the_home_gitconfig(self):
+        self.make_submodule()
+        (self.home / '.gitconfig').write_text('[core]\n\tfsmonitor = true\n')
+        self.assert_no_daemon((('plan', 4), ('doctor', 1)))
+
+    def test_fsmonitor_from_git_config_count(self):
+        self.make_submodule()
+        self.env.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.fsmonitor', GIT_CONFIG_VALUE_0='true')
+        self.assert_no_daemon((('plan', 0), ('doctor', 1)))
+
+    def test_fsmonitor_in_the_repository_config(self):
+        self.make_submodule()
+        self.git(self.repo, 'config', 'core.fsmonitor', 'true')
+        self.assert_no_daemon((('plan', 0), ('doctor', 1)))
+
+    def test_a_stat_dirty_tree_keeps_the_index(self):
+        self.make_submodule()
+        tracked = self.repo / 'bash' / '.bashrc'
+        stamp = tracked.stat().st_mtime + 5
+        os.utime(tracked, (stamp, stamp))
+        index = self.repo / '.git' / 'index'
+        before = (index.stat().st_ino, index.stat().st_mtime_ns)
+        for command in ('plan', 'doctor'):
+            self.run_install(command)
+        self.assertEqual((index.stat().st_ino, index.stat().st_mtime_ns), before)
+        self.git(self.repo, 'status', '--porcelain')       # control: plain git status rewrites it
+        self.assertNotEqual((index.stat().st_ino, index.stat().st_mtime_ns), before)
+
+
+GIT_ENVLESS = ['env', '-u', 'GIT_DIR', 'git']
 
 
 if __name__ == '__main__':
