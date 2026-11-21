@@ -285,9 +285,10 @@ local function show()
   api.nvim_create_autocmd("WinEnter", {
     group = group,
     callback = function()
-      -- A real focus change (one that runs autocmds) to a window that is neither the
-      -- board nor Snacks' own: any pending resize recovery is void (view.gen).
-      if view and not M.focused() and not vim.w.snacks_win then
+      -- A real focus change (one that runs autocmds) to any window but the board,
+      -- Snacks' included: any pending resize recovery is void (view.gen). Snacks'
+      -- own rebuild moves use noautocmd, so they never get here.
+      if view and not M.focused() then
         view.gen = view.gen + 1
       end
       sync_caret()
