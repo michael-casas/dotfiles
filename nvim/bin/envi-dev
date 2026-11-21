@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# envi-dev: run a worktree's nvim/ as envi, without touching production.
+#
+#   envi-dev [<worktree>] [args]     envi on that worktree (default: the git
+#                                    worktree of the current folder)
+#   envi-dev sessions | kill <name>  dev sessions (run inside a worktree)
+#
+# Each worktree gets its own profile, NVIM_APPNAME=envi-dev/<slot> (config
+# link, state; plugins shared with production), and its own herdr-core
+# session, dev-<slot>, kept in its own core namespace (nvsdev.<name>,
+# nvsdev-index, herdr.nvsdev labels), apart from every production session.
+# `ENVI_DEV=<worktree> envi` is the same thing. A worktree path with a control
+# character is refused. Stale profiles are removed by hand: nvim/ENVI.md.
+set -euo pipefail
+
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+
+die() {
+  echo "envi-dev: $*" >&2
+  exit 1
+}
+[ -f "${self%/*}/envi-guard.sh" ] || die "${self%/*}/envi-guard.sh is missing"
+# shellcheck source=nvim/bin/envi-guard.sh
+. "${self%/*}/envi-guard.sh"
+
+case "${1:-}" in
+  -h | --help | help)
+    sed -n '2,13p' "$self" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  ls | list | prune) die "\`envi-dev $1\` was removed; stale profiles are cleaned up by hand (nvim/ENVI.md, \"Cleanup\")" ;;
+  sessions) # envi's `ls`, in the dev namespace
+    shift
+    set -- ls "$@"
+    ;;
+esac
+
+# The worktree: a leading folder that holds nvim/init.lua, else the current git worktree.
+worktree=""
+if [ $# -gt 0 ] && [ -f "$1/nvim/init.lua" ]; then
+  resolve_dir "$1" worktree
+  shift
+else
+  top="$(git rev-parse --show-toplevel 2>/dev/null && printf x)" ||
+    die "not in a git worktree; pass one: envi-dev <worktree>"
+  top="${top%x}"
+  resolve_dir "${top%?}" worktree
+  [ -f "$worktree/nvim/init.lua" ] || die "$worktree has no nvim/init.lua"
+fi
+
+# Run the worktree's own launcher, so launcher changes are developed there too.
+# A worktree from before the dev profile (protocol 2) could reach
+# production sessions: refuse it before anything starts.
+for file in "$worktree/nvim/bin/envi" "$worktree/nvim/lua/hcmux/session.lua"; do
+  dev_protocol_ok "$file" ||
+    die "$worktree predates the dev profile (${file#"$worktree"/} does not declare envi-dev-protocol 2); rebase it onto main."
+done
+ENVI_DEV="$worktree" exec "$worktree/nvim/bin/envi" "$@"

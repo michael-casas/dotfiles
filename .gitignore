@@ -7,12 +7,6 @@ personal/*.env
 # --- OS Files ---
 .DS_Store
 
-# --- Fish ---
-fish/fish_variables
-fish/completions/
-fish/functions/
-fish/conf.d/
-
 # --- Neovim ---
 nvim/.git
 nvim/.tests
@@ -24,16 +18,20 @@ nvim/*.log
 nvim/data
 nvim/tt.*
 
-# --- Tmux ---
-tmux/plugins/
-
 # --- General ---
-_claude-swap/
-.claude-swap/
 advisor/
 *.bak
 *.swp
 *.swo
+__pycache__/
+*.pyc
+
+# --- Local runtime state ---
+.pi/*.sqlite
+.pi/*.sqlite-*
+
+# --- Licensed skills that must not be redistributed ---
+skills/twg/
 
 # --- Treehouse worktree pool ---
 .treehouse/

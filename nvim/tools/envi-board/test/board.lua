@@ -30,7 +30,8 @@ vim.fn.jobstop = function(job)
   assert(jobs[job])
   stopped[job] = true
 end
-local M = dofile("nvim/lua/hcmux/board.lua")
+vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
+local M = require("hcmux.board")
 local base = api.nvim_get_current_win()
 local global_before = vim.inspect(api.nvim_get_keymap("n"))
 local path = vim.fn.fnamemodify("nvim/tools/envi-board/test/fixtures/example.wb.md", ":p")
@@ -112,11 +113,8 @@ local child = api.nvim_get_current_win()
 assert(child ~= win and M.active)
 local child_buf = api.nvim_get_current_buf()
 assert(not vim.bo[child_buf].modifiable)
-for _, map in ipairs(api.nvim_buf_get_keymap(child_buf, "n")) do
-  if map.lhs == "q" then
-    map.callback()
-  end
-end
+assert(vim.fn.maparg("q", "n") == "", "q is available for macros in child")
+api.nvim_feedkeys(":q\r", "mtx", false)
 assert(not api.nvim_win_is_valid(child) and api.nvim_get_current_win() == win and M.active)
 vim.o.columns = 100
 api.nvim_exec_autocmds("VimResized", {})
@@ -124,7 +122,7 @@ assert(api.nvim_win_get_config(win).width <= 100)
 api.nvim_exec_autocmds("ColorScheme", {})
 assert(api.nvim_get_hl(0, { name = "EnviBoardNormal", link = false }).bg == 0x111111)
 assert(vim.inspect(api.nvim_get_keymap("n")) == global_before, "no global mappings")
-M.close()
+api.nvim_feedkeys(":q\r", "mtx", false)
 M.close()
 assert(not M.active and stopped[job] and not api.nvim_win_is_valid(win) and api.nvim_get_current_win() == base)
 jobs[job].on_stdout(job, { snapshot(9, { "after close" }) })

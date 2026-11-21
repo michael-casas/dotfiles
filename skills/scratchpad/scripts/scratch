@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Read and write the current session's scratchpad.
+
+The session is resolved from --session, then SCRATCHPAD_SESSION_ID, CODEX_THREAD_ID,
+CODEX_SESSION_ID, CLAUDE_CODE_SESSION_ID, or CLAUDE_SESSION_ID.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(os.path.realpath(__file__)).parent))
+
+from scratchpad_store import (  # noqa: E402
+    CERTAINTIES,
+    KINDS,
+    ScratchpadError,
+    active_entries,
+    add_entry,
+    db_path_for,
+    format_entries,
+    latest_compaction,
+    mark_hydrated,
+    normalize_session_id,
+    open_session,
+    session_id_from_env,
+    set_status,
+    supersede,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="scratch", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--session", help="session ID (defaults to the environment)")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    add = sub.add_parser("add", help="record an entry")
+    add.add_argument("kind", choices=KINDS)
+    add.add_argument("content", nargs="+")
+    add.add_argument("--subject")
+    add.add_argument("--source")
+    add.add_argument("--certainty", choices=CERTAINTIES, default="reported")
+
+    ls = sub.add_parser("list", help="show active entries")
+    ls.add_argument("--kind", choices=KINDS)
+    ls.add_argument("--json", action="store_true")
+
+    res = sub.add_parser("resolve", help="mark an entry resolved")
+    res.add_argument("id", type=int)
+
+    sup = sub.add_parser("supersede", help="replace an entry with new content")
+    sup.add_argument("id", type=int)
+    sup.add_argument("content", nargs="+")
+    sup.add_argument("--source")
+    sup.add_argument("--certainty", choices=CERTAINTIES)
+
+    sub.add_parser("hydrate", help="print the full active state and acknowledge the latest compaction")
+    sub.add_parser("status", help="show the database path and compaction state")
+    sub.add_parser("path", help="print the database path")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        raw = args.session or session_id_from_env()
+        if not raw:
+            raise ScratchpadError("no session detected; pass --session <id> (shown in your session-start context)")
+        session_id = normalize_session_id(raw)
+        if args.command == "path":
+            print(db_path_for(session_id))
+            return 0
+        conn = open_session(session_id, cwd=os.getcwd())
+        try:
+            if args.command == "add":
+                entry_id = add_entry(conn, kind=args.kind, content=" ".join(args.content), subject=args.subject,
+                                     source=args.source, certainty=args.certainty)
+                print(f"#{entry_id}")
+            elif args.command == "list":
+                rows = active_entries(conn, kind=args.kind)
+                if args.json:
+                    print(json.dumps([dict(row) for row in rows], ensure_ascii=False, indent=2))
+                else:
+                    print(format_entries(rows))
+            elif args.command == "resolve":
+                set_status(conn, args.id, "resolved")
+                print(f"#{args.id} resolved")
+            elif args.command == "supersede":
+                entry_id = supersede(conn, args.id, " ".join(args.content), certainty=args.certainty, source=args.source)
+                print(f"#{args.id} superseded by #{entry_id}")
+            elif args.command == "hydrate":
+                print("Active scratchpad state (newest first):")
+                print(format_entries(active_entries(conn)))
+                count = mark_hydrated(conn)
+                print(f"\nHydrated: acknowledged {count} compaction(s)." if count else "\nNothing pending; no compaction awaiting hydration.")
+            elif args.command == "status":
+                row = latest_compaction(conn)
+                active = conn.execute("SELECT count(*) FROM entry WHERE status = 'active'").fetchone()[0]
+                print(f"db: {db_path_for(session_id)}\nactive entries: {active}")
+                if row is None:
+                    print("compactions: none")
+                else:
+                    print(f"latest compaction: #{row['id']} {row['trigger']} pre_at={row['pre_at']} "
+                          f"restored_at={row['restored_at']} hydrated={bool(row['hydrated'])}")
+        finally:
+            conn.close()
+        return 0
+    except ScratchpadError as exc:
+        print(f"scratch: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

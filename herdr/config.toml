@@ -5,35 +5,59 @@ default_shell = "/opt/homebrew/bin/bash"
 shell_mode = "login"
 
 [theme]
-name = "gruvbox"
+name = "nord"
 
 auto_switch = false
+
+# Nordic (nordic.nvim) colors over the built-in Nord base.
+[theme.custom]
+panel_bg = "#242933"
+sidebar_bg = "#1E222A"
+active_row_bg = "#2E3440"
+selection_bg = "#3B4252"
+surface0 = "#2E3440"
+surface1 = "#3B4252"
+surface_dim = "#222630"
+overlay0 = "#4C566A"
+overlay1 = "#60728A"
+text = "#C0C8D8"
+subtext0 = "#BBC3D4"
+accent = "#D08770"
+mauve = "#B48EAD"
+green = "#A3BE8C"
+yellow = "#EBCB8B"
+red = "#BF616A"
+blue = "#81A1C1"
+teal = "#8FBCBB"
+peach = "#D08770"
+
 [keys]
-prefix = "ctrl+space"
-workspace_picker = "prefix+w"
+prefix = "ctrl+z"
+workspace_picker = "prefix+space"
+open_worktree = "prefix+shift+o"
+remove_worktree = "prefix+shift+d"
+close_workspace = "prefix+d"
+previous_tab = "prefix+["
+next_tab = "prefix+]"
+next_agent = "ctrl+n"
+previous_agent = "ctrl+shift+n"
 
 # Workspace/navigate mode — spaces only (keep)
 navigate_workspace_down = "j"
 navigate_workspace_up = "k"
 
-# Prefix mode — previous/next pane on h/l (replace n/p habit)
-cycle_pane_previous = "prefix+h"
-cycle_pane_next = "prefix+l"
-
-# Move default directional focus off h/l so cycle owns those chords
-# (do not use "" — that unsets and shows as unset in the UI)
-focus_pane_left = "prefix+shift+h"
-focus_pane_right = "prefix+shift+l"
-focus_pane_down = "prefix+shift+j"
-focus_pane_up = "prefix+shift+k"
-
-# Move default tab n/p off the old chords so n/p are free
-previous_tab = "prefix+shift+p"
-next_tab = "prefix+shift+n"
-
 [ui]
-agent_panel_sort = "spaces"
+redraw_on_focus_gained = false
+agent_panel_sort = "priority"
 show_agent_labels_on_pane_borders = true
 
 [ui.toast]
 delivery = "herdr"
+
+[ui.sidebar]
+
+[ui.sidebar.agents]
+
+[experimental]
+kitty_graphics = true
+allow_nested = false

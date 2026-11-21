@@ -87,14 +87,17 @@ cursors, folds), plus the terminals labelled `herdr.nvs=<name>`.
 | `nvim-session attach api` (or `nvim-session api`) | attaches to session `api`, starting in its folder |
 | `nvim <file>` | plain editor, no session: safe as `$EDITOR` and for git commits |
 | edit, split, open tabs, start terminals, delete buffers (including Snacks/LazyVim “delete other buffers”) | saved automatically, 1.5 s after things settle; idle/focus loss also schedules a save |
-| `:detach` or `:qd` (also `:Detach`, `<leader>qd`, `:qa`, `:q` on the last window) | **detach**: the layout is saved, the terminals keep running |
+| `:detach` or `:qd` (also `:Detach`, `<leader>qd`, `:qa`, `:q` on the last ordinary edit window) | **detach**: the layout is saved, the terminals keep running |
 | `:reload` (also `:Reload`), in an nvim started by `envi` | **reload**: detach, then the `envi` launcher starts nvim again on the same session, so config changes take effect |
 | graceful quit, SIGHUP or SIGTERM | final synchronous save, waiting up to 10 s for an in-flight save callback first |
 | crash, SIGKILL or power loss | only the last completed save survives; changes inside the debounce/write window can be lost |
 
-All of vim's own quit commands keep their meaning: `:q` closes a window (the
-last one detaches), and `:wq`, `:qa!` work as usual. `:detach` and `:qd` are the
-explicit way to leave a session from anywhere.
+In an ordinary edit window, `:q` closes the window and detaches the session
+when that is the last window. In a terminal viewer, explorer, picker, or panel,
+type `:q` or `:quit` to close that view while keeping the editor open. The
+abbreviations `:qu` and `:qui` and the bang forms work too. Quit commands with an
+address, a count, or a `|` chain use native Vim behavior. Normal-mode `q` records
+macros. `:wq`, `:qa!`, `:detach` and `:qd` keep their usual meaning.
 
 - **Two nvims on one session:** the second one says so, shows
   `(read-only)` in the statusline and doesn't save. `:Session take`
@@ -164,6 +167,12 @@ explicit way to leave a session from anywhere.
   `undofile` and shada.
 - **Names:** default names are the folder's basename. A second folder with
   the same basename (another worktree, say) gets `name-xxxx`.
+- **Dev profiles** (`NVIM_APPNAME=envi-dev/<slot>`, started by `envi-dev`) keep
+  their sessions in a namespace of their own: documents `nvsdev.<name>`, index
+  `nvsdev-index`, terminal label `herdr.nvsdev`. Names start with `dev-` (added
+  if missing). A dev nvim never reads or writes a production document or label,
+  even for a production session named `dev-…`; neither side adopts the other's
+  terminals.
 
 `session-bridge.lua` is what makes layouts bring terminals back: it teaches
 nvim the `hc://` buffer scheme (`BufReadCmd`), so a saved layout's terminal
@@ -173,22 +182,77 @@ in the plugin spec to turn all of this off.
 
 ## Hot reload on commit (`hotreload.lua`)
 
-Every nvim started by `envi` watches the git checkout its config comes from
-(the git dir's `logs/HEAD`, plus a check on `FocusGained`). When a new commit
-changes files under the config dir, it reloads itself with `:reload`.
+On by default in every interactive nvim. Each nvim watches the git checkout its
+config comes from (the git dir's `logs/HEAD`). When new commits change files
+under the config dir, it picks them up. After a PR merges, `sync/dotfiles-sync`
+fast-forwards `~/.dotfiles` (a LaunchAgent runs it every 60 s; run
+`dotfiles-sync now` right after merging), and every nvim on that checkout reacts.
+See `sync/README.md`.
 
-- **Ignored:** commits that only touch `*.md`, or files outside the config dir.
-- **When:** it waits until the editor is safe to restart: normal mode, no unsaved
-  buffers, and no key pressed for 3 s. It waits while you type in INSERT or in a
-  T3 popover (TERMINAL). With unsaved buffers it says so once and keeps waiting.
-- **Notices:** you see "commit abc1234 changed N config file(s); reloading when
-  idle", then "reloaded for commit abc1234" in the new nvim.
-- **Scope:** an nvim not started by `envi` can't restart itself, so it only
-  reports the new commit. T3 TUI clients keep running their old code; use
-  `:T3Restart` for those.
-- **Commands:** `:EnviHotReload on|off|status`. `ENVI_HOT_RELOAD_ROOT=<dir>`
-  watches another config dir (used for testing). Headless test:
-  `test/hotreload.lua`.
+- **Ignored:** new commits that only touch `*.md`, or only files outside the
+  config dir. No reload and no toast. If git can't list a commit's files, that
+  is not taken as a config change: the next check tries again.
+- **Started by `envi`:** it reloads itself (`:reload`) once that's safe: normal
+  mode, no unsaved buffers, and no key pressed for 3 s. While you type (INSERT, or
+  a T3 popover in TERMINAL) it waits silently. With unsaved buffers it shows the
+  toast once per commit and keeps waiting; save, and it reloads. If the quit is
+  cancelled at a prompt, it stops retrying that commit and shows the toast. The
+  new nvim says "reloaded for commit abc1234".
+- **Any other nvim** (a plain `nvim file`) can't restart itself. It shows the
+  toast once per commit and nothing else. There, `:Reload` says to close and
+  reopen nvim (or use envi).
+- **The toast:** "Your configuration has changed since the last time you
+  reloaded, run :Reload".
+  - It appears top right (snacks.notifier), at most once per new commit per
+    nvim.
+  - It stays 4 s in total, counted from the moment it is actually on screen,
+    and is hidden at its own deadline even while the command line is open.
+  - While other notifications fill the screen, it waits in the queue as long
+    as needed. If it is dismissed before it was ever shown, the next check
+    offers it again, once.
+  - One rule decides who gets a toast: only the newest commit not yet
+    notified. A commit is notified once a toast for it (or a newer commit)
+    stayed on screen to its deadline, or once it arrived while a config toast
+    was on screen that then stayed there to its deadline.
+  - At most one is on screen; they all say the same thing. A toast on screen
+    keeps its own 4 s: a newer commit never cuts it short or extends it.
+  - A newer commit that lands while one is on screen is covered by it: no
+    second toast, and the commit counts as notified. The exception is a commit
+    in the toast's last 0.25 s (`toast_tail_ms`): it gets one fresh toast of
+    its own, shown after the old one hides, so it isn't swallowed by a toast
+    about to go. A commit after the toast hid gets its own toast too.
+  - Only a toast on screen right now covers. If snacks takes it off screen
+    before its deadline (no room: a small terminal, higher-priority
+    notifications), even briefly or a few milliseconds before the deadline, it
+    is retired: hidden for good, so snacks never brings it back (a fresh
+    toast for the same commit has an id of its own). Its coverage
+    is revoked, and the newest commit (its own, the one it covered, or a newer
+    one waiting after it) gets one fresh toast once there's room, for its
+    full 4 s. Hot reload checks this every 25 ms and again at the deadline.
+  - A toast still queued (never shown) is dismissed when a newer commit comes;
+    the newer commit's toast takes its place.
+  - Toasts never show back to back: there is at least a 0.1 s gap after one
+    hides.
+  - Other notifications keep their own lifetimes.
+- **Robustness:** every watch event re-arms the watch, so a replaced
+  `logs/HEAD` (a new inode) keeps working. A check on `FocusGained` and a cheap
+  one every 60 s (`recheck_ms`) re-arm it and catch anything missed, for example
+  after hours idle.
+- **Commands:** `:EnviHotReload on|off|status`. `status` shows:
+  - the watched path;
+  - the loaded commit, the current HEAD and the pending commit;
+  - whether this nvim can reload itself;
+  - the last sync result, for example `sync blocked: local changes in <paths>`,
+    or `sync moved the wrong branch: …` with the recovery command.
+
+  `ENVI_HOT_RELOAD_ROOT=<dir>` watches another config dir (used for testing).
+  Setup in the plugin spec: `hot_reload = false` turns it off, and a table
+  overrides `idle_ms`, `recheck_ms`, `toast_ms` and so on. Headless nvims never
+  start it. Tests: `test/hotreload.lua`, and `test/hotreload-sequences.lua`
+  (every ordering of up to 3 commits with show, displace, displace just
+  before the deadline, room, expire and FocusGained, on a virtual clock
+  against a stand-in for snacks).
+- **Scope:** T3 TUI clients keep running their old code; use `:T3Restart` for those.
 
 ## Labels
 
@@ -196,7 +260,7 @@ Terminals started from nvim carry these labels:
 
 - `herdr.nvim=1`
 - `herdr.nvim.cwd=<nvim's cwd>`
-- `herdr.nvs=<session>`: the session it belongs to
+- `herdr.nvs=<session>`: the session it belongs to (`herdr.nvsdev` in a dev profile)
 - `herdr.nvim.title`
 - for agents: `herdr.nvim.tool` and `herdr.nvim.session`
 
@@ -277,10 +341,10 @@ stay off; a closed/misidentified main window is recreated to the sidebar's right
 `t3.attach_in(win, id)` reuses a live client by deterministic name or
 `t3.thread` label, or starts it at that window's size. Switching drops the old
 hidden viewer, never its core client; viewers still shown elsewhere are left
-alone. COMMAND/INSERT maps remain the popover's maps. COMMAND `q` checks the
-**current window's** `envi_t3_main` flag at keypress time and does nothing there;
-the same buffer shown in the popover still hides that float with `q`. INSERT
-`q` remains text. There is no buffer-map swapping on window transitions.
+alone. In COMMAND, `:q` in the main pane detaches its viewer and restores the
+thread-selection placeholder. In the popover, `:q` hides only that float. Shared
+clients keep running, and INSERT `q` remains text. `:q` in the thread bar hides
+the bar.
 
 ### T3 geometry check (`t3layout.lua`)
 
@@ -368,7 +432,7 @@ it is shown on. These answers no longer depend on which window has focus (`nvim_
 the focused window's `winhighlight`). On every popover open, switch and theme change, and
 on `attach_in`, the buffer's answers are re-resolved from what that window shows (the T3 remap, or the editor's
 `Normal` when it has none, e.g. an untinted main pane), so a reused buffer never keeps another view's colours.
-When a view stops showing the client (COMMAND `q`, closing the window, or switching that window to another thread)
+When a view stops showing the client (COMMAND `:q`, closing the window, or switching that window to another thread)
 the answers follow the view that remains, the focused one if it shows the client; with no view left they keep the
 last value until the next attach.
 With a missing/invalid hub a new popover keeps the editor's `Normal`; a shown window keeps its look. Other terminals
@@ -486,7 +550,7 @@ Clearing removes the mark, not the thread; the slot may immediately auto-fill.
 | `Tab` | search in NORMAL, preserving query |
 | `R` | restart/refresh the shared feed |
 | `?` | key help |
-| `q` / `Esc` / `<leader>a` | close |
+| `:q` / `Esc` / `<leader>a` | close |
 
 Search has a full-width rounded input box with a search glyph, an empty
 `Search threads…` placeholder, and a right-aligned filtered/total hit count.
@@ -513,7 +577,7 @@ on text changes and a nonmodifiable buffer in NORMAL.
 | NORMAL | `m1`–`m9`, `x` | mark hit / clear its mark |
 | NORMAL | `i` / `a` / `/` | INSERT at query end |
 | NORMAL | `Tab` | board |
-| NORMAL | `?`, `q` | help / close |
+| NORMAL | `?`, `:q` | help / close |
 | NORMAL | `Esc` | stay in NORMAL |
 
 Marks use versioned core document `envi-agent.<session>`, shape
@@ -534,7 +598,7 @@ and recent-order helpers so both surfaces share colours/order. T3's additive
 ordinary opens, COMMAND/INSERT maps, and client lifecycles unchanged.
 
 `?` opens a centred, two-column key/action help float grouped by Board, Search
-INSERT, and Search NORMAL. `q`, `Esc`, or `?` dismisses help only; closing AGENT
+INSERT, and Search NORMAL. `:q`, `Esc`, or `?` dismisses help only; closing AGENT
 also cleans up help. Both floats recenter on resize. At short heights help uses
 native scrolling instead of truncating the action text.
 
@@ -582,9 +646,9 @@ fuzzy matching uses number, title, branch, author and repository.
 | `r` / `R` | Refresh / pick Repo scope repository |
 | `s` | Confirm review submission (comment / approve / request changes) |
 | `x` | End this PR's hunk and discard drafts, with `y/n` confirmation |
-| `?` | Help; `?`, `q`, `Esc` dismiss help only |
-| `q` / NORMAL `Esc` | Close current overlay or board |
-| Hunk TERMINAL `Ctrl-q` | Capture comments, hide the float, return to board |
+| `?` | Help; `?`, `:q`, `Esc` dismiss help only |
+| `:q` / NORMAL `Esc` | Close current overlay or board |
+| Hunk TERMINAL `Ctrl-q` or NORMAL `:q` | Capture comments, hide the float, return to board |
 
 No printable hunk-buffer keys are mapped: hunk's own `q` and comment editor
 remain intact. `Ctrl-q` is not assigned in hunk 0.21.1's built-in key bindings.
@@ -679,7 +743,7 @@ Native motion/search/yank work. `[s`/`]s` jump headings; Tab outlines; `s` finds
 exact Mermaid source; Enter on a source record opens immutable commit bytes in
 a read-only child; `e` opens the board file as an ordinary editable buffer at
 its original source line, preserving modified and terminal/non-file invokers in their own panes. `R` refreshes, `?`
-helps, `q` closes. Navigation Esc stays; q/Esc in a child dismiss only the child.
+helps, `:q` closes. Navigation Esc stays. `:q` or Esc in a child dismiss only the child.
 Leaving focus keeps the view open. Resize recenters; live theme-hub changes and
 ColorScheme touch only `EnviBoard*`. Invalid saves retain last good **STALE**
 content; deleted/recreated and atomic-save files recover. Close/WinClosed/wipe/

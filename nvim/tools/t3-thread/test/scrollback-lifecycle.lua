@@ -86,7 +86,7 @@ local function c_spawn()
     if c.lua("return vim.api.nvim_get_mode().mode") ~= "nt" then
       c.input("<Esc>")
     end
-    c.input("q")
+    c.input(":q<CR>")
     assert(
       vim.wait(2000, function()
         return c.state().win == nil

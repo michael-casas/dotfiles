@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# dotfiles-sync-agent: install or remove the per-user LaunchAgent that runs
+# `dotfiles-sync` every 60 s (and at login).
+#
+#   dotfiles-sync-agent render              print the plist rendered for this $HOME
+#   dotfiles-sync-agent install [--no-load] write ~/Library/LaunchAgents/<label>.plist, lint it, load it
+#   dotfiles-sync-agent uninstall [--no-load]  unload it and remove the plist
+#   dotfiles-sync-agent status              launchd's view plus the last sync result
+#
+# --no-load writes or removes the file only and leaves launchd alone (tests).
+# Env: DOTFILES_SYNC_REPO (default ~/.dotfiles: the checkout that is synced and
+# whose sync/dotfiles-sync runs; it must be a main checkout, not a linked
+# worktree), DOTFILES_SYNC_AGENTS_DIR (default ~/Library/LaunchAgents).
+# Linux: see sync/README.md (a systemd user timer).
+set -euo pipefail
+
+label=local.dotfiles-sync
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="${DOTFILES_SYNC_REPO:-$HOME/.dotfiles}"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles-sync"
+agents="${DOTFILES_SYNC_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
+plist="$agents/$label.plist"
+domain="gui/$(id -u)"
+
+xml() { # escape for a plist <string>
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+sub() { # a sed replacement: escape \ & and the | delimiter
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
+}
+
+render() {
+  sed -e "s|@LABEL@|$(sub "$label")|g" \
+    -e "s|@SCRIPT@|$(sub "$(xml "$repo/sync/dotfiles-sync")")|g" \
+    -e "s|@REPO@|$(sub "$(xml "$repo")")|g" \
+    -e "s|@STATE@|$(sub "$(xml "$state")")|g" \
+    -e '/^<!-- Template:/d' \
+    "$here/dotfiles-sync.plist.in"
+}
+
+load=1
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+for a in "$@"; do
+  case "$a" in
+    --no-load) load= ;;
+    *) echo "unknown option: $a" >&2; exit 2 ;;
+  esac
+done
+
+case "$cmd" in
+  render) render ;;
+  install)
+    # Only the main checkout itself: never a linked worktree or a subdirectory,
+    # which the job would then run from and fast-forward.
+    if ! DOTFILES_SYNC_REPO="$repo" /bin/bash "$here/dotfiles-sync" check; then
+      echo "dotfiles-sync-agent: not installing (set DOTFILES_SYNC_REPO to the main checkout)" >&2
+      exit 1
+    fi
+    if [ ! -f "$repo/sync/dotfiles-sync" ]; then
+      echo "dotfiles-sync-agent: $repo/sync/dotfiles-sync not found (set DOTFILES_SYNC_REPO)" >&2
+      exit 1
+    fi
+    mkdir -p "$agents" "$state"
+    render >"$plist.tmp"
+    plutil -lint "$plist.tmp" >/dev/null
+    mv -f "$plist.tmp" "$plist"
+    echo "wrote $plist"
+    if [ -n "$load" ]; then
+      launchctl bootout "$domain/$label" 2>/dev/null || true
+      launchctl bootstrap "$domain" "$plist"
+      echo "loaded $label (every 60 s and at login); check: dotfiles-sync status"
+    fi
+    ;;
+  uninstall)
+    if [ -n "$load" ]; then
+      launchctl bootout "$domain/$label" 2>/dev/null || true
+    fi
+    rm -f "$plist"
+    echo "removed $label"
+    ;;
+  status)
+    launchctl print "$domain/$label" 2>/dev/null | grep -E '^\s*(state|runs|last exit code|run interval) =' || echo "$label is not loaded"
+    "$here/dotfiles-sync" status
+    ;;
+  *)
+    sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    [ -z "$cmd" ] || [ "$cmd" = help ] || [ "$cmd" = -h ] || exit 2
+    ;;
+esac

@@ -4,7 +4,7 @@ Epic/source snapshot: <Feature Charter path and identity>
 Epic introspection: <findings reference/date> | Delivery scope: <approved version/slice>
 Authority: <approved assignment> | Delivery grant: <commit/push/readiness>
 Claim: <EPIC keys (1–3)> | Seat: <seat>
-Worktree: <absolute path, Herdr worktree root> | Branch/base: <any name; SHA> | PR: <one URL per repository>
+Worktree: <leased treehouse slot path under `<repo>/.treehouse/`; lease holder> | Branch/base: <any name; SHA> | PR: <one URL per repository>
 Directive source: <canonical BATDD template version/digest>
 
 ## Task checklist
@@ -14,7 +14,8 @@ Directive source: <canonical BATDD template version/digest>
   - [ ] <local step ID> Applicable proof designed; meaningful RED or justified characterization/N/A recorded.
   - [ ] <local step ID> Acceptance frozen; implementation and required layers GREEN.
   - [ ] <local step ID> Scoped self-review, affected gates and cleanup complete.
-  - [ ] <local step ID> Every Subtask committed with its `Refs:` key; Task complete (no separate Task commit).
+  - [ ] <local step ID> Lifecycle markers, where the repository defines them: start marker pushed at Task start; review marker pushed alone after the gates; Jira read-back recorded.
+  - [ ] <local step ID> Every Subtask committed with its key (repository convention; default `Refs:`); Task complete (no separate Task commit).
 
 Repeat per actual Task Directive after Epic introspection. Local steps organize execution; they never masquerade as Jira issues. Each Jira Subtask represents one evidence-based fulfilment requirement of the Directive, recorded below. Keep one active task and record blocked reasons explicitly.
 

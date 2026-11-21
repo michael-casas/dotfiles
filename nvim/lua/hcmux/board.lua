@@ -1,4 +1,5 @@
 -- File-first board popover. Direct private stdio, no hc/terminal/T3 dependency.
+local panel_close = require("config.panel-close")
 local M = { active = false }
 local api = vim.api
 local uv = vim.uv or vim.loop
@@ -137,14 +138,14 @@ local function overlay(s, lines, title)
   config.title = " " .. title .. " "
   s.child = api.nvim_open_win(buf, true, config)
   vim.wo[s.child].wrap = false
-  for _, key in ipairs({ "q", "<Esc>" }) do
-    vim.keymap.set("n", key, function()
-      dismiss(s)
-      if valid(s.win) then
-        api.nvim_set_current_win(s.win)
-      end
-    end, { buffer = buf, nowait = true })
+  local function close_child()
+    dismiss(s)
+    if valid(s.win) then
+      api.nvim_set_current_win(s.win)
+    end
   end
+  panel_close.bind(buf, close_child)
+  vim.keymap.set("n", "<Esc>", close_child, { buffer = buf, nowait = true })
   theme(s)
 end
 
@@ -349,7 +350,7 @@ function M.open(path, opts)
   local function map(key, fn)
     vim.keymap.set("n", key, fn, { buffer = s.buf, nowait = true, silent = true })
   end
-  map("q", M.close)
+  panel_close.bind(s.buf, M.close)
   map("<Esc>", function() end)
   map("R", function()
     send(s, "refresh")
@@ -441,7 +442,7 @@ function M.open(path, opts)
       "Native motions/search/yank; Ctrl-w w leaves the board open",
       "[s / ]s: heading; s: exact Mermaid source",
       "Enter: immutable commit pin (host binding required)",
-      "e: edit board file; R: refresh; q: close; Esc: stay",
+      "e: edit board file; R: refresh; :q closes; Esc: stay",
       "No document links, images, scripts or callbacks execute.",
     }, "BOARD HELP")
   end)

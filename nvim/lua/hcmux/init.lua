@@ -324,8 +324,9 @@ function M.setup(cfg)
     require("hcmux.session-bridge").setup()
     require("hcmux.session").setup(M.config.session)
   end
-  -- Only envi (started by its launcher) can restart itself; plain nvim gets no watcher.
-  if M.config.session ~= false and M.config.hot_reload ~= false and require("hcmux.session").reloadable() then
+  -- Hot reload is on in every interactive nvim: envi (started by its launcher)
+  -- restarts itself on a new config commit, any other nvim shows a toast.
+  if M.config.hot_reload ~= false and require("hcmux.hotreload").interactive() then
     require("hcmux.hotreload").setup(M.config.hot_reload)
   end
 
