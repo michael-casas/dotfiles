@@ -11,7 +11,8 @@ H.boot()
 local sudoku, keys, render = H.sudoku(), require("hcmux.sudoku.keys"), require("hcmux.sudoku.render")
 
 local function stand_in(lhs, mode, fn)
-  if not keys.handler(lhs, mode) then
+  local real = keys.handler(lhs, mode)
+  if not real or real.mode == "*" then -- "*" is the core's no-op fallback
     keys.register({ lhs = lhs, mode = mode, desc = "Sudoku: test stand-in " .. lhs, fn = fn })
   end
 end
@@ -70,9 +71,10 @@ H.scenario("the cursor never shows a text caret outside the outline", function()
   outline_only_on(4, 5, "SEARCH")
   H.type("<Esc>")
   -- Native motions never leave a caret elsewhere: the cursor snaps back.
-  api.nvim_win_set_cursor(0, { 1, 0 })
-  H.drain()
-  outline_only_on(4, 5, "after a native cursor move")
+  for _, native in ipairs({ "+", "-", "M", "w", "gg" }) do
+    H.type(native)
+    outline_only_on(4, 5, "after the native motion " .. native)
+  end
   H.type("<C-w>p")
   H.eq(vim.o.guicursor, caret, "the caret is restored when focus leaves the board")
 end)

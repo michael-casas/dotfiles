@@ -109,8 +109,16 @@ function H.background()
 end
 
 --- Type keys as the user would: one command per call, mappings applied.
+--- In-process feedkeys never returns to Neovim's main loop, which is where
+--- CursorMoved fires after a command, so fire it the same way: once, if the
+--- cursor moved within the window that had focus.
 function H.type(keys)
+  local win = api.nvim_get_current_win()
+  local before = api.nvim_win_get_cursor(win)
   api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), "mtx", false)
+  if api.nvim_get_current_win() == win and not vim.deep_equal(api.nvim_win_get_cursor(win), before) then
+    api.nvim_exec_autocmds("CursorMoved", { buffer = api.nvim_get_current_buf() })
+  end
   H.drain()
 end
 
@@ -213,10 +221,10 @@ function H.scenario(name, fn)
   local ok, err = xpcall(fn, debug.traceback)
   if ok then
     results.passed = results.passed + 1
-    io.stdout:write("  ok   " .. name .. "\n")
+    io.stdout:write("\nSCENARIO ok   " .. name .. "\n")
   else
     results.failed = results.failed + 1
-    io.stdout:write("  FAIL " .. name .. "\n" .. tostring(err):gsub("\n", "\n       ") .. "\n")
+    io.stdout:write("\nSCENARIO FAIL " .. name .. "\n" .. tostring(err):gsub("\n", "\n       ") .. "\n")
   end
   current = nil
 end

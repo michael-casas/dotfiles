@@ -26,7 +26,7 @@ for n in "${names[@]}"; do
     -c "lua vim.wait(50, function() return false end) if vim.api.nvim_exec2('messages', { output = true }).output:find('Error executing', 1, true) then io.stderr:write('error in a scheduled callback\n') vim.cmd('cquit 1') end" \
     -c 'qa!' >"$log" 2>&1; then
     echo "ok   $n"
-    grep '^  ok ' "$log" | sed 's/^/   /'
+    grep '^SCENARIO ' "$log" | sed 's/^SCENARIO /     /'
   else
     echo "FAIL $n"
     sed 's/^/     /' "$log" | tail -40

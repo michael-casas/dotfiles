@@ -97,6 +97,17 @@ H.scenario("if focus does leave by other means, the board is not left as an orph
   H.eq(s.cursor, { r = 3, c = 7 }, "on the same cell")
 end)
 
+-- Not a feature scenario: guards the orphan rule against buffer switches (LazyVim's H/L, ]b).
+H.scenario("buffer switches never replace the board in its window", function()
+  H.background()
+  local s = H.state()
+  for _, keys in ipairs({ "H", "L", "]b", "[b", ":bnext<CR>" }) do
+    H.type(keys)
+    H.eq(api.nvim_win_get_buf(s.win), s.buf, keys .. " leaves the board in its window")
+    H.ok(H.state().open and H.state().focused, keys .. " keeps the board open and focused")
+  end
+end)
+
 H.scenario("closing the popover returns focus to the invoking window, not a ghost buffer", function()
   H.layout()
   local wins, bufs = #api.nvim_list_wins(), #api.nvim_list_bufs()
