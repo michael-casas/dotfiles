@@ -35,7 +35,7 @@ Personal dotfiles repository for Michael Casas (mcasa_atlantis). Managed via bar
 │   ├── AES-Project-Proof-and-Authority-Framework.md
 │   ├── AES-Commercial-Service-Taxonomy.md
 │   └── AES-Company-Positioning-and-Marketing-Doctrine.md
-├── .agents/skills/          # OpenCode agent skills (SEO, copywriting, etc.)
+├── skills/                  # Canonical agent skills, linked by skill-catalog.py
 ├── .agent/
 │   ├── SYSTEM.md            # Legacy full doc (31KB) — superceded by this journal
 │   └── TODO.md
@@ -89,9 +89,11 @@ The `opencode/` directory houses the AI agent ecosystem:
 
 ---
 
-## OpenCode Skills (`.agents/skills/`)
+## Agent Skills (`skills/`)
 
-Extensive skill library covering: SEO, copywriting, programmatic SEO, site architecture, design, launch, sales enablement, content strategy, marketing, AB testing, ASO, CRO, cold email, SMS, referrals, onboarding, churn prevention, pricing, analytics, prospecting, competitors, community marketing, and more.
+Canonical skills live in `skills/`. `skill-catalog.py --apply` links each one into `~/.claude/skills` and `~/.agents/skills`.
+
+The former OpenCode skill library in `.agents/skills/` (SEO, copywriting, marketing, sales, `spec-generation` and more) was retired from this repo on 2026-11-20 so skills are no longer duplicated when working inside it. It is archived machine-locally at `~/.local/share/agent-skills/archive/dotfiles-agents-skills-20261120/` and remains in git history.
 
 ---
 
@@ -111,5 +113,5 @@ As Django in this codebase I:
 - Maintain this SYSTEM.md as my living architectural journal for the dotfiles
 - The `.django/` directory is my canonical state directory (not `.agent/`)
 - I respect existing `.agent/SYSTEM.md` as the legacy full documentation but keep my working notes here
-- Agent definitions live under `opencode/agent/`; skills under `.agents/skills/`
+- Agent definitions live under `opencode/agent/`; skills under `skills/`
 - This repo is about infrastructure, not product — my focus is on tooling ergonomics, environment stability, and AI agent orchestration configuration

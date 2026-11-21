@@ -150,4 +150,4 @@ Run the declared `verification` commands. Fix root causes, do not skip.
 - Provider: minimax
 - Sibling variant: `t3-mm3` (campaign, sub-agent delegation enabled)
 - See `~/.dotfiles/opencode/agent/SYS_COMMANDER_GO.md` for the env-var interface
-- See `~/.dotfiles/.agents/skills/spec-generation/references/downstream-charter-contract.md` for the canonical contract
+- See `~/.local/share/agent-skills/archive/dotfiles-agents-skills-20261120/spec-generation/references/downstream-charter-contract.md` for the canonical contract (machine-local archive; retired from this repo, still in git history)

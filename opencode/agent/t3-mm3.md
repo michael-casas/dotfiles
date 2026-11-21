@@ -145,4 +145,4 @@ Run the campaign-level `verification_strategy`. Fix or refire as needed.
 - Provider: minimax
 - Sibling variant: `t3-mm3-oc` (opencode envelope, no sub-agent delegation)
 - See `~/.dotfiles/opencode/agent/SYS_COMMANDER_GO.md` for the env-var interface
-- See `~/.dotfiles/.agents/skills/spec-generation/references/downstream-charter-contract.md` for the canonical contract
+- See `~/.local/share/agent-skills/archive/dotfiles-agents-skills-20261120/spec-generation/references/downstream-charter-contract.md` for the canonical contract (machine-local archive; retired from this repo, still in git history)
