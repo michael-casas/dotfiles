@@ -119,6 +119,18 @@ H.scenario("closing the popover returns focus to the invoking window, not a ghos
 end)
 
 H.scenario("the popover recentres on resize", function()
+  -- Stand-in for Snacks: on VimResized its explorer picker rebuilds its layout in a
+  -- scheduled callback and focuses its list with noautocmd (seen live in the Herdr
+  -- app; the headless explorer keeps its layout, so it never does this itself).
+  local group = api.nvim_create_augroup("sudoku_test_snacks_resize", { clear = true })
+  api.nvim_create_autocmd("VimResized", {
+    group = group,
+    callback = function()
+      vim.schedule(function()
+        vim.cmd("noautocmd call nvim_set_current_win(" .. H.grid .. ")")
+      end)
+    end,
+  })
   H.background()
   local function check(label)
     local s = H.state()
@@ -131,14 +143,43 @@ H.scenario("the popover recentres on resize", function()
       H.ok(vim.fn.strdisplaywidth(line) <= api.nvim_win_get_width(s.win), label .. ": no line is cut off")
     end
     H.ok(H.footer():find("RUNNING", 1, true), label .. ": the footer is visible")
+    -- Live finding: Snacks rebuilds the explorer on VimResized and focuses it with
+    -- noautocmd. The board keeps focus, and the hidden caret never leaks elsewhere.
+    H.ok(s.focused, label .. ": the board keeps focus")
+    H.ok(vim.o.guicursor:find("EnviSudokuCaret", 1, true), label .. ": the caret stays hidden on the board")
+  end
+  local function resize(cols, lines)
+    vim.o.columns, vim.o.lines = cols, lines
+    vim.wait(300, function()
+      return false
+    end)
   end
   check("80x40")
-  vim.o.columns, vim.o.lines = 132, 30
-  H.drain()
+  resize(132, 30)
   check("132x30")
-  vim.o.columns, vim.o.lines = 80, 40
-  H.drain()
+  resize(80, 40)
   check("back to 80x40")
+  api.nvim_del_augroup_by_id(group)
+end)
+
+-- Not a feature scenario: a focus move that skips autocmds (as Snacks' layout does)
+-- must not leave the caret hidden in another window.
+H.scenario("the hidden caret follows focus even without autocmds", function()
+  H.layout()
+  local caret = vim.o.guicursor
+  H.ok(not caret:find("EnviSudokuCaret", 1, true), "the caret is visible before the board opens")
+  H.type(":EnviSudoku new classic<CR>")
+  H.ok(vim.o.guicursor:find("EnviSudokuCaret", 1, true), "the caret is hidden on the board")
+  vim.cmd("noautocmd wincmd p")
+  H.ok(not H.state().focused, "focus left the board without autocmds")
+  H.ok(
+    vim.wait(1000, function()
+      return vim.o.guicursor == caret
+    end, 20),
+    "the caret is restored"
+  )
+  H.type(":EnviSudoku<CR>")
+  H.ok(vim.o.guicursor:find("EnviSudokuCaret", 1, true), "and hidden again on the board")
 end)
 
 H.scenario("the popover buffer is never written into the herdr-core session layout", function()

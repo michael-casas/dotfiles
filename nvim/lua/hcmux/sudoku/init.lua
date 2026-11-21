@@ -90,6 +90,16 @@ local function show_caret()
   end
 end
 
+-- Focus can move without WinLeave (Snacks' layouts focus with noautocmd), so the
+-- caret also follows focus on WinEnter and on every timer tick.
+local function sync_caret()
+  if M.focused() then
+    hide_caret()
+  else
+    show_caret()
+  end
+end
+
 local function place_cursor()
   if M.focused() then
     local row, s = render.span(game.cursor.r, game.cursor.c)
@@ -196,10 +206,8 @@ local function show()
   api.nvim_create_autocmd("WinEnter", {
     group = group,
     callback = function()
-      if M.focused() then
-        hide_caret()
-        place_cursor()
-      end
+      sync_caret()
+      place_cursor()
     end,
   })
   api.nvim_create_autocmd("WinLeave", {
@@ -225,6 +233,19 @@ local function show()
       if valid(win) then
         api.nvim_win_set_config(win, geometry())
       end
+      -- A resize is not a reason to leave the game: Snacks rebuilds the explorer's
+      -- layout in a scheduled callback and focuses its list (REC-style live finding).
+      if M.focused() then
+        local function back()
+          if view and view.win == win and valid(win) and api.nvim_get_current_win() ~= win then
+            api.nvim_set_current_win(win)
+          end
+        end
+        vim.schedule(function()
+          vim.schedule(back)
+        end)
+        vim.defer_fn(back, 100)
+      end
     end,
   })
   api.nvim_create_autocmd("ColorScheme", {
@@ -241,6 +262,7 @@ local function show()
     vim.schedule_wrap(function()
       if view and view.buf == buf and game and api.nvim_buf_is_valid(buf) then
         render.draw_footer(buf, game)
+        sync_caret()
       end
     end)
   )
