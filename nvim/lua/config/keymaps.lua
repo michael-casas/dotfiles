@@ -2,6 +2,8 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 
+vim.keymap.set("n", "<leader>D", "<cmd>DBUIToggle<cr>", { desc = "Toggle Dadbod UI" })
+
 -- Resize the focused window without macOS intercepting Ctrl+arrow keys.
 -- Ctrl+punctuation requires a terminal that supports extended key encoding.
 vim.keymap.set("n", "<C-,>", "<cmd>vertical resize -2<cr>", { desc = "Decrease Window Width" })
