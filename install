@@ -19,6 +19,7 @@
 # DOTFILES_PROBE_ROOT moves the probe scratch root (it must stay outside every
 # home, XDG root and checkout).
 set -euo pipefail
+unset CDPATH       # a relative `cd` below must never search elsewhere (F18)
 
 usage() {          # printf, not a heredoc: Bash 3.2 writes heredocs to a temp file
     printf '%s\n' 'usage: ./install plan     what an install would do here, plus compatibility checks' \
