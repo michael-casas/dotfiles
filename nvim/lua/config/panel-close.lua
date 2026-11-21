@@ -10,7 +10,7 @@ end
 api.nvim_create_user_command("EnviClose", M.native_quit, { bang = true, desc = "Quit or close an envi view" })
 
 -- Scope the interactive Ex command to buffers that have a view owner.
--- Ordinary edit buffers and commands like :qa, :wq, and :normal q stay native.
+-- Ordinary edit buffers and non-standalone commands stay native.
 api.nvim_create_autocmd("CmdlineLeave", {
   group = api.nvim_create_augroup("envi_panel_close", { clear = true }),
   pattern = ":",
@@ -23,6 +23,11 @@ api.nvim_create_autocmd("CmdlineLeave", {
     if command and vim.startswith("quit", command) and api.nvim_buf_get_commands(0, {}).EnviClose then
       local bang = line:sub(-1) == "!" and "!" or ""
       vim.fn.setcmdline("EnviClose" .. bang)
+    else
+      local write, bang = line:match("^(%l+)(!?)$")
+      if (write == "w" or write == "wq" or write == "x") and api.nvim_buf_get_commands(0, {}).EnviWrite then
+        vim.fn.setcmdline("EnviWrite" .. bang .. " " .. write)
+      end
     end
   end,
 })

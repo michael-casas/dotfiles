@@ -39,7 +39,9 @@ H.scenario("a before_new hook can decline :EnviSudoku new before anything change
   H.advance(2000)
   local game, win = H.sudoku().game(), H.state().win
   _G.seam_veto, _G.seam_new = true, nil
-  H.type(":EnviSudoku new classic<CR>")
+  -- Exercise the second leg of an async confirmation. Other listeners must
+  -- still be able to veto after the confirmation listener allows it.
+  H.sudoku().open({ new = true, puzzle = "classic", confirmed = true })
   H.ok(_G.seam_new, "the hook ran")
   H.eq(_G.seam_new.puzzle, "classic", "it was told the requested puzzle")
   H.ok(_G.seam_new.game == game, "and given the current game")
@@ -49,7 +51,7 @@ H.scenario("a before_new hook can decline :EnviSudoku new before anything change
   H.eq(s.timer, { status = "running", elapsed_ms = 2000 }, "the timer is unchanged")
   H.ok(s.win == win and s.focused, "the window and focus are unchanged")
   _G.seam_veto = false
-  H.type(":EnviSudoku new classic<CR>")
+  H.sudoku().open({ new = true, puzzle = "classic", confirmed = true })
   s = H.state()
   H.ok(H.sudoku().game() ~= game, "allowed: a new game")
   H.eq(s.cursor, { r = 1, c = 1 }, "at R1C1")

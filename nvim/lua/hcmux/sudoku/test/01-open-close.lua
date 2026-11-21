@@ -36,14 +36,14 @@ H.scenario(":EnviSudoku focuses an already open popover without restarting", fun
   H.type("<C-w>p")
   H.eq(api.nvim_get_current_win(), H.grid, "<C-w>p puts focus in grid.txt")
   H.ok(H.state().open and not H.state().focused, "the popover is still shown")
-  local before = H.state().timer.elapsed_ms
+  H.eq(H.state().timer, { status = "paused", elapsed_ms = 4000 }, "focus leaving pauses the timer")
   H.advance(1000)
   H.type(":EnviSudoku<CR>")
   local s = H.state()
   H.ok(s.focused, "the popover has focus")
   H.eq(s.cursor, { r = 4, c = 5 }, "the cursor box is still on R4C5")
-  H.ok(s.timer.elapsed_ms >= before and s.timer.elapsed_ms == 5000, "the elapsed time did not reset")
-  H.eq(H.footer(), "NORMAL  R4C5  00:05 RUNNING", "footer")
+  H.eq(s.timer, { status = "running", elapsed_ms = 4000 }, "focus resumes from the paused time")
+  H.eq(H.footer(), "NORMAL  R4C5  00:04 RUNNING", "footer")
 end)
 
 H.scenario(":q pauses the timer and closes the popover, restoring the invoking window", function()
