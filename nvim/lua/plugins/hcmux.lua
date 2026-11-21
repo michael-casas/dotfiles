@@ -126,6 +126,7 @@ return {
       require("hcmux").setup(opts)
       require("hcmux.desk").setup(opts.desk)
       require("hcmux.t3").setup(opts.t3) -- spike: :T3Thread
+      require("hcmux.sudoku").setup() -- :EnviSudoku (lua/hcmux/sudoku)
       vim.api.nvim_create_user_command("EnviBoard", function(a)
         board_entry(a.args)
       end, { nargs = "?", complete = "file", desc = "Open a *.wb.md whiteboard (default: this buffer)" })
@@ -211,12 +212,16 @@ return {
     optional = true,
     opts = function(_, opts)
       opts.sections = opts.sections or {}
-      -- PR (lua/hcmux/prs.lua), AGENT (lua/hcmux/agent.lua), then BOARD (lua/hcmux/board.lua) relabel the mode.
+      -- SUDOKU (lua/hcmux/sudoku, only while its popover has focus), PR (lua/hcmux/prs.lua),
+      -- AGENT (lua/hcmux/agent.lua), then BOARD (lua/hcmux/board.lua) relabel the mode.
       for i, c in ipairs(opts.sections.lualine_a or {}) do
         if c == "mode" or (type(c) == "table" and c[1] == "mode") then
           c = type(c) == "table" and c or { "mode" }
           local fmt = c.fmt
           c.fmt = function(label, ...)
+            if package.loaded["hcmux.sudoku"] and require("hcmux.sudoku").focused() then
+              return "SUDOKU"
+            end
             if package.loaded["hcmux.prs"] and require("hcmux.prs").active then
               return "PR"
             end
