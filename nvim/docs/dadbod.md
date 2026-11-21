@@ -27,7 +27,7 @@ Write `~/.config/envi-local/dbs.lua`. Envi reads it when Dadbod UI loads and set
 
 - If `XDG_CONFIG_HOME` is set, the file is `$XDG_CONFIG_HOME/envi-local/dbs.lua`.
 - `ENVI_DBS_FILE=<path>` points at a different file.
-- The file sits outside every checkout. `~/.config/envi` is a link into a dotfiles worktree, so a file there could be committed.
+- The file sits outside every checkout. Envi's config, `~/.config/nvim`, is a link into the dotfiles checkout (and a dev profile's into its worktree), so a file there could be committed.
 
 ```lua
 -- ~/.config/envi-local/dbs.lua: never put passwords here.
@@ -42,7 +42,7 @@ A `{ name = url }` table works too. Restart envi after you edit the file, or run
 
 ### 2. `:DBUIAddConnection`
 
-`:DBUIAddConnection` asks for a URL, then a name. Dadbod UI saves the connection in `connections.json` under `g:db_ui_save_location`, which is `~/.local/share/envi/dadbod_ui`. That's envi's data directory, outside git. Saved queries go in the same place. To remove a connection, press `d` on it in the drawer.
+`:DBUIAddConnection` asks for a URL, then a name. Dadbod UI saves the connection in `connections.json` under `g:db_ui_save_location`, which is `~/.local/share/nvim/dadbod_ui`. That's envi's data directory, outside git, and `envi-dev` profiles share it. Saved queries go in the same place. To remove a connection, press `d` on it in the drawer.
 
 The file is plain text, so the URL you type should carry no password.
 

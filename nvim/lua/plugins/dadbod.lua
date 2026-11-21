@@ -7,7 +7,7 @@
 --
 -- Connections come from three places, all outside git:
 --   1. g:dbs, read from a local Lua file ($ENVI_DBS_FILE, default
---      $XDG_CONFIG_HOME/envi-local/dbs.lua). ~/.config/envi is a link into a
+--      $XDG_CONFIG_HOME/envi-local/dbs.lua). Envi's config is a link into a
 --      checkout, so the file deliberately does not live there.
 --   2. :DBUIAddConnection, saved under g:db_ui_save_location (envi's data dir).
 --   3. DBUI_URL (and optionally DBUI_NAME) in the environment envi starts in.
