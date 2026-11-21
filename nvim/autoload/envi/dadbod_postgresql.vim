@@ -58,10 +58,11 @@ function! s:refuse(verdict) abort
   endif
 endfunction
 
-" postgres[ql]: followed by anything but //, holding `=` or whitespace.
+" postgres[ql]: followed by anything but //, holding `=` or whitespace before
+" any query or fragment (postgres:demo?sslmode=... is a URL, not conninfo).
 function! s:is_keyword_value(url) abort
   let rest = matchstr(a:url, '\c^postgres\%(ql\)\=:\zs.*')
-  return a:url =~? '^postgres\%(ql\)\=:' && rest !~# '^//' && rest =~# '[=[:space:]]'
+  return a:url =~? '^postgres\%(ql\)\=:' && rest !~# '^//' && rest =~# '^[^?#]*[=[:space:]]'
 endfunction
 
 " A URL as stored or about to run: refuse it if libpq reads a password from

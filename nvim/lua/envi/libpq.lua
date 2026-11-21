@@ -7,9 +7,10 @@
 --
 -- Which libpq: $ENVI_LIBPQ if set (then only that file), else the one that
 -- belongs to the psql on PATH (pg_config --libdir beside it, then
--- <bin>/../lib/postgresql and <bin>/../lib), then Homebrew's libpq keg, then
--- the dynamic loader's own search (libpq.so.5 on Linux), then common Linux
--- library directories.
+-- <bin>/../lib/postgresql and <bin>/../lib), then Homebrew's libpq keg. Then,
+-- on macOS, /usr/local/lib; on Linux, the multiarch, lib64 and lib
+-- directories, and last the dynamic loader's own search (libpq.so.5). Never a
+-- bare name on macOS: dlopen() would search the current directory.
 --
 -- Never surface libpq's error message: it can quote the input, password
 -- included.
@@ -72,12 +73,17 @@ local function candidates()
   end
   add_dir("/opt/homebrew/opt/libpq/lib")
   add_dir("/usr/local/opt/libpq/lib")
-  for _, name in ipairs(names) do
-    add(name)
-  end
-  if not mac then
+  -- Absolute paths only on macOS: dlopen() of a bare name searches the
+  -- current directory there, so a libpq.5.dylib planted in a project would load.
+  if mac then
+    add_dir("/usr/local/lib")
+  else
     for _, dir in ipairs({ "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib" }) do
       add_dir(dir)
+    end
+    -- ld.so's own search last (custom ld.so.conf directories).
+    for _, name in ipairs(names) do
+      add(name)
     end
   end
   return out
