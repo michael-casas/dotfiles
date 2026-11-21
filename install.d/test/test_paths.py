@@ -138,7 +138,7 @@ class ManagedHelperTests(unittest.TestCase):
     def setUp(self):
         self.parents = load_parents()
         self.saved = {k: os.environ.get(k) for k in ('HOME', 'XDG_CONFIG_HOME')}
-        os.environ['HOME'] = '/home/someone'
+        os.environ['HOME'] = '/sandbox/user'
         os.environ['XDG_CONFIG_HOME'] = '/cfg root'
 
     def tearDown(self):
@@ -156,10 +156,10 @@ class ManagedHelperTests(unittest.TestCase):
 
     def test_expands_like_dotbot_and_normalises_slashes(self):
         managed = self.parents.managed
-        self.assertEqual(managed('~/.bashrc'), '/home/someone/.bashrc')
+        self.assertEqual(managed('~/.bashrc'), '/sandbox/user/.bashrc')
         self.assertEqual(managed('$XDG_CONFIG_HOME/nvim'), '/cfg root/nvim')
         self.assertEqual(managed('/x//cfg/'), '/x/cfg')
-        self.assertEqual(managed('~'), '/home/someone')
+        self.assertEqual(managed('~'), '/sandbox/user')
 
 
 if __name__ == '__main__':
