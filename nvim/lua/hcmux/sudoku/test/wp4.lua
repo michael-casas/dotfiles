@@ -42,10 +42,14 @@ function W.overlay(r, c)
   return out
 end
 
---- Every extmark in the board namespace over cell (r, c)'s digit: { group = priority }.
+--- Every extmark in the board namespace over cell (r, c)'s digit character (the
+--- middle byte of its interior in both layouts; a compact outline covers only the
+--- padding around it): { group = priority }.
 function W.priorities(r, c)
   local render = require("hcmux.sudoku.render")
-  local row, s, e = render.span(r, c)
+  local row, s = render.span(r, c)
+  s = s + 1
+  local e = s + 1
   local out = {}
   for _, m in
     ipairs(api.nvim_buf_get_extmarks(H.state().buf, render.ns, { row, s }, { row, e - 1 }, {
