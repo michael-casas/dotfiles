@@ -122,6 +122,15 @@ local rows = {
   { "kv quoted value", "S:host=127.0.0.1 application_name = 'envi app'", "KV" },
   { "kv service", "S:service=dadbod_demo connect_timeout=1", "KV" },
   { "kv value with =", "S:host=127.0.0.1 application_name=password=x", "KV" },
+  -- Opaque forms with a query: upstream rewrites them to postgresql:///..., so
+  -- they are URLs, not key/value conninfo.
+  { "opaque dbname with query", "S:demo?sslmode=disable", "OK" },
+  { "opaque service query", "S:?service=dadbod_demo", "OK" },
+  { "opaque single-slash with query", "S:/demo?application_name=x", "OK" },
+  { "opaque query password", "S:demo?password=" .. PW, "PW" },
+  { "opaque service and password", "S:?service=dadbod_demo&password=" .. PW, "PW" },
+  { "opaque query, conninfo text in a value", "S:demo?application_name=x password=" .. PW },
+  { "opaque kv before a query", "S:host=h password=" .. PW .. "?sslmode=disable", "KV" },
   -- Not a libpq URI designator (case-sensitive): psql reads a literal name.
   { "upper-case scheme with userinfo", "POSTGRESQL://demo:" .. PW .. "@127.0.0.1:1/demo", "OK" },
 }
@@ -150,7 +159,7 @@ end
 function M.is_keyword_value(url)
   local rest = url:match("^[Pp][Oo][Ss][Tt][Gg][Rr][Ee][Ss]:(.*)$")
     or url:match("^[Pp][Oo][Ss][Tt][Gg][Rr][Ee][Ss][Qq][Ll]:(.*)$")
-  return rest ~= nil and rest:sub(1, 2) ~= "//" and rest:find("[=%s]") ~= nil
+  return rest ~= nil and rest:sub(1, 2) ~= "//" and rest:match("^[^?#]*"):find("[=%s]") ~= nil
 end
 
 local function is_uri(s)
@@ -181,8 +190,9 @@ function M.label(url)
   local raw_op = M.operand(url)
   local canon = M.upstream_resolve(url)
   local canon_op = canon and M.operand(canon) or nil
-  for _, s in ipairs({ is_uri(url) and url or nil, raw_op, canon_op }) do
-    if pq.classify(s) == "password" then
+  -- false, not nil, for an absent entry: ipairs stops at the first nil.
+  for _, s in ipairs({ is_uri(url) and url or false, raw_op or false, canon_op or false }) do
+    if s and pq.classify(s) == "password" then
       return "PW"
     end
   end

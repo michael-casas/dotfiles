@@ -161,6 +161,74 @@ end
 vim.env.ENVI_LIBPQ = saved
 pq.reset()
 
+-- A libpq planted in the current directory never loads (F8). On macOS,
+-- dlopen() of a bare name searches the current directory, so the loader must
+-- use absolute paths only. Simulate a machine where no absolute candidate
+-- holds libpq: ffi.load fails for every absolute path and passes bare names
+-- to the real loader. A stub library with a constructor sits in a temporary
+-- current directory; it must not load, and its constructor must not run.
+-- Counted apart from the matrix cases. Needs a C compiler; without one, it
+-- says so.
+local planted_failures = {}
+local cc = vim.fn.exepath("cc")
+if cc == "" then
+  io.stdout:write("SKIP dadbod-password planted libpq: no C compiler\n")
+else
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local marker = dir .. "/CONSTRUCTOR-RAN"
+  local mac = vim.fn.has("mac") == 1
+  local name = mac and "libpq.5.dylib" or "libpq.so.5"
+  vim.fn.writefile({
+    "#include <stdio.h>",
+    "__attribute__((constructor)) static void ran(void) {",
+    '  FILE *f = fopen("' .. marker .. '", "w");',
+    '  if (f) { fputs("planted\\n", f); fclose(f); }',
+    "}",
+    "void *PQconninfoParse(const char *s, char **e) { if (e) *e = 0; return 0; }",
+    "void PQconninfoFree(void *p) {}",
+    "void PQfreemem(void *p) {}",
+    "int PQlibVersion(void) { return 666; }",
+  }, dir .. "/fake.c")
+  vim.fn.system({ cc, "-shared", "-fPIC", "-o", dir .. "/" .. name, dir .. "/fake.c" })
+  if vim.v.shell_error ~= 0 then
+    table.insert(planted_failures, "planted: the stub library did not build")
+  else
+    local ffi = require("ffi")
+    local real_load = ffi.load
+    ffi.load = function(path, ...)
+      if path:find("/", 1, true) then
+        error("simulated: no libpq at " .. path)
+      end
+      return real_load(path, ...)
+    end
+    local env_saved, cwd = vim.env.ENVI_LIBPQ, vim.fn.getcwd()
+    vim.env.ENVI_LIBPQ = nil
+    vim.fn.chdir(dir)
+    pq.reset()
+    local _, path = pq.load()
+    local version = pq.version()
+    vim.fn.chdir(cwd)
+    ffi.load = real_load
+    vim.env.ENVI_LIBPQ = env_saved
+    pq.reset()
+    io.stdout:write(
+      ("dadbod-password planted libpq: loaded=%s version=%s constructor=%s\n"):format(
+        tostring(path),
+        tostring(version),
+        tostring(vim.uv.fs_stat(marker) ~= nil)
+      )
+    )
+    if version == 666 or vim.uv.fs_stat(marker) then
+      table.insert(planted_failures, "planted: a libpq in the current directory was loaded")
+    end
+    if mac and path ~= nil then
+      table.insert(planted_failures, "planted: macOS loaded a bare-name libpq instead of nolib")
+    end
+  end
+  vim.fn.delete(dir, "rf")
+end
+
 io.stdout:write(
   ("dadbod-password: %d cases (PW %d, KV %d, BAD %d, OK %d), %d failed\n"):format(
     cases,
@@ -172,3 +240,4 @@ io.stdout:write(
   )
 )
 assert(#failures == 0, "dadbod-password failures:\n  " .. table.concat(failures, "\n  "))
+assert(#planted_failures == 0, table.concat(planted_failures, "\n"))
