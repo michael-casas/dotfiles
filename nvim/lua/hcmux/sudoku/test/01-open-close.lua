@@ -12,16 +12,20 @@ H.scenario(":EnviSudoku new classic opens a focused popover on the fixture", fun
   H.eq(api.nvim_get_current_win(), s.win, "the current window is the popover")
   H.ok(api.nvim_win_get_config(s.win).relative ~= "", "the popover is a float")
   H.eq(s.board, H.CLASSIC, "the board shows the classic fixture")
+  H.eq(H.kind(), "full", "the full layout at 80x40")
   for r = 1, 9 do
     for c = 1, 9 do
-      if H.CLASSIC[r][c] ~= 0 then
-        H.ok(H.groups(r, c).EnviSudokuGiven, ("R%dC%d is rendered as EnviSudokuGiven"):format(r, c))
-        H.ok(H.lines()[2 * r]:find(tostring(H.CLASSIC[r][c]), 1, true), "the given digit is drawn")
+      local d = H.CLASSIC[r][c]
+      local where = ("R%dC%d"):format(r, c)
+      H.eq(H.digit(r, c), d == 0 and " " or tostring(d), where .. " shows the fixture at its own coordinates")
+      if d ~= 0 then
+        H.ok(H.groups(r, c).EnviSudokuGiven, where .. " is rendered as EnviSudokuGiven")
       end
     end
   end
   H.eq(s.cursor, { r = 1, c = 1 }, "the cursor box outlines R1C1")
   H.eq(s.hl.cursor, { { r = 1, c = 1 } }, "the outline is on R1C1")
+  H.eq(H.char_spans("EnviSudokuCursor"), H.outline(1, 1), "EnviSudokuCursor draws exactly R1C1's border")
   H.eq(H.footer(), "NORMAL  R1C1  00:00 RUNNING", "footer")
 end)
 
@@ -84,6 +88,7 @@ H.scenario("reopening after :q resumes the same puzzle and timer", function()
   H.place(1, 3)
   H.enter(1, 3, 4)
   H.advance(20000)
+  local before = H.state().board
   H.type(":q<CR>")
   H.ok(not H.state().open, "closed")
   H.advance(7000)
@@ -91,6 +96,8 @@ H.scenario("reopening after :q resumes the same puzzle and timer", function()
   local s = H.state()
   H.ok(s.open and s.focused, "the popover is open")
   H.eq(s.board[1][3], 4, "the same board with 4 at R1C3")
+  H.eq(s.board, before, "the whole board is the one that was closed")
+  H.eq(H.digit(1, 3), "4", "and R1C3 shows 4")
   H.eq(s.cursor, { r = 1, c = 3 }, "the cursor box is on the cell it was on when I closed")
   H.eq(s.timer, { status = "running", elapsed_ms = 20000 }, "the timer is RUNNING from 00:20")
   H.eq(H.footer(), "NORMAL  R1C3  00:20 RUNNING", "footer")

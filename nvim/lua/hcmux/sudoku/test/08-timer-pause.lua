@@ -4,9 +4,15 @@ H.boot()
 
 H.scenario("the timer runs while the popover is open", function()
   H.background()
-  H.advance(3000)
+  H.eq(H.footer(), "NORMAL  R1C1  00:00 RUNNING", "00:00 at the start")
+  H.clock(3000) -- only the clock moves: the board's own tick must redraw the footer
   H.eq(H.state().timer, { status = "running", elapsed_ms = 3000 }, "elapsed_ms == 3000")
-  H.eq(H.footer(), "NORMAL  R1C1  00:03 RUNNING", "the footer timer reads 00:03 RUNNING")
+  H.ok(
+    H.wait(function()
+      return H.footer() == "NORMAL  R1C1  00:03 RUNNING"
+    end),
+    "the footer timer reads 00:03 RUNNING (got " .. H.footer() .. ")"
+  )
 end)
 
 H.scenario(":q pauses and the paused time survives closing", function()

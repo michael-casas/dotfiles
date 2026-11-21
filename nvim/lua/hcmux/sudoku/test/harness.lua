@@ -128,6 +128,16 @@ function H.advance(ms)
   H.sudoku().refresh()
 end
 
+--- Advance the injected clock only: nothing redraws until the board's own tick.
+function H.clock(ms)
+  H.now = H.now + ms
+end
+
+--- Wait until fn() is truthy (real timers and scheduled callbacks run meanwhile).
+function H.wait(fn, ms)
+  return vim.wait(ms or 1000, fn, 10)
+end
+
 function H.state()
   return H.sudoku().state()
 end
@@ -152,26 +162,76 @@ function H.footer()
   return vim.trim(lines[#lines])
 end
 
---- Highlight groups of the extmarks covering cell (r, c)'s digit.
+-- Independent board geometry, written from the README's layouts rather than from
+-- render.lua, so a test fails if production puts a digit or outline elsewhere.
+-- "full": a cell is " d " between rules, 4 columns a cell, a rule line between rows.
+-- "compact": box rules only, 3 columns a cell, 10 a box (9 + its rule).
+-- Positions are 0-based lines and 0-based character indexes (box rules are 1 column).
+
+--- The layout the board shows, from the width of its first line.
+function H.kind()
+  return vim.fn.strchars(H.lines()[1]) >= 38 and "full" or "compact"
+end
+
+--- Line and character index of cell (r, c)'s digit.
+function H.cell(r, c, kind)
+  if (kind or H.kind()) == "full" then
+    return 2 * r - 1, 4 * c - 1
+  end
+  return r + math.floor((r - 1) / 3), 3 + 10 * math.floor((c - 1) / 3) + 3 * ((c - 1) % 3)
+end
+
+--- Cell (r, c)'s outline as sorted "line:start-end" character spans (end exclusive).
+function H.outline(r, c, kind)
+  local out
+  if (kind or H.kind()) == "full" then
+    local a, b = 4 * c - 3, 4 * c + 2
+    out = { { 2 * r - 2, a, b }, { 2 * r - 1, a, a + 1 }, { 2 * r - 1, b - 1, b }, { 2 * r, a, b } }
+  else
+    local line, d = H.cell(r, c, "compact")
+    out = { { line, d - 1, d }, { line, d + 1, d + 2 } }
+  end
+  for i, sp in ipairs(out) do
+    out[i] = string.format("%d:%d-%d", sp[1], sp[2], sp[3])
+  end
+  table.sort(out)
+  return out
+end
+
+--- The character drawn at cell (r, c)'s digit position.
+function H.digit(r, c, kind)
+  local line, ch = H.cell(r, c, kind)
+  return vim.fn.strcharpart(H.lines()[line + 1], ch, 1)
+end
+
+local function char_of(line0, byte)
+  local text = H.lines()[line0 + 1] or ""
+  return vim.str_utfindex(text, "utf-32", math.min(byte, #text))
+end
+
+--- Highlight groups of the extmarks covering cell (r, c)'s digit (oracle position).
 function H.groups(r, c)
   local render = require("hcmux.sudoku.render")
-  local row, s, e = render.span(r, c)
+  local row, ch = H.cell(r, c)
   local found = {}
   for _, m in
-    ipairs(api.nvim_buf_get_extmarks(H.state().buf, render.ns, { row, s }, { row, e - 1 }, {
+    ipairs(api.nvim_buf_get_extmarks(H.state().buf, render.ns, { row, 0 }, { row, -1 }, {
       details = true,
       overlap = true,
     }))
   do
     local d = m[4]
-    if d.hl_group and m[2] == row and m[3] < e and (d.end_col or 0) > s then
-      found[d.hl_group] = true
+    if d.hl_group and m[2] == row and (d.end_row or row) == row then
+      local s, e = char_of(row, m[3]), char_of(row, d.end_col or m[3])
+      if s <= ch and ch < e then
+        found[d.hl_group] = true
+      end
     end
   end
   return found
 end
 
---- The extmark spans highlighted with `group`, as "row:start-end" strings.
+--- The extmark spans highlighted with `group`, as sorted "line:start-end" byte strings.
 function H.spans(group)
   local render = require("hcmux.sudoku.render")
   local out = {}
@@ -182,6 +242,27 @@ function H.spans(group)
   end
   table.sort(out)
   return out
+end
+
+--- Like H.spans, in character positions (comparable with H.outline).
+function H.char_spans(group)
+  local render = require("hcmux.sudoku.render")
+  local out = {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(H.state().buf, render.ns, 0, -1, { details = true })) do
+    if m[4].hl_group == group then
+      local row = m[2]
+      out[#out + 1] = string.format("%d:%d-%d", row, char_of(row, m[3]), char_of(row, m[4].end_col))
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+--- The editor rows a float may use: below the tabline, above the statusline and command line.
+function H.usable()
+  local top = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and #api.nvim_list_tabpages() > 1)) and 1 or 0
+  local bottom = vim.o.cmdheight + (vim.o.laststatus > 0 and 1 or 0)
+  return top, vim.o.lines - bottom
 end
 
 function H.eq(actual, expected, what)
