@@ -317,6 +317,42 @@ H.scenario("a deliberate focus change after a resize is not undone", function()
   undo()
 end)
 
+-- A deliberate move to Snacks' own explorer is a real focus change too (CRT r2 S1-02):
+-- the real explorer, no stand-in, the critic's exact sequence.
+H.scenario("a deliberate move to the Snacks explorer after a resize is not undone", function()
+  H.background()
+  local list = explorer_list()
+  H.ok(list, "the explorer list is open")
+  vim.o.columns = 101
+  vim.wait(40, function()
+    return false
+  end)
+  H.ok(H.state().focused, "the board has focus 40 ms after the resize")
+  local entered = 0
+  local au = api.nvim_create_autocmd("WinEnter", {
+    callback = function()
+      if api.nvim_get_current_win() == list then
+        entered = entered + 1
+      end
+    end,
+  })
+  api.nvim_set_current_win(list) -- the user selects the explorer
+  api.nvim_del_autocmd(au)
+  H.eq(entered, 1, "a real WinEnter fired for the explorer list")
+  local cursor = api.nvim_win_get_cursor(list)
+  vim.wait(300, function()
+    return false
+  end) -- past the delayed recovery
+  H.eq(api.nvim_get_current_win(), list, "the explorer keeps focus")
+  H.eq(api.nvim_win_get_cursor(list), cursor, "and its cursor")
+  H.ok(not vim.o.guicursor:find("EnviSudokuCaret", 1, true), "and its caret is visible")
+  H.ok(H.state().open and not H.state().focused, "the board stays shown, unfocused")
+  vim.o.columns = 80
+  vim.wait(300, function()
+    return false
+  end)
+end)
+
 -- The board never scrolls (CRT S1-04).
 H.scenario("the board viewport stays fixed under scroll keys and the wheel", function()
   H.background()
