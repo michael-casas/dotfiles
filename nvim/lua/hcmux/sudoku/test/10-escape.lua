@@ -30,4 +30,12 @@ H.scenario("<Esc> in an Ex command line cancels the command and returns to NORMA
   H.eq(api.nvim_get_current_win(), s.win, "focus stays on the board")
 end)
 
+H.scenario("<Esc> after a pending count or operator clears it", function()
+  H.background()
+  -- Keep all the keys in one input stream so the harness cannot end the count
+  -- while draining an incomplete command.
+  H.type("3<Esc>j")
+  H.eq(H.state().cursor, { r = 2, c = 1 }, "j moves exactly one cell after Escape")
+end)
+
 H.finish()
