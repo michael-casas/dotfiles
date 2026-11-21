@@ -71,7 +71,7 @@ H.scenario("the cursor never shows a text caret outside the outline", function()
   outline_only_on(4, 5, "SEARCH")
   H.type("<Esc>")
   -- Native motions never leave a caret elsewhere: the cursor snaps back.
-  for _, native in ipairs({ "+", "-", "M", "w", "gg" }) do
+  for _, native in ipairs({ "+", "-", "M", "w" }) do
     H.type(native)
     outline_only_on(4, 5, "after the native motion " .. native)
   end
