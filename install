@@ -69,24 +69,40 @@ account_home() {
     if [ -n "$dir" ] && [ -d "$dir" ]; then (cd -- "$dir" && pwd -P); fi
 }
 
-# A linked worktree (a Treehouse slot) is never what an install links from.
-# With the real HOME, plan and doctor check against the main checkout instead,
-# because that is what an install on this machine would link to.
-if ! GIT_DIR_ABS="$(git -C "$CHECKOUT" rev-parse --absolute-git-dir 2>/dev/null)"; then
-    echo "install: $CHECKOUT is not a git checkout; clone the repository and run it from there" >&2
+canon() {         # canonical path of an existing directory; empty otherwise
+    if [ -n "$1" ]; then (cd -- "$1" 2>/dev/null && pwd -P) || true; fi
+}
+git_path() {      # git_path <dir> <rev-parse flag>: a canonical path git reports
+    (cd -- "$1" 2>/dev/null && canon "$(git rev-parse "$2" 2>/dev/null)") || true
+}
+
+# Run only from the top of a checkout; otherwise git would answer for an
+# ancestor repository the installer was merely copied into.
+if [ "$(git_path "$CHECKOUT" --show-toplevel)" != "$CHECKOUT" ]; then
+    echo "install: $CHECKOUT is not the top of a git checkout; clone the repository and run ./install from its top" >&2
     exit 3
 fi
-GIT_COMMON="$(cd -- "$CHECKOUT" && cd -- "$(git rev-parse --git-common-dir)" && pwd -P)"
-GIT_DIR_ABS="$(cd -- "$GIT_DIR_ABS" && pwd -P)"
+GIT_DIR_ABS="$(git_path "$CHECKOUT" --absolute-git-dir)"
+GIT_COMMON="$(git_path "$CHECKOUT" --git-common-dir)"
 HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 ACCOUNT_HOME="$(account_home)"
 SANDBOX=1
 if [ "$HOME_REAL" = "$ACCOUNT_HOME" ]; then SANDBOX=0; fi
+
+# A linked worktree (a Treehouse slot) is never what an install links from.
+# With the real HOME, plan and doctor check against the main checkout instead,
+# because that is what an install on this machine would link to; but only when
+# the common dir is <main>/.git and <main> verifies as that checkout's top.
 BASE="$CHECKOUT"
 NOTE=""
 if [ "$GIT_DIR_ABS" != "$GIT_COMMON" ]; then
     if [ "$SANDBOX" -eq 0 ]; then
         BASE="$(dirname -- "$GIT_COMMON")"
+        if [ "${GIT_COMMON##*/}" != .git ] || [ "$(git_path "$BASE" --show-toplevel)" != "$BASE" ] ||
+            [ "$(git_path "$BASE" --git-common-dir)" != "$GIT_COMMON" ]; then
+            echo "install: cannot verify this worktree's main checkout; run the preview from the main checkout" >&2
+            exit 3
+        fi
         NOTE="linked worktree with the real HOME: links are checked against the main checkout $BASE"
     else
         NOTE="linked worktree with a sandbox HOME: links are checked against this checkout"
