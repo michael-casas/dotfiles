@@ -69,7 +69,7 @@ Postgres passwords live in one place, never in git: a passfile, mode 600.
 
 Envi enforces this for both `postgres:` and `postgresql:` URLs:
 
-- **A URL that carries a password is refused,** whether it's `user:password@host` or a `password=` parameter or conninfo keyword. That covers `:DB`, a query run, a connection from `dbs.lua` or `DBUI_URL`, `:DBUIAddConnection` and renaming a connection. `:DBUIAddConnection` and rename refuse it before anything is saved to `connections.json`. The error never repeats the URL.
+- **A connection string that carries a password is refused,** in any form libpq reads one from: `user:password@` before a single host or a host list (`h1:5432,h2:5433`, IPv6 `[::1]`, or no host), a `password` URI parameter or conninfo keyword in any case or percent-encoding (`pass%77ord=`), or a `dbname` value that itself carries one. That covers `:DB`, a query run, a connection from `dbs.lua` or `DBUI_URL`, `:DBUIAddConnection` and renaming a connection. `:DBUIAddConnection` and rename refuse it before anything is saved to `connections.json`. The error never repeats the URL.
 - **Dadbod never prompts for a password** to retry a failed connection. Fix the passfile instead.
 - **An inherited `PGPASSWORD` is ignored by Dadbod's `psql`,** so a stale value can't override the passfile. Terminals and other jobs started from envi keep it.
 
