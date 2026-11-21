@@ -119,16 +119,19 @@ H.scenario("closing the popover returns focus to the invoking window, not a ghos
 end)
 
 H.scenario("the popover recentres on resize", function()
-  -- Stand-in for Snacks: on VimResized its explorer picker rebuilds its layout in a
-  -- scheduled callback and focuses its list with noautocmd (seen live in the Herdr
-  -- app; the headless explorer keeps its layout, so it never does this itself).
+  -- Stand-in for Snacks: on VimResized its layout updates at once and its explorer
+  -- picker rebuilds in a scheduled callback, each moving focus with noautocmd (seen
+  -- live in the Herdr app; the headless explorer keeps its layout, so it never does).
+  -- Registered before the board opens, so it runs first, as Snacks' handler does.
   local group = api.nvim_create_augroup("sudoku_test_snacks_resize", { clear = true })
+  local function steal()
+    vim.cmd("noautocmd call nvim_set_current_win(" .. H.grid .. ")")
+  end
   api.nvim_create_autocmd("VimResized", {
     group = group,
     callback = function()
-      vim.schedule(function()
-        vim.cmd("noautocmd call nvim_set_current_win(" .. H.grid .. ")")
-      end)
+      steal()
+      vim.schedule(steal)
     end,
   })
   H.background()

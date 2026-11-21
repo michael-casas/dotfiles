@@ -91,9 +91,14 @@ local function show_caret()
 end
 
 -- Focus can move without WinLeave (Snacks' layouts focus with noautocmd), so the
--- caret also follows focus on WinEnter and on every timer tick.
+-- caret also follows focus on WinEnter and on every timer tick. view.had_focus is
+-- the last focus seen there, i.e. before any such move.
 local function sync_caret()
-  if M.focused() then
+  if not view then
+    return
+  end
+  view.had_focus = M.focused()
+  if view.had_focus then
     hide_caret()
   else
     show_caret()
@@ -233,9 +238,10 @@ local function show()
       if valid(win) then
         api.nvim_win_set_config(win, geometry())
       end
-      -- A resize is not a reason to leave the game: Snacks rebuilds the explorer's
-      -- layout in a scheduled callback and focuses its list (REC-style live finding).
-      if M.focused() then
+      -- A resize is not a reason to leave the game. Snacks' own VimResized handlers
+      -- (which run first) move focus with noautocmd, at once and again in a scheduled
+      -- rebuild (live finding), so decide from the focus seen before the resize.
+      if view and view.had_focus then
         local function back()
           if view and view.win == win and valid(win) and api.nvim_get_current_win() ~= win then
             api.nvim_set_current_win(win)
@@ -266,7 +272,7 @@ local function show()
       end
     end)
   )
-  hide_caret()
+  sync_caret()
 end
 
 --- Open or focus the popover. opts.new starts a fresh puzzle (opts.puzzle names
