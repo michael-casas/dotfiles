@@ -60,7 +60,7 @@ Without `DBUI_NAME`, the drawer uses the last path segment of the URL as the nam
 
 `postgres:///?service=<name>` connects through an entry in `~/.pg_service.conf`, or in `$PGSERVICEFILE` if that's set. `psql` reads the file, so any of the three sources can use a service URL. The repo's `postgres/.pg_service.conf` is a reference copy.
 
-Use URLs (`postgresql://…` or a service URL). Key/value conninfo after the scheme, such as `postgresql:host=db dbname=app`, never connected through Dadbod, because vim-dadbod rewrites it into an encoded database name. Envi refuses it, with a message that points here.
+Use URLs: `postgresql://…`, a service URL, or a short form such as `postgres:?service=<name>` or `postgres:app?host=db`. Key/value conninfo after the scheme, such as `postgresql:host=db dbname=app`, never connected through Dadbod, because vim-dadbod rewrites it into an encoded database name. Envi refuses a string with `=` or whitespace before any `?`, with a message that points here.
 
 ## Where secrets live
 
@@ -80,7 +80,7 @@ Envi enforces this for both `postgres:` and `postgresql:` URLs:
 - **Dadbod never prompts for a password** to retry a failed connection. Fix the passfile instead.
 - **An inherited `PGPASSWORD` is ignored by Dadbod's `psql`,** so a stale value can't override the passfile. Terminals and other jobs started from envi keep it.
 
-A password never belongs in a connection URL: Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text.
+A password never belongs in a connection URL: Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text. Only libpq's `password` is checked. Other libpq secrets in a URL, `sslpassword` (a client key's passphrase) and `oauth_client_secret`, aren't refused: they're stored and passed to `psql` as written, so keep them out of URLs.
 
 ### libpq
 
@@ -92,7 +92,9 @@ A password never belongs in a connection URL: Dadbod passes URLs on the `psql` c
    - then `lib/postgresql` and `lib` beside `psql`'s `bin`.
    This covers Homebrew's `postgresql@N` and `libpq`, Postgres.app and EDB builds.
 3. Homebrew's `libpq` keg (`/opt/homebrew/opt/libpq/lib`, `/usr/local/opt/libpq/lib`).
-4. The dynamic loader's own search (`libpq.so.5`, which Linux distributions install with `psql`), then the common Linux library directories.
+4. On macOS, `/usr/local/lib`. On Linux, the multiarch, `lib64` and `lib` directories, then the dynamic loader's own search (`libpq.so.5`, which distributions install with `psql`).
+
+Envi only ever loads libpq by absolute path on macOS. There, `dlopen()` of a bare name would search the current directory, so a `libpq.5.dylib` in a project folder could load.
 
 **If no libpq loads,** envi can't tell whether a Postgres URL carries a password, so it refuses every one. The message says to install libpq (it ships with `psql`) or to set `$ENVI_LIBPQ`. SQLite and the other databases are unaffected.
 
