@@ -12,7 +12,7 @@ links_configs() {  # the dotbot config files for this OS, one per line
 }
 
 links_check() {    # links_check plan|doctor
-    local mode="$1" parent out rc=0 exists pending dead refused shadow state
+    local mode="$1" parent out rc=0 exists pending dead refused unknown shadow state
     local -a configs=()
     while IFS= read -r parent; do configs+=("$parent"); done < <(links_configs)
 
@@ -22,7 +22,8 @@ links_check() {    # links_check plan|doctor
         state="$(git -C "$CHECKOUT" submodule status dotbot 2>/dev/null | cut -c1)"
         case "$state" in
             " ") report ok links "dotbot submodule at the pinned commit" ;;
-            "+") report FAIL links "dotbot submodule is not at the pinned commit; run: git submodule update --init --recursive dotbot" ;;
+            "+") report FAIL links "dotbot submodule is not at the pinned commit; run: git submodule update --init --recursive dotbot"
+                 return ;;   # never run an unpinned dotbot
             *) report FAIL links "dotbot submodule is not initialised; run: git submodule update --init --recursive dotbot"
                return ;;
         esac
@@ -32,27 +33,39 @@ links_check() {    # links_check plan|doctor
         return
     fi
 
-    # dotbot follows a symlinked parent and would write into its target.
-    for parent in "$XDG_CONFIG_HOME" "$HOME/.config" "$HOME/.local" "$HOME/.local/bin" "$HOME/.claude" "$HOME/.agents"; do
-        if [ -L "$parent" ]; then
-            report FAIL links "$parent is a symlink; managed parent directories must be real"
-        fi
-    done
+    # dotbot follows a symlinked directory and would write into its target, so
+    # every directory on the way to a destination must be real before it runs.
+    if ! out="$(python3 "$CHECKOUT/install.d/parents.py" "$DOTBOT" "$BASE" "${configs[@]}" 2>&1)"; then
+        while IFS=$'\t' read -r state parent; do
+            case "$state" in
+                symlink) report FAIL links "$parent is a symlink; managed directories must be real (nothing was run)" ;;
+                "not a directory") report FAIL links "$parent is not a directory; managed directories must be real (nothing was run)" ;;
+                *) report FAIL links "could not check the managed directories: $state $parent" ;;
+            esac
+        done < <(printf '%s\n' "$out")
+        return
+    fi
 
     # -v adds the "Link exists" lines, which are counted, not shown.
     out="$("$DOTBOT" -v --no-color -d "$BASE" --dry-run --only link create clean -c "${configs[@]}" 2>&1)" || rc=$?
     exists="$(printf '%s\n' "$out" | grep -c '^Link exists ' || true)"
     pending="$(printf '%s\n' "$out" | grep -c '^Would create symlink ' || true)"
     dead="$(printf '%s\n' "$out" | grep -c '^Would remove invalid link ' || true)"
-    refused="$(printf '%s\n' "$out" | grep -c -e ' already exists but ' -e '^Incorrect link ' -e '^Invalid link ' || true)"
+    # The pinned dotbot's conflict lines (plugins/link.py). Anything that is
+    # neither one of them nor a known progress line is an error, and wins.
+    refused="$(printf '%s\n' "$out" | grep -c -e ' already exists but is a regular file or directory$' \
+        -e '^Incorrect link ' -e '^Invalid link ' || true)"
     out="$(printf '%s\n' "$out" | grep -v -e '^Link exists ' -e '^All .* successfully$' -e '^All .*been .*$' \
         -e '^Some .* successfully' -e ' not removed\.$' -e '^$' || true)"
+    unknown="$(printf '%s\n' "$out" | grep -c -v -e '^Would create ' -e '^Would remove invalid link ' \
+        -e ' already exists but is a regular file or directory$' -e '^Incorrect link ' -e '^Invalid link ' \
+        -e '^$' || true)"
     report ok links "$exists declared links in place (base $BASE)"
-    if [ "$rc" -ne 0 ] && [ "$refused" -gt 0 ]; then
+    if [ "$rc" -ne 0 ] && [ "$refused" -gt 0 ] && [ "$unknown" -eq 0 ]; then
         CONFLICTS=$((CONFLICTS + 1))
         report CONFLICT links "dotbot refuses $refused links and would create $pending; each is listed below, nothing is touched"
     elif [ "$rc" -ne 0 ]; then
-        report FAIL links "dotbot could not plan the links (exit $rc); its output is below"
+        report FAIL links "dotbot could not plan the links (exit $rc, $refused conflicts, $unknown other errors); its output is below"
     elif [ "$pending" -gt 0 ] || [ "$dead" -gt 0 ]; then
         if [ "$mode" = doctor ]; then state=FAIL; else state=plan; fi
         report "$state" links "$pending links to create, $dead dead links to remove"
