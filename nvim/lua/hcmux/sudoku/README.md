@@ -51,7 +51,8 @@ model, rendering, timer and `state()`. Motions, search, editing and saving
   scroll that bypasses them (the wheel over the unfocused float) is undone.
 - **Resizes:** Snacks rebuilds its layouts on `VimResized` and moves focus with
   `noautocmd`. If the board had focus, it takes focus back after that transition,
-  unless a real focus change happened in between or the board closed.
+  unless a real focus change (to any window, Snacks' explorer included) happened
+  in between or the board closed.
 
 ## Seams for WP2–WP5
 
