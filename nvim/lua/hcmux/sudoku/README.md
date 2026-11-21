@@ -8,7 +8,7 @@ model, rendering, timer and `state()`. Motions, search, editing and saving
 
 | File | What it owns |
 |---|---|
-| `init.lua` | `:EnviSudoku`, the window (zindex 60, centred, recentred on resize, `winfixbuf`), `:q` via `config.panel-close` (pause, close, focus back to the invoker), the hidden caret, the timer tick, `state()`, events |
+| `init.lua` | `:EnviSudoku`, the window (zindex 60 or above the Snacks windows it overlaps, centred, recentred on resize, `winfixbuf`, never scrolled), `:q` via `config.panel-close` (pause, close, focus back to the invoker), the hidden caret, the timer tick, `state()`, events |
 | `game.lua` | the model `{ puzzle, board, givens, cursor, mode, timer }` and the timer (`resume`/`pause`/`stop`, injectable clock) |
 | `puzzles.lua` | the bundled puzzles; `classic` is the fixture. `test/00-puzzles.lua` proves each has one solution |
 | `keys.lua` | the key registration table |
@@ -30,7 +30,28 @@ model, rendering, timer and `state()`. Motions, search, editing and saving
 - **`:q`, `:qu`, `:quit`, `:q!`** go through panel-close's `EnviClose` router:
   pause, close, focus back to the invoking window. The puzzle stays in memory;
   `:EnviSudoku` reopens it with the timer resuming. Closing the window any other
-  way also pauses.
+  way also pauses. The invoker is the window current when the board window was
+  created; refocusing an open board from elsewhere doesn't change it. If it no
+  longer exists, Neovim picks the next window as usual.
+- **Z-order:** the board opens at zindex 60, or one above every Snacks window it
+  overlaps (as Snacks stacks its own), and is raised again whenever `:EnviSudoku`
+  refocuses it, e.g. under a picker opened since. It stays below 100, where
+  Neovim's popupmenu, messages and command line live. `state().zindex` is the
+  window's real zindex.
+- **Viewport:** the board is centred in the rows between the tabline and the
+  statusline/command line. The full layout needs a 41x23 viewport (content 39x21
+  plus the border); below that the **compact** layout (box rules only, one line
+  per row, footer fields one space apart, the cursor drawn as `[5]` brackets in
+  `EnviSudokuCursor`) needs **36 columns x 17 usable rows**, e.g. a 36x21 Neovim
+  with a one-line command line and statusline. That is the minimum supported
+  viewport; anything smaller clamps the window to the screen and clips the
+  board's right and bottom until the viewport grows again.
+- **The board never scrolls:** scroll keys (`<C-e> <C-y> <C-d> <C-u> <C-f> <C-b>`,
+  `zt`/`zz`/`zb` …, `<PageUp>`/`<PageDown>`, the mouse wheel) are consumed, and a
+  scroll that bypasses them (the wheel over the unfocused float) is undone.
+- **Resizes:** Snacks rebuilds its layouts on `VimResized` and moves focus with
+  `noautocmd`. If the board had focus, it takes focus back after that transition,
+  unless a real focus change happened in between or the board closed.
 
 ## Seams for WP2–WP5
 
@@ -80,7 +101,9 @@ render.layer({
   defined in `render.define_hl()` with `default = true`. `EnviSudokuDim` is
   foreground-only; the window's `winblend` stays 0.
 - `render.span(r, c)` and `render.outline(r, c)` give the extmark positions of a
-  cell's digit and border (namespace `render.ns`).
+  cell's digit and border (namespace `render.ns`) in the current layout
+  (`render.layout()`: `"full"` or `"compact"`; a compact outline span carries the
+  bracket glyph as a fourth element). Always ask them; don't hard-code offsets.
 
 ### Footer: `render.footer_segment(fn)`
 
@@ -101,6 +124,14 @@ spaces apart (WP3: `/9 4/9`).
 
 `load` (`:EnviSudoku` with no puzzle in memory: call `set_game` to resume a save,
 else a random puzzle starts), `new`, `open`, `render`, `close`. Each gets `game`.
+
+`before_new` runs when `:EnviSudoku new [<puzzle>]` is asked for, **before** the
+model, timer, window or focus change: `fn(ctx)` with `ctx = { puzzle, requested,
+game, confirmed }` (`puzzle` is the one that would load, `requested` the argument
+or nil for a random one, `game` the current game or nil). Returning `false`
+declines and nothing happens. For an asynchronous confirmation (Q19, WP5):
+decline, ask, then call `sudoku.open({ new = true, puzzle = ctx.puzzle, confirmed = true })`;
+your hook sees `ctx.confirmed` and lets it through.
 WP5's `:w`/`:wq` routing extends `config.panel-close` and is scoped to buffers
 that own the new commands; `sudoku.state().save_path` is the slot path.
 

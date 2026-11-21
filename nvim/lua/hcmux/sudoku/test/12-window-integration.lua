@@ -36,6 +36,71 @@ local function lualine_mode(label)
   error("plugins/hcmux.lua has no lualine spec")
 end
 
+-- A real Snacks picker (default layout, centred over the board), left in NORMAL.
+local function open_picker()
+  local picker = Snacks.picker({
+    source = "sudoku_test",
+    items = { { text = "alpha" }, { text = "beta" } },
+    format = "text",
+    layout = { preset = "default" },
+  })
+  H.ok(
+    H.wait(function()
+      return picker.list and picker.list.win and picker.list.win:valid()
+    end, 2000),
+    "the picker opens"
+  )
+  vim.cmd.stopinsert()
+  H.drain()
+  return picker
+end
+
+-- The board must be above every Snacks window it overlaps, and must overlap one.
+local function above_snacks(label)
+  local s = H.state()
+  H.eq(s.zindex, api.nvim_win_get_config(s.win).zindex, label .. ": state().zindex is the window's")
+  local board, overlapped = H.rect(s.win), 0
+  for _, f in ipairs(others_floats(s.win)) do
+    if f.snacks and H.overlap(board, H.rect(f.win)) then
+      overlapped = overlapped + 1
+      H.ok(
+        s.zindex > f.zindex,
+        ("%s: zindex %d is above Snacks window %d (%d)"):format(label, s.zindex, f.win, f.zindex)
+      )
+    end
+  end
+  H.ok(overlapped > 0, label .. ": the board overlaps a Snacks window")
+  H.ok(s.zindex < 100, label .. ": below Neovim's reserved layers (popupmenu 100 and up)")
+end
+
+-- Stand-in for Snacks on VimResized: its layout updates at once and its explorer
+-- picker rebuilds in a scheduled callback, each moving focus with noautocmd (seen
+-- live in the Herdr app; the headless explorer keeps its layout, so it never does).
+-- Installed before the board opens, so it runs first, as Snacks' handler does.
+local function snacks_resize_standin()
+  local group = api.nvim_create_augroup("sudoku_test_snacks_resize", { clear = true })
+  local function steal()
+    vim.cmd("noautocmd call nvim_set_current_win(" .. H.grid .. ")")
+  end
+  api.nvim_create_autocmd("VimResized", {
+    group = group,
+    callback = function()
+      steal()
+      vim.schedule(steal)
+    end,
+  })
+  return function()
+    api.nvim_del_augroup_by_id(group)
+  end
+end
+
+local function resize(cols, lines)
+  vim.o.columns, vim.o.lines = cols, lines
+  vim.wait(300, function()
+    return false
+  end)
+end
+
 H.scenario("the popover draws above the explorer and the terminal", function()
   H.layout()
   H.type(":EnviSudoku new classic<CR>")
@@ -69,6 +134,26 @@ H.scenario("opening from the explorer still draws above it and focuses the board
   H.ok(r[1] >= 0 and r[2] >= 0 and r[3] <= vim.o.lines - vim.o.cmdheight and r[4] <= vim.o.columns, "fully visible")
   H.type(":q<CR>")
   H.eq(api.nvim_get_current_win(), list, ":q returns to the explorer list")
+end)
+
+-- 12 z-order / orphan focus, both opening orders (CRT S1-01).
+H.scenario("a board opened after a Snacks picker draws above it", function()
+  H.layout()
+  local picker = open_picker()
+  H.type(":EnviSudoku new classic<CR>")
+  H.ok(H.state().focused, "the board is focused")
+  above_snacks("board after picker")
+  picker:close()
+end)
+
+H.scenario("a board refocused under a later Snacks picker comes back on top", function()
+  H.background()
+  local picker = open_picker()
+  H.ok(not H.state().focused, "the picker took focus")
+  H.type(":EnviSudoku<CR>")
+  H.ok(H.state().focused, ":EnviSudoku focuses the board")
+  above_snacks("board refocused over the picker")
+  picker:close()
 end)
 
 for _, key in ipairs({ "<C-h>", "<C-j>", "<C-k>", "<C-l>" }) do
@@ -118,51 +203,156 @@ H.scenario("closing the popover returns focus to the invoking window, not a ghos
   H.eq(#api.nvim_list_bufs(), bufs, "no new buffer")
 end)
 
+-- The invoker is the window that created the board (CRT S1-05).
+H.scenario("closing after a refocus from another window still returns to the invoking window", function()
+  H.background() -- opened from grid.txt
+  api.nvim_set_current_win(H.term) -- a click in the terminal
+  H.drain()
+  H.type(":EnviSudoku<CR>")
+  H.ok(H.state().focused, "refocused from the terminal")
+  H.type(":q<CR>")
+  H.eq(api.nvim_get_current_win(), H.grid, "focus returns to grid.txt, which opened the board")
+end)
+
+H.scenario("a board newly opened from the terminal returns to the terminal", function()
+  H.layout()
+  api.nvim_set_current_win(H.term)
+  H.drain()
+  H.type(":EnviSudoku new classic<CR>")
+  H.type(":q<CR>")
+  H.eq(api.nvim_get_current_win(), H.term, "focus returns to the terminal")
+end)
+
+H.scenario("closing falls back natively when the invoking window is gone", function()
+  H.layout()
+  vim.cmd.split()
+  local split = api.nvim_get_current_win()
+  H.type(":EnviSudoku new classic<CR>")
+  api.nvim_win_close(split, true)
+  local wins = #api.nvim_list_wins()
+  vim.v.errmsg = ""
+  H.type(":q<CR>")
+  H.ok(not H.state().open, "the board closes")
+  H.ok(api.nvim_win_is_valid(api.nvim_get_current_win()), "focus is in a valid window")
+  H.eq(#api.nvim_list_wins(), wins - 1, "only the board window went away")
+  H.eq(vim.v.errmsg, "", "no error")
+end)
+
 H.scenario("the popover recentres on resize", function()
-  -- Stand-in for Snacks: on VimResized its layout updates at once and its explorer
-  -- picker rebuilds in a scheduled callback, each moving focus with noautocmd (seen
-  -- live in the Herdr app; the headless explorer keeps its layout, so it never does).
-  -- Registered before the board opens, so it runs first, as Snacks' handler does.
-  local group = api.nvim_create_augroup("sudoku_test_snacks_resize", { clear = true })
-  local function steal()
-    vim.cmd("noautocmd call nvim_set_current_win(" .. H.grid .. ")")
-  end
-  api.nvim_create_autocmd("VimResized", {
-    group = group,
-    callback = function()
-      steal()
-      vim.schedule(steal)
-    end,
-  })
+  local undo = snacks_resize_standin()
   H.background()
-  local function check(label)
+  local function check(label, kind)
     local s = H.state()
     local r = H.rect(s.win)
-    local rows, cols = vim.o.lines - vim.o.cmdheight, vim.o.columns
+    local top, bottom = H.usable()
+    local cols = vim.o.columns
+    H.ok(
+      r[1] >= top and r[2] >= 0 and r[3] <= bottom and r[4] <= cols,
+      label .. ": the whole board is on screen, clear of the statusline and command line"
+    )
     H.ok(math.abs(r[2] - (cols - r[4])) <= 1, label .. ": centred horizontally")
-    H.ok(math.abs(r[1] - (rows - r[3])) <= 1, label .. ": centred vertically")
+    H.ok(math.abs((r[1] - top) - (bottom - r[3])) <= 1, label .. ": centred vertically")
     H.ok(api.nvim_win_get_height(s.win) >= api.nvim_buf_line_count(s.buf), label .. ": every line is visible")
     for _, line in ipairs(H.lines()) do
       H.ok(vim.fn.strdisplaywidth(line) <= api.nvim_win_get_width(s.win), label .. ": no line is cut off")
     end
-    H.ok(H.footer():find("RUNNING", 1, true), label .. ": the footer is visible")
+    H.eq(H.kind(), kind, label .. ": layout")
+    for row = 1, 9 do
+      for c = 1, 9 do
+        local d = s.board[row][c]
+        H.eq(H.digit(row, c), d == 0 and " " or tostring(d), ("%s: R%dC%d is readable"):format(label, row, c))
+      end
+    end
+    H.eq(H.char_spans("EnviSudokuCursor"), H.outline(1, 1), label .. ": the R1C1 outline is whole")
+    local footer = kind == "full" and "^NORMAL  R1C1  %d%d:%d%d RUNNING$" or "^NORMAL R1C1 %d%d:%d%d RUNNING$"
+    H.ok(H.footer():find(footer), label .. ": the footer reads in full (" .. H.footer() .. ")")
     -- Live finding: Snacks rebuilds the explorer on VimResized and focuses it with
     -- noautocmd. The board keeps focus, and the hidden caret never leaks elsewhere.
     H.ok(s.focused, label .. ": the board keeps focus")
     H.ok(vim.o.guicursor:find("EnviSudokuCaret", 1, true), label .. ": the caret stays hidden on the board")
   end
-  local function resize(cols, lines)
-    vim.o.columns, vim.o.lines = cols, lines
-    vim.wait(300, function()
-      return false
-    end)
-  end
-  check("80x40")
+  check("80x40", "full")
   resize(132, 30)
-  check("132x30")
+  check("132x30", "full")
+  resize(36, 21) -- the minimum supported viewport (README): the compact layout
+  check("36x21", "compact")
   resize(80, 40)
-  check("back to 80x40")
-  api.nvim_del_augroup_by_id(group)
+  check("back to 80x40", "full")
+  undo()
+end)
+
+-- The resize recovery is scoped to Snacks' own transition (CRT S1-02).
+H.scenario("a deliberate focus change after a resize is not undone", function()
+  local undo = snacks_resize_standin()
+  H.background()
+  vim.o.columns = 100
+  vim.wait(40, function()
+    return false
+  end) -- Snacks' moves and the immediate recovery have run; the delayed one is pending
+  H.ok(H.state().focused, "the board recovered from Snacks' focus move")
+  api.nvim_set_current_win(H.term) -- the user focuses the terminal 40 ms later
+  local cursor = api.nvim_win_get_cursor(H.term)
+  vim.wait(300, function()
+    return false
+  end)
+  H.eq(api.nvim_get_current_win(), H.term, "the terminal keeps focus")
+  H.eq(api.nvim_win_get_cursor(H.term), cursor, "and its cursor")
+  H.ok(not vim.o.guicursor:find("EnviSudokuCaret", 1, true), "the caret is visible in the terminal")
+  H.ok(H.state().open and not H.state().focused, "the board stays shown, unfocused")
+  -- A pending recovery dies with the board.
+  H.type(":EnviSudoku<CR>")
+  vim.o.columns = 80
+  vim.wait(40, function()
+    return false
+  end) -- the immediate recovery put the board back; the delayed one is pending
+  H.ok(H.state().focused, "the board is focused again")
+  H.type(":q<CR>")
+  H.ok(not H.state().open, ":q closed the board")
+  api.nvim_set_current_win(H.term)
+  vim.wait(300, function()
+    return false
+  end)
+  H.eq(api.nvim_get_current_win(), H.term, "no recovery runs after :q")
+  H.ok(not vim.o.guicursor:find("EnviSudokuCaret", 1, true), "and the caret stays visible")
+  undo()
+end)
+
+-- The board never scrolls (CRT S1-04).
+H.scenario("the board viewport stays fixed under scroll keys and the wheel", function()
+  H.background()
+  local s = H.state()
+  local function fixed(label)
+    local v = api.nvim_win_call(s.win, vim.fn.winsaveview)
+    H.eq({ v.topline, v.leftcol }, { 1, 0 }, label .. ": topline 1, leftcol 0")
+    H.eq(#H.lines(), api.nvim_win_get_height(s.win), label .. ": every row is in view")
+    H.ok(H.footer():find("^NORMAL  R1C1  "), label .. ": the footer is in view")
+    H.eq(H.char_spans("EnviSudokuCursor"), H.outline(1, 1), label .. ": the R1C1 outline is whole")
+  end
+  local scrolls = { "<C-e>", "<C-d>", "<C-f>", "<C-y>", "<C-u>", "<C-b>", "zt", "zz", "zb", "z<CR>", "zl" }
+  vim.list_extend(scrolls, { "<ScrollWheelDown>", "<ScrollWheelUp>", "<ScrollWheelRight>", "<PageDown>" })
+  for _, key in ipairs(scrolls) do
+    H.type(key)
+    fixed(key)
+    H.ok(H.state().focused, key .. ": the board keeps focus")
+  end
+  -- A scroll that never reaches the board's keys (the wheel over an unfocused float).
+  api.nvim_win_call(s.win, function()
+    vim.cmd("normal! 3\5")
+  end)
+  H.ok(
+    H.wait(function()
+      return api.nvim_win_call(s.win, vim.fn.winsaveview).topline == 1
+    end),
+    "a native scroll is undone"
+  )
+  fixed("after a native scroll")
+  -- Ordinary scrolling elsewhere is untouched.
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(("line\n"):rep(100), "\n"))
+  local other = api.nvim_open_win(buf, true, { split = "below", win = H.grid })
+  H.type("<C-e>")
+  H.eq(api.nvim_win_call(other, vim.fn.winsaveview).topline, 2, "<C-e> still scrolls an ordinary window")
+  api.nvim_win_close(other, true)
 end)
 
 -- Not a feature scenario: a focus move that skips autocmds (as Snacks' layout does)

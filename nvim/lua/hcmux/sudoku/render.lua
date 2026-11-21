@@ -4,6 +4,10 @@
 -- vertical rules, and rows are separated by horizontal rules, so every cell is
 -- enclosed by its own border. The cursor IS that border, drawn in
 -- EnviSudokuCursor. Heavy rules mark the 3x3 boxes. Then a blank line and the footer.
+--
+-- A viewport too small for that (README: minimum viewport) gets the "compact"
+-- layout: box rules only, one line per row, and the cursor drawn as brackets
+-- ("[5]") in EnviSudokuCursor over the cell's own padding.
 local api = vim.api
 local Game = require("hcmux.sudoku.game")
 local M = { ns = api.nvim_create_namespace("envi_sudoku") }
@@ -12,6 +16,27 @@ local PAD = " "
 local GRID = 19 -- grid lines: 10 rules + 9 cell rows
 M.WIDTH = 2 * #PAD + 37
 M.HEIGHT = GRID + 2 -- + blank + footer
+-- Content size per layout; init.lua picks the largest that fits the viewport.
+M.LAYOUTS = {
+  full = { width = M.WIDTH, height = M.HEIGHT },
+  compact = { width = 34, height = 15 }, -- 13 grid lines + blank + footer
+}
+local layout = "full"
+
+--- Switch the layout the board text, spans and outlines use ("full" | "compact").
+function M.set_layout(name)
+  assert(M.LAYOUTS[name], "no such layout: " .. tostring(name))
+  layout = name
+end
+
+function M.layout()
+  return layout
+end
+
+--- Content width and height of the current layout.
+function M.size()
+  return M.LAYOUTS[layout].width, M.LAYOUTS[layout].height
+end
 
 -- Rule pieces: left end, horizontal, cell junction, box junction, right end.
 local RULES = {
@@ -30,14 +55,33 @@ local function jcol(k)
   return #PAD + k * (CHAR + 3 * CHAR)
 end
 
+-- Compact: line of row r (a box rule after rows 3 and 6), and the byte offset of
+-- cell c's interior (a box is 3 cells of 3 bytes, then a 3-byte rule).
+local function compact_line(r)
+  return r + math.floor((r - 1) / 3)
+end
+local function compact_col(c)
+  return #PAD + CHAR + math.floor((c - 1) / 3) * (9 + CHAR) + ((c - 1) % 3) * 3
+end
+
 --- 0-based line and byte range [s, e) of cell (r, c)'s 3-column interior.
 function M.span(r, c)
+  if layout == "compact" then
+    local s = compact_col(c)
+    return compact_line(r), s, s + 3
+  end
   local s = vcol(c - 1) + CHAR
   return 2 * r - 1, s, s + 3
 end
 
 --- The border of cell (r, c) as { line, start, end } byte spans (0-based, end exclusive).
+--- In the compact layout these are the cell's two padding bytes, and a fourth
+--- element gives the glyph drawn over each ("[" and "]").
 function M.outline(r, c)
+  if layout == "compact" then
+    local line, s = M.span(r, c)
+    return { { line, s, s + 1, "[" }, { line, s + 2, s + 3, "]" } }
+  end
   local top, bottom = 2 * r - 2, 2 * r
   local row = 2 * r - 1
   return {
@@ -62,15 +106,23 @@ local function cells_line(row)
   local out = { PAD, "┃" }
   for c = 1, 9 do
     out[#out + 1] = row[c] ~= 0 and (" " .. row[c] .. " ") or "   "
-    out[#out + 1] = (c % 3 == 0) and "┃" or "│"
+    if layout == "full" or c % 3 == 0 then
+      out[#out + 1] = (c % 3 == 0) and "┃" or "│"
+    end
   end
   return table.concat(out)
+end
+
+-- Compact rules: box junctions only.
+local function box_rule(kind)
+  local p = RULES[kind]
+  return PAD .. p[1] .. table.concat({ p[2]:rep(9), p[2]:rep(9), p[2]:rep(9) }, p[4]) .. p[5]
 end
 
 -- Footer segments after the core "MODE  RrCc  MM:SS STATUS" (e.g. WP3's "/9 4/9").
 local segments = {}
 
---- fn(game) -> string|nil, appended to the footer after two spaces.
+--- fn(game) -> string|nil, appended to the footer after two spaces (one in the compact layout).
 function M.footer_segment(fn)
   segments[#segments + 1] = fn
 end
@@ -87,10 +139,22 @@ function M.footer(game)
       parts[#parts + 1] = text
     end
   end
-  return PAD .. table.concat(parts, "  ")
+  return PAD .. table.concat(parts, layout == "full" and "  " or " ")
 end
 
 function M.lines(game)
+  if layout == "compact" then
+    local lines = { box_rule("top") }
+    for r = 1, 9 do
+      lines[#lines + 1] = cells_line(game.board[r])
+      if r % 3 == 0 then
+        lines[#lines + 1] = box_rule(r == 9 and "bottom" or "box")
+      end
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = M.footer(game)
+    return lines
+  end
   local lines = { rule("top") }
   for r = 1, 9 do
     lines[#lines + 1] = cells_line(game.board[r])
@@ -212,6 +276,8 @@ function M.draw(buf, game)
           end_col = sp[3],
           hl_group = layer.group,
           priority = layer.priority,
+          virt_text = sp[4] and { { sp[4], layer.group } } or nil,
+          virt_text_pos = sp[4] and "overlay" or nil,
         })
       end
     end

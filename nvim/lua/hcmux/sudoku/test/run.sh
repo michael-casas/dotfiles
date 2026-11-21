@@ -29,7 +29,7 @@ for n in "${names[@]}"; do
     grep '^SCENARIO ' "$log" | sed 's/^SCENARIO /     /'
   else
     echo "FAIL $n"
-    sed 's/^/     /' "$log" | tail -40
+    sed "s/^/     /" "$log" | tail -200
     failed=1
   fi
   rm -rf "$home"

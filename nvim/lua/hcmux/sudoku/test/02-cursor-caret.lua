@@ -8,7 +8,7 @@
 local H = require("hcmux.sudoku.test.harness")
 local api = vim.api
 H.boot()
-local sudoku, keys, render = H.sudoku(), require("hcmux.sudoku.keys"), require("hcmux.sudoku.render")
+local keys = require("hcmux.sudoku.keys")
 
 local function stand_in(lhs, mode, fn)
   local real = keys.handler(lhs, mode)
@@ -40,19 +40,19 @@ end
 local function outline_only_on(r, c, label)
   local s = H.state()
   H.eq(s.hl.cursor, { { r = r, c = c } }, label .. ": exactly one cell carries the outline")
-  local want = {}
-  for _, span in ipairs(render.outline(r, c)) do
-    want[#want + 1] = string.format("%d:%d-%d", span[1], span[2], span[3])
-  end
-  table.sort(want)
-  H.eq(H.spans("EnviSudokuCursor"), want, label .. ": EnviSudokuCursor extmarks are exactly R4C5's outline")
+  H.eq(
+    H.char_spans("EnviSudokuCursor"),
+    H.outline(r, c),
+    label .. ": EnviSudokuCursor extmarks are exactly R4C5's outline"
+  )
   -- No text caret: the caret is hidden while the board has focus, and Neovim's
   -- cursor sits on the cell's digit, inside the outline.
   H.ok(vim.o.guicursor:find("EnviSudokuCaret", 1, true), label .. ": guicursor hides the caret")
   H.eq(api.nvim_get_hl(0, { name = "EnviSudokuCaret" }).blend, 100, label .. ": the caret group is fully blended")
   local pos = api.nvim_win_get_cursor(s.win)
-  local row, cs, ce = render.span(r, c)
-  H.ok(pos[1] - 1 == row and pos[2] >= cs and pos[2] < ce, label .. ": Neovim's cursor is inside the outline")
+  local row, ch = H.cell(r, c)
+  local at = vim.str_utfindex(H.lines()[pos[1]], "utf-32", pos[2])
+  H.ok(pos[1] - 1 == row and at == ch, label .. ": Neovim's cursor is on the digit, inside the outline")
 end
 
 H.scenario("the cursor never shows a text caret outside the outline", function()
