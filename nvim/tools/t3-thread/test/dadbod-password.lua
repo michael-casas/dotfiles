@@ -29,6 +29,11 @@ vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
 vim.cmd("runtime plugin/dadbod.vim")
 vim.g.db_adapter_postgresql = "envi#dadbod_postgresql#"
 vim.g.db_adapter_postgres = "envi#dadbod_postgresql#"
+-- Source the adapter now. S.label() switches envi's adapter off to ask
+-- upstream; vim-dadbod then counts "postgresql" as loaded and, until something
+-- autoloads envi's file, db#adapter#call() would skip its canonicalize. In envi
+-- the variables are set at startup, so the first lookup sources it.
+vim.cmd("runtime autoload/envi/dadbod_postgresql.vim")
 -- Builders prefix `env -u PGPASSWORD` when it is set; check the plain form.
 vim.env.PGPASSWORD = nil
 
