@@ -49,6 +49,13 @@ return {
   {
     "tpope/vim-dadbod",
     cmd = "DB",
+    init = function()
+      -- Dadbod runs psql as `psql -X`, so ~/.psqlrc stays out of its results;
+      -- plain psql still reads it. vim-dadbod's g:db_adapter_<scheme> override
+      -- points both Postgres schemes at autoload/envi/dadbod_postgresql.vim.
+      vim.g.db_adapter_postgresql = "envi#dadbod_postgresql#"
+      vim.g.db_adapter_postgres = "envi#dadbod_postgresql#"
+    end,
   },
 
   {

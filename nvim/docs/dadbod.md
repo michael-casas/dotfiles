@@ -83,4 +83,8 @@ In a query buffer, blink.cmp offers tables, columns and SQL keywords from the `d
 
 The drawer, query buffers and result buffers use the active colorscheme's highlight groups, and they repaint on `:colorscheme`. The drawer's connection markers (✓ and ✕) default to fixed colours. `after/syntax/dbui.lua` links them to `DiagnosticOk` and `DiagnosticError` instead.
 
-Results are `psql`'s own text output, so your `~/.psqlrc` settings (borders, timing, null display) show in the result buffer.
+## `~/.psqlrc`
+
+Dadbod runs `psql -X`, so `~/.psqlrc` stays out of its results: no "Timing is on." or other preamble lines, and `psql`'s default borders and null display. The drawer's table and foreign-key helpers parse that default output too. A plain `psql` in a shell still reads `~/.psqlrc`.
+
+The `-X` comes from `autoload/envi/dadbod_postgresql.vim`. vim-dadbod's `g:db_adapter_postgresql` and `g:db_adapter_postgres` point both Postgres schemes at it. Its functions call vim-dadbod's own Postgres adapter, and the ones that build a `psql` command line add `-X`.
