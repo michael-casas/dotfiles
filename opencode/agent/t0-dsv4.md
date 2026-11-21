@@ -132,4 +132,4 @@ Reduce raw output to the smallest structured finding that answers the lane item.
 - Model: `opencode-go/deepseek-v4-flash`
 - Provider: opencode-go
 - See `~/.dotfiles/opencode/agent/SYS_COMMANDER_GO.md` for the env-var interface
-- See `~/.dotfiles/.agents/skills/spec-generation/references/downstream-charter-contract.md` for the canonical contract
+- See `~/.local/share/agent-skills/archive/dotfiles-agents-skills-20261120/spec-generation/references/downstream-charter-contract.md` for the canonical contract (machine-local archive; retired from this repo, still in git history)
