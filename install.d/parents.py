@@ -2,7 +2,7 @@
 
 dotbot follows a symlinked directory and writes into its target. So every
 existing directory on the way to a managed destination's parent, and every
-cleanup root, must be a real directory: below HOME from HOME down, and for an
+cleanup or create root, must be a real directory: below HOME from HOME down, and for an
 XDG_CONFIG_HOME outside HOME from the filesystem root down. The paths come from the same config
 files dotbot reads and from skill-catalog.py's own targets, so the declared
 paths and this guard cannot diverge. The leaf itself is dotbot's to judge.
@@ -27,15 +27,23 @@ def load_yaml(dotbot):
     return yaml
 
 
-def expand(path):
-    """As dotbot expands it, but with every component kept as written: no
-    normalisation, so a symlink and a `..` after it both stay visible."""
-    path = os.path.expanduser(os.path.expandvars(path))
-    return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+def managed(path):
+    """Every path this guard checks goes through here: expanded as dotbot
+    does (expandvars, then expanduser), refused when relative or when it has
+    a `.` or `..` component, then cleared of redundant slashes. ./install
+    already refuses such a HOME or XDG_CONFIG_HOME, and the policy test such
+    a declaration, so the raw, lexical and physical readings of a path are
+    one and the same, and the walk below is exact."""
+    full = os.path.expanduser(os.path.expandvars(path))
+    if not os.path.isabs(full):
+        raise ValueError(f'not an absolute path: {path!r} -> {full!r}')
+    if any(part in (os.curdir, os.pardir) for part in full.split(os.sep)):
+        raise ValueError(f'. or .. component in {path!r} -> {full!r}')
+    return os.path.normpath(full)
 
 
 def declared(yaml, configs):
-    """(link destinations, cleanup roots) as dotbot will expand them."""
+    """(link destinations, cleanup and create roots), each through managed()."""
     links, roots = [], []
     for name in configs:
         with open(name, encoding='utf-8') as handle:
@@ -43,9 +51,9 @@ def declared(yaml, configs):
         for task in tasks:
             for directive, data in task.items():
                 if directive == 'link':
-                    links.extend(expand(dest) for dest in data)
-                elif directive == 'clean':
-                    roots.extend(expand(root) for root in data)
+                    links.extend(managed(dest) for dest in data)
+                elif directive in ('clean', 'create'):   # list or mapping form
+                    roots.extend(managed(root) for root in data)
     return links, roots
 
 
@@ -56,7 +64,7 @@ def skill_roots(base):
     spec = importlib.util.spec_from_file_location('skill_catalog', catalog)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # module level only defines constants
-    return [str(target) for target in module.TARGETS]
+    return [managed(str(target)) for target in module.TARGETS]
 
 
 # macOS's own top-level aliases (/tmp -> private/tmp and so on). Rewritten
@@ -111,7 +119,11 @@ def main(argv):
         print(__doc__.strip().splitlines()[-3], file=sys.stderr)
         return 2
     dotbot, base, configs = argv[1], argv[2], argv[3:]
-    home = os.path.expanduser('~')
+    try:
+        home = managed('~')
+    except ValueError as error:
+        print(f'error\tHOME: {error}')
+        return 2
     try:
         links, roots = declared(load_yaml(dotbot), configs)
         roots += skill_roots(base)

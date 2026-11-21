@@ -55,6 +55,13 @@ CHECKOUT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 OS="$(uname -s)"
 export PYTHONDONTWRITEBYTECODE=1   # Apple's Python writes ~/Library/Caches otherwise
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+# One meaning per path: absolute, with no . or .. component. Then this script,
+# parents.py and dotbot (which normalises lexically after a cd) all address the
+# same directories as the kernel does (F13, F15).
+for var in HOME XDG_CONFIG_HOME; do
+    case "${!var}" in /*) ;; *) echo "install: $var must be an absolute path: ${!var}" >&2; exit 3 ;; esac
+    case "${!var}/" in */./*|*/../*) echo "install: $var must not contain . or .. components: ${!var}" >&2; exit 3 ;; esac
+done
 DOTBOT="${DOTBOT_BIN:-$CHECKOUT/dotbot/bin/dotbot}"   # always run with PYTHON_BIN
 
 # shellcheck source=install.d/tools.sh

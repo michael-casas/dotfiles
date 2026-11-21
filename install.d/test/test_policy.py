@@ -48,11 +48,23 @@ class PolicyTests(unittest.TestCase):
                 self.assertNotIn(key, seen, f'{dest} in {name} and {seen.get(key)}')
                 seen[key] = name
 
-    def test_destinations_stay_under_home(self):
+    def managed_paths(self, name):
+        """Every path a config makes dotbot write to or clean: link
+        destinations and clean and create roots (list or mapping form)."""
+        paths = [dest for dest, _ in links(name)]
+        for task in load(name):
+            for directive, data in task.items():
+                if directive in ('clean', 'create'):
+                    paths.extend(data)
+        return paths
+
+    def test_managed_paths_stay_under_home_without_dot_components(self):
         for name in CONFIGS:
-            for dest, _ in links(name):
-                self.assertTrue(dest.startswith(('~/', '$XDG_CONFIG_HOME/')), f'{name}: {dest}')
-                self.assertNotIn('..', dest.split('/'), f'{name}: {dest}')
+            for path in self.managed_paths(name):
+                self.assertTrue(path == '~' or path.startswith(('~/', '$XDG_CONFIG_HOME/')),
+                                f'{name}: {path}')
+                for part in ('.', '..'):
+                    self.assertNotIn(part, path.split('/'), f'{name}: {path}')
 
     def test_sources_under_bin_are_tracked_executable(self):
         for name in CONFIGS:

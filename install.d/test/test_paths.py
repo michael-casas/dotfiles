@@ -42,8 +42,8 @@ class CanonicalPathTests(InstallCase):
         self.assertEqual(self.checkout_status(), status)
 
     def test_f13_xdg_through_a_missing_component_and_dot_dot(self):
-        real = self.outside / 'real config'
-        real.mkdir()
+        real = self.root / 'fixture' / 'real config'
+        real.mkdir(parents=True)
         external = self.root / 'external'
         external.mkdir()
         (real / 'opencode').symlink_to(external)
@@ -52,8 +52,8 @@ class CanonicalPathTests(InstallCase):
         self.assertEqual(list(external.iterdir()), [])
 
     def test_f13_control_existing_symlink_then_dot_dot(self):
-        real = self.outside / 'real config'
-        real.mkdir()
+        real = self.root / 'fixture' / 'real config'
+        real.mkdir(parents=True)
         external = self.root / 'external'
         external.mkdir()
         (real / 'opencode').symlink_to(external)
