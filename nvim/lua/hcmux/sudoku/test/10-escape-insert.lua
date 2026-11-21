@@ -1,0 +1,20 @@
+-- features/10-escape.feature: "<Esc> in INSERT discards the draft and returns to NORMAL" (WP4).
+local H = require("hcmux.sudoku.test.harness")
+local W = require("hcmux.sudoku.test.wp4")
+H.boot()
+
+H.scenario("<Esc> in INSERT discards the draft and returns to NORMAL", function()
+  H.background()
+  H.place(1, 3)
+  H.type("i4")
+  H.eq({ H.state().mode, H.state().draft }, { "insert", 4 }, "setup: INSERT with draft 4")
+  H.type("<Esc>")
+  local s = H.state()
+  H.eq(s.board[1][3], 0, "R1C3 is empty")
+  H.eq(W.overlay(1, 3), {}, "the draft is no longer drawn")
+  H.ok(H.footer():find("^NORMAL  "), "the footer mode reads NORMAL: " .. H.footer())
+  H.ok(s.open and s.focused, "the popover stays open and focused")
+  H.eq(s.undo, 0, "nothing was committed")
+end)
+
+H.finish()
