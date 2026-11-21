@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# One-command dotfiles install. Bash 3.2-safe.
+#
+# Step 1 of the installer: read-only commands only. Applying arrives in step 2;
+# until then `bash setup.sh` stays the way to write links.
+#
+# Read-only contract: plan and doctor write nothing to HOME, any XDG dir or the
+# checkout. Their only write is one private scratch directory for version
+# probes, under DOTFILES_PROBE_ROOT (default /tmp), removed before exit.
+#
+#   ./install plan     what an install would do here, plus compatibility checks
+#   ./install doctor   read-only health report; non-zero exit on drift
+#
+# Exit codes: 0 ok, 1 a check failed, 2 bad arguments, 3 refused by a guard,
+# 4 link conflicts (an install would write nothing), 10 manual steps left.
+#
+# Environment: DOTBOT_BIN names another dotbot launcher, still run with the
+# selected Python (tests use it); XDG_CONFIG_HOME defaults to ~/.config and is exported for dotbot;
+# DOTFILES_PROBE_ROOT moves the probe scratch root (it must stay outside every
+# home, XDG root and checkout).
+set -euo pipefail
+unset CDPATH       # a relative `cd` below must never search elsewhere (F18)
+
+usage() {          # printf, not a heredoc: Bash 3.2 writes heredocs to a temp file
+    printf '%s\n' 'usage: ./install plan     what an install would do here, plus compatibility checks' \
+        '       ./install doctor   read-only health report; non-zero exit on drift'
+}
+
+CMD=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        plan|doctor)
+            if [ -n "$CMD" ]; then echo "install: give one command" >&2; exit 2; fi
+            CMD="$1" ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "install: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+if [ -z "$CMD" ]; then
+    echo "install: applying is not built yet (step 2). Preview with: ./install plan" >&2
+    exit 2
+fi
+
+# --- Guards -----------------------------------------------------------------
+if [ "$(id -u)" -eq 0 ]; then
+    echo "install: refusing to run as root; run it as the account that owns HOME" >&2
+    exit 3
+fi
+if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
+    echo "install: HOME is unset or not a directory" >&2
+    exit 3
+fi
+
+CHECKOUT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+OS="$(uname -s)"
+export PYTHONDONTWRITEBYTECODE=1   # Apple's Python writes ~/Library/Caches otherwise
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+# One meaning per path: absolute, with no . or .. component. Then this script,
+# parents.py and dotbot (which normalises lexically after a cd) all address the
+# same directories as the kernel does (F13, F15).
+for var in HOME XDG_CONFIG_HOME; do
+    case "${!var}" in /*) ;; *) echo "install: $var must be an absolute path: ${!var}" >&2; exit 3 ;; esac
+    case "${!var}/" in */./*|*/../*) echo "install: $var must not contain . or .. components: ${!var}" >&2; exit 3 ;; esac
+done
+DOTBOT="${DOTBOT_BIN:-$CHECKOUT/dotbot/bin/dotbot}"   # always run with PYTHON_BIN
+
+# shellcheck source=install.d/tools.sh
+. "$CHECKOUT/install.d/tools.sh"
+tools_select       # git and python3 first: the checkout guard below runs git
+
+# The account's own home, from the user database rather than $HOME, so a
+# sandbox HOME is told apart from the real one.
+account_home() {
+    local dir=""
+    if [ "$OS" = Darwin ]; then
+        dir="$(id -P | cut -d: -f9)"      # the passwd line, in BSD's 10-field form
+    elif command -v getent >/dev/null 2>&1; then
+        dir="$(getent passwd "$(id -un)" | cut -d: -f6)"
+    fi
+    if [ -n "$dir" ] && [ -d "$dir" ]; then (cd -- "$dir" && pwd -P); fi
+}
+
+canon() {         # canonical path of an existing directory; empty otherwise
+    if [ -n "$1" ]; then (cd -- "$1" 2>/dev/null && pwd -P) || true; fi
+}
+git_path() {      # git_path <dir> <rev-parse flag>: a canonical path git reports
+    (cd -- "$1" 2>/dev/null && canon "$(git_ro rev-parse "$2" 2>/dev/null)") || true
+}
+
+# Run only from the top of a checkout; otherwise git would answer for an
+# ancestor repository the installer was merely copied into.
+if [ "$(git_path "$CHECKOUT" --show-toplevel)" != "$CHECKOUT" ]; then
+    echo "install: $CHECKOUT is not the top of a git checkout; clone the repository and run ./install from its top" >&2
+    exit 3
+fi
+GIT_DIR_ABS="$(git_path "$CHECKOUT" --absolute-git-dir)"
+GIT_COMMON="$(git_path "$CHECKOUT" --git-common-dir)"
+HOME_REAL="$(cd -- "$HOME" && pwd -P)"
+ACCOUNT_HOME="$(account_home)"
+SANDBOX=1
+if [ "$HOME_REAL" = "$ACCOUNT_HOME" ]; then SANDBOX=0; fi
+
+# A linked worktree (a Treehouse slot) is never what an install links from.
+# With the real HOME, plan and doctor check against the main checkout instead,
+# because that is what an install on this machine would link to; but only when
+# the common dir is <main>/.git and <main> verifies as that checkout's top.
+BASE="$CHECKOUT"
+NOTE=""
+if [ "$GIT_DIR_ABS" != "$GIT_COMMON" ]; then
+    if [ "$SANDBOX" -eq 0 ]; then
+        BASE="$(dirname -- "$GIT_COMMON")"
+        if [ "${GIT_COMMON##*/}" != .git ] || [ "$(git_path "$BASE" --show-toplevel)" != "$BASE" ] ||
+            [ "$(git_path "$BASE" --git-common-dir)" != "$GIT_COMMON" ]; then
+            echo "install: cannot verify this worktree's main checkout; run the preview from the main checkout" >&2
+            exit 3
+        fi
+        NOTE="linked worktree with the real HOME: links are checked against the main checkout $BASE"
+    else
+        NOTE="linked worktree with a sandbox HOME: links are checked against this checkout"
+    fi
+fi
+
+# --- Reporting --------------------------------------------------------------
+FAILS=0       # checks that failed (doctor: any drift)
+MANUALS=0     # steps only a person can do
+CONFLICTS=0   # link conflicts that would stop an install
+report() {    # report <status> <area> <message>
+    printf '%-8s %-9s %s\n' "$1" "$2" "$3"
+    case "$1" in
+        FAIL) FAILS=$((FAILS + 1)) ;;
+        MANUAL) MANUALS=$((MANUALS + 1)) ;;
+    esac
+}
+detail() {    # indented raw lines from a tool, read from stdin
+    sed 's/^/           /'
+}
+
+# shellcheck source=install.d/compat.sh
+. "$CHECKOUT/install.d/compat.sh"
+# shellcheck source=install.d/links.sh
+. "$CHECKOUT/install.d/links.sh"
+
+# --- Run --------------------------------------------------------------------
+trap probe_close EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+echo "== dotfiles $CMD ($CHECKOUT)"
+if [ -n "$NOTE" ]; then report note guards "$NOTE"; fi
+compat_check
+links_check "$CMD"
+
+if [ "$CMD" = plan ]; then
+    if [ "$FAILS" -gt 0 ]; then exit 1; fi
+    if [ "$CONFLICTS" -gt 0 ]; then
+        echo "== resolve the conflicts above; an install would write nothing until then"
+        exit 4
+    fi
+    exit 0
+fi
+if [ "$FAILS" -gt 0 ] || [ "$CONFLICTS" -gt 0 ]; then exit 1; fi
+if [ "$MANUALS" -gt 0 ]; then exit 10; fi
+exit 0

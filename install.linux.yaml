@@ -1,0 +1,4 @@
+# Linux-only links. ./install passes this file after install.conf.yaml on
+# Linux. Same policy as install.conf.yaml.
+# None today.
+[]

@@ -1,3 +1,7 @@
 [submodule "herdr/app/omarchy"]
 	path = herdr/app/omarchy
 	url = https://github.com/michael-casas/herdr-omarchy.git
+[submodule "dotbot"]
+	path = dotbot
+	url = https://github.com/anishathalye/dotbot
+	ignore = dirty

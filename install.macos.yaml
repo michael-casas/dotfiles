@@ -1,0 +1,4 @@
+# macOS-only links (for example under ~/Library). ./install passes this file
+# after install.conf.yaml on Darwin. Same policy as install.conf.yaml.
+# None today: Ghostty moved to the XDG path, which it reads on every OS.
+[]

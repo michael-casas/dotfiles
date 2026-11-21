@@ -1,0 +1,48 @@
+# Links for every OS. Read by dotbot (the `dotbot/` submodule) through ./install.
+#
+# Policy, enforced by install.d/test/test_policy.py:
+# - only the defaults, link, create and clean directives;
+# - never force, relink, backup, if, ignore-missing, shell or plugins here.
+#   An existing file, directory or foreign link is refused, never replaced.
+#   --backup and --relink are per-run flags of ./install (step 2), never config.
+# - every source exists; no destination is declared twice across the files.
+# - $XDG_CONFIG_HOME only for a tool that reads it itself. ./install exports it
+#   (default ~/.config) before it calls dotbot.
+# - OS-only links go in install.macos.yaml or install.linux.yaml, not in `if:`.
+- defaults:
+    link:
+      create: true
+
+- link:
+    ~/.bashrc: bash/.bashrc
+    ~/.bash_profile: bash/.bash_profile
+    ~/.blerc: bash/.blerc
+    ~/.gitconfig: git/.gitconfig
+    ~/.psqlrc: postgres/.psqlrc
+    ~/.pg_service.conf: postgres/.pg_service.conf
+    ~/.claude/settings.json: claude/settings.json
+    $XDG_CONFIG_HOME/nvim: nvim
+    ~/.config/starship.toml: starship/starship.toml   # Starship does not read XDG_CONFIG_HOME
+    $XDG_CONFIG_HOME/fd/ignore: fd/ignore
+    $XDG_CONFIG_HOME/pgcli/config: pgcli/config
+    ~/.config/herdr/config.toml: herdr/config.toml    # literal until Herdr is confirmed to read XDG_CONFIG_HOME
+    # Ghostty: the XDG path on every OS. On macOS a config in
+    # ~/Library/Application Support/com.mitchellh.ghostty/ loads after this one
+    # and wins; ./install plan and doctor report it.
+    $XDG_CONFIG_HOME/ghostty/config.ghostty: ghostty/config
+    # OpenCode: link the pieces, so ~/.config/opencode stays a real directory
+    # and the app's own state never lands in this repository.
+    $XDG_CONFIG_HOME/opencode/opencode.json: opencode/opencode.json
+    $XDG_CONFIG_HOME/opencode/AGENTS.md: opencode/AGENTS.md
+    $XDG_CONFIG_HOME/opencode/agent: opencode/agent
+
+# Removes only dead links that point into this checkout, such as the retired
+# tmux and claude-swap links, or a skill this repository stopped shipping.
+# A dead link to anywhere else is kept. skill-catalog.py still owns the skill
+# links themselves.
+- clean:
+    - '~'
+    - ~/.config
+    - ~/.local/bin
+    - ~/.claude/skills
+    - ~/.agents/skills

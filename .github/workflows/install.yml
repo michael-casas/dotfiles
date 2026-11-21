@@ -1,0 +1,36 @@
+name: install
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Only dotbot (and its vendored PyYAML); never herdr/app/omarchy.
+      - name: Fetch the dotbot submodule
+        run: git submodule update --init --recursive dotbot
+
+      - name: Install ShellCheck
+        run: command -v shellcheck || brew install shellcheck
+
+      - name: ShellCheck
+        run: shellcheck install install.d/*.sh
+
+      - name: Bash syntax under the system Bash
+        run: for f in install install.d/*.sh; do /bin/bash -n "$f"; done
+
+      # A minimal environment: the stock interpreters a fresh machine has.
+      - name: Installer tests
+        run: env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest discover -v -s install.d/test
