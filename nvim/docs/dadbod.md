@@ -44,7 +44,7 @@ A `{ name = url }` table works too. Restart envi after you edit the file, or run
 
 `:DBUIAddConnection` asks for a URL, then a name. Dadbod UI saves the connection in `connections.json` under `g:db_ui_save_location`, which is `~/.local/share/nvim/dadbod_ui`. That's envi's data directory, outside git, and `envi-dev` profiles share it. Saved queries go in the same place. To remove a connection, press `d` on it in the drawer.
 
-The file is plain text, so the URL you type should carry no password.
+The file is plain text, so envi refuses a URL that carries a password (see [Where secrets live](#where-secrets-live)).
 
 ### 3. The environment (`DBUI_URL`)
 
@@ -62,11 +62,18 @@ Without `DBUI_NAME`, the drawer uses the last path segment of the URL as the nam
 
 ## Where secrets live
 
-Never in git, and never in a connection URL. Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text. Use one of these instead:
+Postgres passwords live in one place, never in git: a passfile, mode 600.
 
-- **`~/.pgpass`** (mode 600): `host:port:db:user:password`. `psql -w` reads it, and Dadbod always passes `-w`. `PGPASSFILE` points at another file.
-- **The service file:** host, port, database and user, with no password. Pair it with `.pgpass`.
-- **The macOS keychain:** to have `dbs.lua` fetch a password when it loads, call `vim.fn.system({ "security", "find-generic-password", "-s", "<item>", "-w" })` and build the URL from the result. The password then sits in memory and on the `psql` command line, so prefer `.pgpass` where you can.
+- **`~/.pgpass`**, or the file `PGPASSFILE` names. Each line is `host:port:database:user:password`, and `*` matches any value in the first four fields. Create it with `chmod 600`, or `psql` ignores it. Dadbod always runs `psql -w`, which never prompts and reads the passfile.
+- **Optionally, a service entry** in `~/.pg_service.conf` (or `$PGSERVICEFILE`): host, port, database and user, **with no password**. Connect with `postgres:///?service=<name>`, and the passfile supplies the password.
+
+Envi enforces this for both `postgres:` and `postgresql:` URLs:
+
+- **A URL that carries a password is refused,** whether it's `user:password@host` or a `password=` parameter or conninfo keyword. That covers `:DB`, a query run, a connection from `dbs.lua` or `DBUI_URL`, `:DBUIAddConnection` and renaming a connection. `:DBUIAddConnection` and rename refuse it before anything is saved to `connections.json`. The error never repeats the URL.
+- **Dadbod never prompts for a password** to retry a failed connection. Fix the passfile instead.
+- **An inherited `PGPASSWORD` is ignored by Dadbod's `psql`,** so a stale value can't override the passfile. Terminals and other jobs started from envi keep it.
+
+A password never belongs in a connection URL: Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text.
 
 ## Switch connections
 
@@ -87,4 +94,4 @@ The drawer, query buffers and result buffers use the active colorscheme's highli
 
 Dadbod runs `psql -X`, so `~/.psqlrc` stays out of its results: no "Timing is on." or other preamble lines, and `psql`'s default borders and null display. The drawer's table and foreign-key helpers parse that default output too. A plain `psql` in a shell still reads `~/.psqlrc`.
 
-The `-X` comes from `autoload/envi/dadbod_postgresql.vim`. vim-dadbod's `g:db_adapter_postgresql` and `g:db_adapter_postgres` point both Postgres schemes at it. Its functions call vim-dadbod's own Postgres adapter, and the ones that build a `psql` command line add `-X`.
+The `-X`, and the password rules above, come from `autoload/envi/dadbod_postgresql.vim`. vim-dadbod's `g:db_adapter_postgresql` and `g:db_adapter_postgres` point both Postgres schemes at it. It builds the same `psql` command lines as vim-dadbod's own Postgres adapter, with `-X` as the only startup-file flag.
