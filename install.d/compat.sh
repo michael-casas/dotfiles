@@ -37,30 +37,16 @@ probe_close() {
     if [ -n "$PROBE" ]; then rm -rf -- "$PROBE"; fi
 }
 
-# macOS /usr/bin/git and /usr/bin/python3 are xcrun shims, and xcrun keys its
-# cache in the per-user temp dir on HOME, so a probe with a private HOME would
-# write a new cache entry every run. Probe the tool behind the shim instead;
-# `xcrun --find` runs with this process's own environment, so it reads the
-# cache as every other git call here does.
-probe_target() {
-    local path real
-    path="$(command -v "$1")"
-    if [ "$OS" = Darwin ] && [ "${path%/*}" = /usr/bin ] && [ -x /usr/bin/xcrun ] &&
-        real="$(/usr/bin/xcrun --find "$1" 2>/dev/null)" && [ -x "$real" ]; then
-        path="$real"
-    fi
-    printf '%s\n' "$path"
-}
-
-version_of() {    # first dotted number in the first line of `<cmd> --version`
-    local dir target
+version_of() {    # version_of <executable>: first dotted number of its --version
+    local dir
     if [ -z "$PROBE" ] || ! dir="$(mktemp -d "$PROBE/probe.XXXXXX" 2>/dev/null)"; then
         return 2
     fi
-    target="$(probe_target "$1")"
+    # GIT_OFF too: env -i drops the switched-off Trace2 targets, and git config
+    # could set them again.
     { env -i PATH="$PATH" LC_ALL=C HOME="$dir" TMPDIR="$dir" XDG_CONFIG_HOME="$dir" \
         XDG_CACHE_HOME="$dir" XDG_DATA_HOME="$dir" XDG_STATE_HOME="$dir" XDG_RUNTIME_DIR="$dir" \
-        "$target" --version 2>&1 </dev/null || true; } | head -n 1 |
+        "${GIT_OFF[@]}" "$1" --version 2>&1 </dev/null || true; } | head -n 1 |
         sed -n 's/[^0-9]*\([0-9][0-9]*\(\.[0-9][0-9]*\)\{1,\}\).*/\1/p'
     rm -rf -- "$dir"
 }
@@ -72,24 +58,28 @@ version_ge() {    # version_ge 3.2.57 3.2: true when $1 >= $2
         exit 0 }'
 }
 
-need() {          # need <status-if-bad> <command> <minimum or ""> <why>
-    local bad="$1" cmd="$2" min="$3" why="$4" v
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        report "$bad" tools "$cmd missing ($why)"
+need() {          # need <status-if-bad> <command> <minimum or ""> <why>; sets NEED_OK
+    local bad="$1" cmd="$2" min="$3" why="$4" exe="" v shown=""
+    NEED_OK=0
+    if ! resolve_tool "$cmd" exe; then
+        report "$bad" tools "$TOOL_ERR ($why)"
         return
     fi
+    case "$cmd" in git|python3) shown=" ($exe)" ;; esac   # the ones the installer runs
     if [ -z "$min" ]; then               # presence is all that matters; do not start it
         report ok tools "$cmd present"
+        NEED_OK=1
         return
     fi
-    if ! v="$(version_of "$cmd")"; then
+    if ! v="$(version_of "$exe")"; then
         report "$bad" tools "$cmd version probe failed: ${PROBE_ERR:-no private scratch directory}"
         return
     fi
     if [ -z "$v" ] || ! version_ge "$v" "$min"; then
-        report "$bad" tools "$cmd ${v:-unknown version} is older than $min ($why)"
+        report "$bad" tools "$cmd ${v:-unknown version} is older than $min ($why)$shown"
     else
-        report ok tools "$cmd $v"
+        report ok tools "$cmd $v$shown"
+        NEED_OK=1
     fi
 }
 
@@ -111,6 +101,8 @@ compat_check() {
         report FAIL bash "running ${BASH_VERSION}; 3.2 or newer is required"
     fi
     need FAIL python3 3.7 "dotbot needs Python 3.7+"
+    # shellcheck disable=SC2034  # read by links_check, which then runs no Python
+    if [ "$NEED_OK" -ne 1 ]; then PYTHON_BIN=""; fi
     need FAIL git 2.13 "the checkout and its guards need it"
 
     if [ "$OS" = Darwin ]; then

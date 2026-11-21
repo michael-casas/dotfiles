@@ -23,6 +23,17 @@ def stub(directory, name, body):
     return path
 
 
+def marker_launcher(path, marker):
+    """A dotbot launcher that records each call, then runs the pinned dotbot.
+    ./install runs every launcher with the selected Python, so this is Python."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('import os, sys\n'
+                    f'open({str(marker)!r}, "a").write("called\\n")\n'
+                    f'os.execv(sys.executable, [sys.executable, {str(DOTBOT)!r}] + sys.argv[1:])\n')
+    path.chmod(0o755)
+    return path
+
+
 class InstallCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='dotfiles install ')
@@ -89,7 +100,7 @@ class InstallCase(unittest.TestCase):
         return path
 
     def marker_dotbot(self, name='marker dotbot'):
-        """A launcher that records each call, then runs the pinned dotbot.
+        """A launcher that records each call (see marker_launcher).
 
         Its lib/ points at the real one, so the installer finds the same
         vendored PyYAML beside it that it finds beside the real launcher."""
@@ -97,7 +108,7 @@ class InstallCase(unittest.TestCase):
         (top / 'bin').mkdir(parents=True)
         (top / 'lib').symlink_to(DOTBOT.parents[1] / 'lib')
         self.marker = self.root / f'{name}.called'
-        stub(top / 'bin', 'dotbot', f'echo called >> "{self.marker}"\nexec "{DOTBOT}" "$@"')
+        marker_launcher(top / 'bin' / 'dotbot', self.marker)
         self.env['DOTBOT_BIN'] = str(top / 'bin' / 'dotbot')
         return self.marker
 

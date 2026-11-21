@@ -14,12 +14,16 @@ links_configs() {  # the dotbot config files for this OS, one per line
 links_check() {    # links_check plan|doctor
     local mode="$1" parent out rc=0 exists pending dead refused unknown shadow state
     local -a configs=()
+    if [ -z "$PYTHON_BIN" ]; then
+        report FAIL links "links not checked: no usable python3 (see tools above)"
+        return
+    fi
     while IFS= read -r parent; do configs+=("$parent"); done < <(links_configs)
 
     if [ -n "${DOTBOT_BIN:-}" ]; then
         report note links "dotbot from DOTBOT_BIN: $DOTBOT"
     else
-        state="$(git -C "$CHECKOUT" submodule status dotbot 2>/dev/null | cut -c1)"
+        state="$(git_ro -C "$CHECKOUT" submodule status dotbot 2>/dev/null | cut -c1)"
         case "$state" in
             " ") report ok links "dotbot submodule at the pinned commit" ;;
             "+") report FAIL links "dotbot submodule is not at the pinned commit; run: git submodule update --init --recursive dotbot"
@@ -28,14 +32,14 @@ links_check() {    # links_check plan|doctor
                return ;;
         esac
     fi
-    if [ ! -x "$DOTBOT" ]; then
+    if [ ! -f "$DOTBOT" ]; then
         report FAIL links "dotbot not found at $DOTBOT"
         return
     fi
 
     # dotbot follows a symlinked directory and would write into its target, so
     # every directory on the way to a destination must be real before it runs.
-    if ! out="$(python3 "$CHECKOUT/install.d/parents.py" "$DOTBOT" "$BASE" "${configs[@]}" 2>&1)"; then
+    if ! out="$("$PYTHON_BIN" "$CHECKOUT/install.d/parents.py" "$DOTBOT" "$BASE" "${configs[@]}" 2>&1)"; then
         while IFS=$'\t' read -r state parent; do
             case "$state" in
                 symlink) report FAIL links "$parent is a symlink; managed directories must be real (nothing was run)" ;;
@@ -47,7 +51,9 @@ links_check() {    # links_check plan|doctor
     fi
 
     # -v adds the "Link exists" lines, which are counted, not shown.
-    out="$("$DOTBOT" -v --no-color -d "$BASE" --dry-run --only link create clean -c "${configs[@]}" 2>&1)" || rc=$?
+    # The launcher is a shell-and-Python polyglot; run it with the selected
+    # Python so its shell half never looks python3 up on PATH.
+    out="$("$PYTHON_BIN" "$DOTBOT" -v --no-color -d "$BASE" --dry-run --only link create clean -c "${configs[@]}" 2>&1)" || rc=$?
     exists="$(printf '%s\n' "$out" | grep -c '^Link exists ' || true)"
     pending="$(printf '%s\n' "$out" | grep -c '^Would create symlink ' || true)"
     dead="$(printf '%s\n' "$out" | grep -c '^Would remove invalid link ' || true)"
@@ -84,7 +90,7 @@ links_check() {    # links_check plan|doctor
     fi
 
     if [ -f "$BASE/skill-catalog.py" ]; then
-        out="$(python3 "$BASE/skill-catalog.py" 2>/dev/null | python3 -c 'import json, sys
+        out="$("$PYTHON_BIN" "$BASE/skill-catalog.py" 2>/dev/null | "$PYTHON_BIN" -c 'import json, sys
 d = json.load(sys.stdin)
 print(d["sources"], d["links_needed"], len(d["skipped_user_owned"]), len(d["retired_links"]))')" || {
             report FAIL skills "skill-catalog.py could not plan"

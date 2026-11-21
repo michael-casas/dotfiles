@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import unittest
 
-from harness import DECLARED, InstallCase, stub
+from harness import DECLARED, InstallCase, marker_launcher, stub
 from support import DOTBOT
 
 
@@ -18,7 +18,7 @@ class DotbotPinTests(InstallCase):
         (sub / 'bin').mkdir(parents=True)
         (sub / 'lib').symlink_to(DOTBOT.parents[1] / 'lib')
         self.marker = self.root / 'submodule dotbot.called'
-        stub(sub / 'bin', 'dotbot', f'echo called >> "{self.marker}"\nexec "{DOTBOT}" "$@"')
+        marker_launcher(sub / 'bin' / 'dotbot', self.marker)
         self.git(sub, 'init', '-q')
         self.git(sub, 'add', '-A')
         self.git(sub, 'commit', '-q', '-m', 'pinned')

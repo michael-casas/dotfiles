@@ -14,8 +14,8 @@
 # Exit codes: 0 ok, 1 a check failed, 2 bad arguments, 3 refused by a guard,
 # 4 link conflicts (an install would write nothing), 10 manual steps left.
 #
-# Environment: DOTBOT_BIN runs another dotbot instead of the submodule's (tests
-# use it); XDG_CONFIG_HOME defaults to ~/.config and is exported for dotbot;
+# Environment: DOTBOT_BIN names another dotbot launcher, still run with the
+# selected Python (tests use it); XDG_CONFIG_HOME defaults to ~/.config and is exported for dotbot;
 # DOTFILES_PROBE_ROOT moves the probe scratch root (it must stay outside every
 # home, XDG root and checkout).
 set -euo pipefail
@@ -55,7 +55,11 @@ CHECKOUT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 OS="$(uname -s)"
 export PYTHONDONTWRITEBYTECODE=1   # Apple's Python writes ~/Library/Caches otherwise
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-DOTBOT="${DOTBOT_BIN:-$CHECKOUT/dotbot/bin/dotbot}"
+DOTBOT="${DOTBOT_BIN:-$CHECKOUT/dotbot/bin/dotbot}"   # always run with PYTHON_BIN
+
+# shellcheck source=install.d/tools.sh
+. "$CHECKOUT/install.d/tools.sh"
+tools_select       # git and python3 first: the checkout guard below runs git
 
 # The account's own home, from the user database rather than $HOME, so a
 # sandbox HOME is told apart from the real one.
@@ -73,7 +77,7 @@ canon() {         # canonical path of an existing directory; empty otherwise
     if [ -n "$1" ]; then (cd -- "$1" 2>/dev/null && pwd -P) || true; fi
 }
 git_path() {      # git_path <dir> <rev-parse flag>: a canonical path git reports
-    (cd -- "$1" 2>/dev/null && canon "$(git rev-parse "$2" 2>/dev/null)") || true
+    (cd -- "$1" 2>/dev/null && canon "$(git_ro rev-parse "$2" 2>/dev/null)") || true
 }
 
 # Run only from the top of a checkout; otherwise git would answer for an
