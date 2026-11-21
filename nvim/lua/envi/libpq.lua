@@ -146,9 +146,15 @@ local function parse(l, s)
   return t
 end
 
+--- libpq options that carry a secret, each refused like a password (owner
+--- ruling F10): the password itself, the SSL client key's passphrase, and
+--- (libpq 18 or later) the OAuth client secret. A libpq that doesn't know
+--- an option rejects the string, which classify() reports as "invalid".
+M.secret_options = { "password", "sslpassword", "oauth_client_secret" }
+
 --- How psql would read `s` as its --dbname operand:
 ---   "literal"  a plain database name; libpq expands nothing
----   "password" libpq reads a non-empty password from it
+---   "password" libpq reads a non-empty secret from it (M.secret_options)
 ---   "invalid"  libpq rejects it, or its port isn't a number (list)
 ---   "clean"    a connection string without a password
 ---   "nolib"    it needs libpq, and libpq could not be loaded
@@ -164,8 +170,10 @@ function M.classify(s)
   if not opts then
     return "invalid"
   end
-  if opts.password and opts.password ~= "" then
-    return "password"
+  for _, key in ipairs(M.secret_options) do
+    if opts[key] and opts[key] ~= "" then
+      return "password"
+    end
   end
   if opts.port and not opts.port:match("^[%d,]*$") then
     return "invalid"

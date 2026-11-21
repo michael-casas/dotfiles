@@ -80,7 +80,7 @@ Envi enforces this for both `postgres:` and `postgresql:` URLs:
 - **Dadbod never prompts for a password** to retry a failed connection. Fix the passfile instead.
 - **An inherited `PGPASSWORD` is ignored by Dadbod's `psql`,** so a stale value can't override the passfile. Terminals and other jobs started from envi keep it.
 
-A password never belongs in a connection URL: Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text. Only libpq's `password` is checked. Other libpq secrets in a URL, `sslpassword` (a client key's passphrase) and `oauth_client_secret`, aren't refused: they're stored and passed to `psql` as written, so keep them out of URLs.
+A password never belongs in a connection URL: Dadbod passes URLs on the `psql` command line, and `connections.json` stores them in plain text. The same rule covers libpq's other secrets. A URL that carries `sslpassword` (a client key's passphrase) or `oauth_client_secret` (libpq 18 or later) is refused exactly like a password. A libpq older than 18 doesn't know `oauth_client_secret`, so it rejects that URL as unparseable, and envi refuses it as such.
 
 ### libpq
 
