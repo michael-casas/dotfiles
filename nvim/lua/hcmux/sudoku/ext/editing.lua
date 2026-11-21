@@ -260,14 +260,19 @@ local function insert_cells(on_guide)
     return out
   end
 end
+local guide_cells = insert_cells(true)
 render.layer({ name = "insert-dim", group = "EnviSudokuDim", priority = 110, cells = insert_cells(false) })
-render.layer({ name = "insert-guide", group = "EnviSudokuGuide", priority = 120, cells = insert_cells(true) })
+render.layer({ name = "insert-guide", group = "EnviSudokuGuide", priority = 120, cells = guide_cells })
+-- Only the full layout draws the guides' borders: a compact outline is the
+-- cursor's own "[d]" brackets, which must stay on the selected tile alone.
 render.layer({
   name = "insert-guide-outline",
   group = "EnviSudokuGuide",
   priority = 120,
   outline = true,
-  cells = insert_cells(true),
+  cells = function(game)
+    return render.layout() == "full" and guide_cells(game) or {}
+  end,
 })
 render.layer({
   name = "conflict",
