@@ -60,7 +60,10 @@ H.scenario("u with nothing to undo is a harmless no-op", function()
   for _, n in ipairs(seen) do
     H.ok(n.level < vim.log.levels.ERROR, "the notice is not an error: " .. n.msg)
   end
-  H.ok(#seen == 1 and seen[1].msg:find("oldest", 1, true), "an 'Already at oldest change' notice: " .. vim.inspect(seen))
+  H.ok(
+    #seen == 1 and seen[1].msg:find("oldest", 1, true),
+    "an 'Already at oldest change' notice: " .. vim.inspect(seen)
+  )
 end)
 
 H.scenario("a count undoes several steps", function()

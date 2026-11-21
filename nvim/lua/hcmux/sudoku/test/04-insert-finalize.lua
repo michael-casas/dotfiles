@@ -138,7 +138,9 @@ end)
 H.scenario("solved detection: a full valid board is solved, a gap or a conflict is not", function()
   local editing = require("hcmux.sudoku.ext.editing")
   local solution = {}
-  for r, row in ipairs(vim.split("534678912 672195348 198342567 859761423 426853791 713924856 961537284 287419635 345286179", " ")) do
+  for r, row in
+    ipairs(vim.split("534678912 672195348 198342567 859761423 426853791 713924856 961537284 287419635 345286179", " "))
+  do
     solution[r] = {}
     for c = 1, 9 do
       solution[r][c] = tonumber(row:sub(c, c))

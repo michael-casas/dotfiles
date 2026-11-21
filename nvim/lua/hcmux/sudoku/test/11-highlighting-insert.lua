@@ -68,7 +68,10 @@ H.scenario("in insert with an accepted search, matches stay brighter than the di
   end
   H.ok(matched["2:5"] and matched["8:6"], "R2C5 and R8C6 keep EnviSudokuMatch: " .. vim.inspect(s.hl.match))
   H.ok(H.groups(2, 5).EnviSudokuMatch and H.groups(8, 6).EnviSudokuMatch, "and are drawn with it")
-  H.ok(vim.tbl_contains(vim.tbl_map(vim.inspect, s.hl.guide), vim.inspect({ r = 2, c = 5 })), "R2C5 is also on the column guide")
+  H.ok(
+    vim.tbl_contains(vim.tbl_map(vim.inspect, s.hl.guide), vim.inspect({ r = 2, c = 5 })),
+    "R2C5 is also on the column guide"
+  )
   H.eq(W.top_group(8, 6), "EnviSudokuMatch", "the match renders above EnviSudokuDim on R8C6")
   H.eq(W.top_group(2, 5), "EnviSudokuMatch", "the match is not hidden by the guide on R2C5")
   H.ok(W.priorities(2, 5).EnviSudokuGuide > W.priorities(1, 1).EnviSudokuDim, "the guide renders above the dim")
@@ -87,8 +90,14 @@ H.scenario("conflicting entries are flagged", function()
   H.eq(s.board[1][3], 5, "the conflicting 5 is committed, not blocked")
   H.ok(H.groups(1, 3).EnviSudokuConflict, "R1C3 carries EnviSudokuConflict")
   H.eq(W.top_group(1, 3), "EnviSudokuConflict", "and it shows over the entry style")
-  H.ok(vim.tbl_contains(vim.tbl_map(vim.inspect, s.conflicts), vim.inspect({ r = 1, c = 3 })), "state().conflicts contains R1C3")
-  H.ok(vim.tbl_contains(vim.tbl_map(vim.inspect, s.conflicts), vim.inspect({ r = 1, c = 1 })), "and the 5 it clashes with")
+  H.ok(
+    vim.tbl_contains(vim.tbl_map(vim.inspect, s.conflicts), vim.inspect({ r = 1, c = 3 })),
+    "state().conflicts contains R1C3"
+  )
+  H.ok(
+    vim.tbl_contains(vim.tbl_map(vim.inspect, s.conflicts), vim.inspect({ r = 1, c = 1 })),
+    "and the 5 it clashes with"
+  )
   H.ok(not H.groups(1, 2).EnviSudokuConflict, "an unrelated given is not flagged")
   -- Column and box conflicts count too; undo clears the flag.
   H.type("u")
@@ -99,6 +108,16 @@ H.scenario("conflicting entries are flagged", function()
   local keys = vim.tbl_map(vim.inspect, H.state().conflicts)
   H.ok(vim.tbl_contains(keys, vim.inspect({ r = 3, c = 2 })), "a column (and box) clash with R3C2's 9 is flagged")
   H.ok(vim.tbl_contains(keys, vim.inspect({ r = 2, c = 5 })), "a row clash with R2C5's 9 is flagged")
+  H.type("u")
+  H.place(1, 3)
+  H.type("i9")
+  H.type("<CR>")
+  keys = vim.tbl_map(vim.inspect, H.state().conflicts)
+  H.eq(
+    keys,
+    { vim.inspect({ r = 1, c = 3 }), vim.inspect({ r = 3, c = 2 }) },
+    "a box-only clash flags exactly the pair"
+  )
 end)
 
 H.finish()
