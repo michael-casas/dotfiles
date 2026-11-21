@@ -13,9 +13,10 @@ model, rendering, timer and `state()`. Motions, search, editing and saving
 | `puzzles.lua` | the bundled puzzles; `classic` is the fixture. `test/00-puzzles.lua` proves each has one solution |
 | `keys.lua` | the key registration table |
 | `render.lua` | board text, highlight groups, highlight layers, footer segments |
+| `ext/persistence.lua` | session saves, restore, pause rules and the WP4 solved callback |
 | `test/` | the headless harness (`run.sh`, `harness.lua`) and one suite per feature file |
 
-## Behaviour (WP1)
+## Behaviour
 
 - **The cursor is the outlined cell.** Neovim's cursor sits on the selected digit
   and `guicursor` hides it (`EnviSudokuCaret`, `blend=100`) while the board has
@@ -25,14 +26,21 @@ model, rendering, timer and `state()`. Motions, search, editing and saving
   `<C-h/j/k/l>` (never move focus to a split under the board, REC F2) and `H`/`L`
   (LazyVim's buffer switch). Every board map has a `desc` starting `Sudoku: `.
 - **Focus leaving by other means** (a click, `<C-w>p`): the board stays visible,
-  lualine stops reading `SUDOKU`, and `:EnviSudoku` focuses it again on the same
-  cell. The timer keeps running (pausing on WinLeave is WP5's).
+  the timer pauses, and lualine stops reading `SUDOKU`. Focusing the board again
+  resumes the timer on the same cell.
 - **`:q`, `:qu`, `:quit`, `:q!`** go through panel-close's `EnviClose` router:
   pause, close, focus back to the invoking window. The puzzle stays in memory;
   `:EnviSudoku` reopens it with the timer resuming. Closing the window any other
   way also pauses. The invoker is the window current when the board window was
   created; refocusing an open board from elsewhere doesn't change it. If it no
   longer exists, Neovim picks the next window as usual.
+- **`:w`** saves the current board and pauses the timer. The digits are dimmed
+  until the next board key or refocus. **`:wq`** and **`:x`** save and close the
+  board. A failed save reports its path and leaves the game and focus in place.
+- **Resume after exit.** `:Reload`, `:qd` and other Neovim exits save the game to
+  `stdpath("state")/envi-sudoku/<session>.json`. `:EnviSudoku` restores the
+  board, selected cell and time in a new instance. `:EnviSudoku new` asks
+  before replacing an in-memory or saved game.
 - **Z-order:** the board opens at zindex 60, or one above every Snacks window it
   overlaps (as Snacks stacks its own), and is raised again whenever `:EnviSudoku`
   refocuses it, e.g. under a picker opened since. It stays below 100, where
@@ -132,7 +140,7 @@ or nil for a random one, `game` the current game or nil). Returning `false`
 declines and nothing happens. For an asynchronous confirmation (Q19, WP5):
 decline, ask, then call `sudoku.open({ new = true, puzzle = ctx.puzzle, confirmed = true })`;
 your hook sees `ctx.confirmed` and lets it through.
-WP5's `:w`/`:wq` routing extends `config.panel-close` and is scoped to buffers
+The `:w`/`:wq`/`:x` routing extends `config.panel-close` and is scoped to buffers
 that own the new commands; `sudoku.state().save_path` is the slot path.
 
 ## Tests
