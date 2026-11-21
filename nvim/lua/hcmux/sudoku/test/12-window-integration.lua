@@ -302,7 +302,12 @@ H.scenario("a deliberate focus change after a resize is not undone", function()
   -- A pending recovery dies with the board.
   H.type(":EnviSudoku<CR>")
   vim.o.columns = 80
+  vim.wait(40, function()
+    return false
+  end) -- the immediate recovery put the board back; the delayed one is pending
+  H.ok(H.state().focused, "the board is focused again")
   H.type(":q<CR>")
+  H.ok(not H.state().open, ":q closed the board")
   api.nvim_set_current_win(H.term)
   vim.wait(300, function()
     return false
