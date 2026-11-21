@@ -50,10 +50,14 @@ git_quiet() {      # drop inherited legacy tracing; switch every Trace2 target o
         unset "$var"
     done
     export "${GIT_OFF[@]}"
+    export GIT_OPTIONAL_LOCKS=0   # no opportunistic index refresh either
 }
 
-git_ro() {         # every git call the installer makes
-    "$GIT_BIN" "$@"
+# Every git call the installer makes. core.fsmonitor=false on the command line
+# beats any config scope, in both its boolean and its hook-path form, so no
+# call starts the fsmonitor daemon or writes its state under .git (F16).
+git_ro() {
+    "$GIT_BIN" -c core.fsmonitor=false "$@"
 }
 
 tools_select() {   # set GIT_BIN and PYTHON_BIN; never start an unresolved shim
