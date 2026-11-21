@@ -1,5 +1,9 @@
 """Guards that stop plan and doctor before dotbot runs, and the exit-code
 contract for dotbot's own diagnostics (CRT-INSTALL F03 to F06)."""
+import os
+from pathlib import Path
+import shutil
+import tempfile
 import unittest
 
 from harness import DECLARED, InstallCase, stub
@@ -95,15 +99,16 @@ class ManagedParentTests(InstallCase):
         self.outside = self.root / 'outside'
         self.outside.mkdir()
 
-    def assert_refused(self, offending, xdg=None):
+    def assert_refused(self, offending, contents=()):
         for command in ('plan', 'doctor'):
             with self.subTest(command=command, offending=str(offending)):
                 result = self.run_install(command)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertTrue(any(str(offending) in line and line.startswith('FAIL     links')
+                self.assertTrue(any(line.startswith(f'FAIL     links     {offending} is ')
                                     for line in result.stdout.splitlines()), result.stdout)
                 self.assertFalse(self.marker.exists(), 'dotbot ran past a bad parent')
-        self.assertEqual(list(self.outside.iterdir()), [])
+                self.assertNotIn('Would create', result.stdout)
+        self.assertEqual(sorted(p.name for p in self.outside.iterdir()), sorted(contents))
 
     def test_symlinked_nested_parent(self):
         (self.home / '.config').mkdir()
@@ -142,6 +147,38 @@ class ManagedParentTests(InstallCase):
         (self.home / '.config').mkdir()
         (self.home / '.config' / 'herdr').symlink_to(self.outside)
         self.assert_refused(self.home / '.config' / 'herdr')
+
+    def test_symlink_above_an_external_xdg_root(self):
+        real = self.outside / 'real config'
+        real.mkdir()
+        hop = self.root / 'hop'
+        hop.symlink_to(self.outside)
+        self.env['XDG_CONFIG_HOME'] = str(hop / 'real config')
+        self.assert_refused(hop, contents=['real config'])
+        self.assertEqual(list(real.iterdir()), [])
+
+    def test_a_real_external_xdg_root_with_a_space_passes(self):
+        xdg = self.root / 'external' / 'real config'
+        xdg.mkdir(parents=True)
+        self.env['XDG_CONFIG_HOME'] = str(xdg)
+        result = self.run_install('plan')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'{xdg}/nvim -> {self.repo}/nvim', result.stdout)
+        self.assertTrue(self.marker.exists())
+        self.assertEqual(list(xdg.iterdir()), [])
+
+    @unittest.skipUnless(os.path.islink('/tmp') and os.readlink('/tmp') == 'private/tmp',
+                         'the /tmp alias is macOS-only')
+    def test_macos_tmp_alias_is_not_a_caller_symlink(self):
+        scratch = tempfile.mkdtemp(prefix='dotfiles xdg ', dir='/tmp')
+        self.addCleanup(shutil.rmtree, scratch)
+        xdg = Path(scratch) / 'real config'
+        xdg.mkdir()
+        self.env['XDG_CONFIG_HOME'] = str(xdg)
+        result = self.run_install('plan')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.marker.exists())
+        self.assertEqual(list(xdg.iterdir()), [])
 
     def test_real_parents_pass(self):
         self.link_everything()
