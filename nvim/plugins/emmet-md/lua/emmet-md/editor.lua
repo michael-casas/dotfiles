@@ -1,5 +1,24 @@
 local M = {}
 
+function M.chord()
+  local win, buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+  -- A plain callback keeps scheduled edits legal while waiting for the key.
+  local ok, key = pcall(vim.fn.getcharstr)
+  if not ok or key == "\3" then
+    vim.api.nvim_feedkeys("\3", "in", false)
+  elseif
+    key == "e"
+    and vim.fn.mode() == "i"
+    and vim.api.nvim_get_current_win() == win
+    and vim.api.nvim_get_current_buf() == buf
+  then
+    vim.api.nvim_feedkeys(vim.keycode("<Plug>(emmet-md-expand)"), "im", false)
+  else
+    -- getcharstr already returns encoded keycodes, including special keys.
+    vim.api.nvim_feedkeys("\7" .. key, "in", false)
+  end
+end
+
 local function begin_edit()
   -- Writing undolevels back starts an undo block without changing its value.
   vim.bo.undolevels = vim.bo.undolevels

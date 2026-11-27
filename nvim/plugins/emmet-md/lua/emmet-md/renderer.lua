@@ -190,6 +190,7 @@ local function render(tree, max_nodes, max_table_dimension)
     end
     previous_was_task = task
   end
+  -- Even an empty paragraph needs a valid snippet body for Neovim.
   return table.concat(lines, "\n") .. "$0"
 end
 
