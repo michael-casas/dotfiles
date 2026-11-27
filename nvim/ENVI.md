@@ -101,6 +101,51 @@ T3 thread buffers show **T3 updating…** during a desktop update and
 
 Full reference: `nvim/lua/hcmux/README.md`.
 
+## Insert-mode snippets and Markdown Emmet
+
+Type a snippet prefix in Insert mode and select the snippet from blink's
+completion menu with Enter or Ctrl+y. Ctrl+Space opens the menu if it is
+closed. Use Tab to go to the next field and Shift+Tab to go back.
+
+In Markdown, try `envi-decision` for a decision heading and rationale or
+`envi-callout` for a callout with an editable type and body. Add your own
+snippets to `nvim/snippets/<filetype>.json` in VS Code format. Each entry has a
+`prefix` and a `body` (a string or an array of lines), with an optional
+`description`. Use `${1:Title}` for a field with default text, `$2` for an
+empty field, and `$0` for the final cursor position. Blink also loads
+friendly-snippets.
+
+For Markdown Emmet, type an abbreviation on its own Markdown line, then
+press **Ctrl+g**, followed by **e**, in Insert mode. If blink's completion
+menu is open, the chord cancels it and expands the typed abbreviation.
+Typing the abbreviation by itself leaves it as text.
+
+| Abbreviation | Output |
+| --- | --- |
+| `ul>li*3` | Three bullet items |
+| `ol>li*3` | Three numbered items |
+| `h2{Title}` | `## Title`. Use `h1` through `h6` for other levels |
+| `todo*3` | Three unchecked task items |
+| `table3x2` or `table>tr*2>td*3` | Three columns and two rows total, with the first row as the header |
+| `p{Intro}+p{Next}` | Two paragraphs separated by a blank line |
+| `ul>(li{Parent}>ol>li*2)+li{Next}` | A nested numbered list and a second top-level bullet |
+| `ul>li*2^h2{Next}` | Two bullets followed by a heading |
+| `ul>li{Item $$}*3` | Bullets with Item 01, Item 02, and Item 03 |
+
+Use `>` for children, `+` for siblings, `^` to climb one container per caret,
+and parentheses to repeat or combine groups. Inside `{text}` or an element
+name, `$` uses the nearest repeat's index starting at 1. Repeat the dollar
+sign to zero-pad the number. Use `\$` for a literal dollar sign. Tab jumps
+through empty items and table cells in order, starting at the first one.
+Text supplied in braces is inserted directly. The trigger preserves line
+indentation and accepts closing braces and parentheses inserted by mini.pairs.
+
+This grammar covers Markdown block elements. It accepts up to 50 repeats per
+element or group and tables up to 20 columns by 20 rows. Invalid
+abbreviations leave the buffer text intact.
+
+Run the isolated tests with `nvim/tools/markdown-emmet/test/run-lua.sh`.
+
 ## What exists (all uncommitted on `envi/main`)
 
 | File | What it does |

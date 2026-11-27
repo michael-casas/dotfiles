@@ -1,0 +1,12 @@
+{
+  "Decision": {
+    "prefix": "envi-decision",
+    "description": "Decision heading with a rationale",
+    "body": ["## Decision: ${1:Title}", "", "${2:Rationale}$0"]
+  },
+  "Callout": {
+    "prefix": "envi-callout",
+    "description": "Markdown callout with a type and a body",
+    "body": ["> [!${1:NOTE}]", "> ${2:Text}$0"]
+  }
+}
