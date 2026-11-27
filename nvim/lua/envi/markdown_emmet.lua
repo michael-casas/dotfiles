@@ -303,18 +303,20 @@ local function expand_at_cursor()
   local line = vim.api.nvim_get_current_line()
   local first = line:find("%S")
   if not first or first > col or not line:sub(col + 1):match("^[)}]*$") then
-    return
+    return false
   end
   local snippet = compile(line:sub(first))
   if not snippet then
-    return
+    return false
   end
 
+  -- Writing undolevels back starts an undo block without changing its value.
+  vim.bo.undolevels = vim.bo.undolevels
   vim.snippet.stop()
   vim.api.nvim_buf_set_text(0, row, first - 1, row, #line, { "" })
   vim.api.nvim_win_set_cursor(0, { row + 1, first - 1 })
-  vim.cmd.undojoin()
   vim.snippet.expand(snippet)
+  return true
 end
 
 function M.expand()
@@ -327,7 +329,9 @@ function M.expand()
       and vim.bo.filetype == "markdown"
       and vim.bo.modifiable
     then
-      expand_at_cursor()
+      if not expand_at_cursor() then
+        vim.notify("Markdown Emmet could not expand this abbreviation", vim.log.levels.WARN)
+      end
     end
   end
 

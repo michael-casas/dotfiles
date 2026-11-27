@@ -137,14 +137,17 @@ and parentheses to repeat or combine groups. Inside `{text}` or an element
 name, `$` uses the nearest repeat's index starting at 1. Repeat the dollar
 sign to zero-pad the number. Use `\$` for a literal dollar sign. Tab jumps
 through empty items and table cells in order, starting at the first one.
+In native snippets, a second Tab after the last field can return to field 1. Press Esc to leave the snippet.
 Text supplied in braces is inserted directly, including empty text in `{}`.
 Markdown can render adjacent lists with the same marker as one loose list.
 The trigger preserves line indentation and accepts closing braces and
 parentheses inserted by mini.pairs.
 
-This grammar covers Markdown block elements. It accepts up to 50 repeats per
-element or group and tables up to 20 columns by 20 rows. Invalid
-abbreviations leave the buffer text intact.
+This grammar covers Markdown block elements. An abbreviation can be at most
+512 bytes (512 ASCII characters) and generate at most 512 elements, including
+group iterations and table cells. Each element or group can repeat up to 50
+times, and tables can have up to 20 columns and 20 rows. A refused abbreviation
+leaves the buffer text intact and shows a warning.
 
 Run the isolated tests with `nvim/tools/markdown-emmet/test/run-lua.sh`.
 
