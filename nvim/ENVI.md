@@ -164,7 +164,7 @@ completion, including bodies LazyVim can repair. Owned packs are validated
 against native Neovim. Use the `filetypes` setup option for additional pack
 names that Neovim cannot detect by name. `:checkhealth envi.snippets` reports
 invalid upstream entries, identical aliases, and owned shadowing separately.
-With the pinned packs it reports 108, 49, and zero, respectively.
+With the pinned packs it reports 121, 49, and zero, respectively.
 
 ## What exists (all uncommitted on `envi/main`)
 

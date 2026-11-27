@@ -59,7 +59,7 @@ Unknown filetype pack names are validation errors. If the pinned Blink
 adapter rejects one item, the rest of completion continues and health names
 the pin. Lua, repo and project bodies must pass native snippet validation.
 Upstream bodies also qualify if LazyVim's snippet repair makes them valid.
-The pinned packs report 108 invalid upstream entries, 49 identical aliases,
+The pinned packs report 121 invalid upstream entries, 49 identical aliases,
 and zero owned shadowing diagnostics with the shipped configuration.
 
 ==============================================================================

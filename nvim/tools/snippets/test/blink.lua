@@ -77,7 +77,11 @@ local function run(label, breakage)
     assert(vim.wait(100, function()
       return warnings > 0
     end) and warnings == 1, label .. " should warn once")
-    assert(pcall(snippets.expand, "sample"), label .. " explicit expand must not throw")
+    local ok, expanded, err = pcall(snippets.expand, "sample")
+    assert(ok, label .. " explicit expand must not throw")
+    if label == "missing expand_vars" then
+      assert(not expanded and err:find("78336bc", 1, true), "a broken variable resolver must report failure")
+    end
   else
     assert(#diagnostics == 0)
   end
@@ -130,9 +134,15 @@ source:resolve(original, function(item)
   resolved = item
 end)
 assert(resolved == original)
+package.loaded[source_name].resolve = function() end
+resolved = nil
+source:resolve(original, function(item)
+  resolved = item
+end)
+assert(resolved == original, "a resolver that never calls back must fall back")
 diagnostics = {}
 require("envi.snippets.health").check()
-assert(#diagnostics == 1 and diagnostics[1]:find("incompatible resolver", 1, true))
+assert(#diagnostics == 1 and diagnostics[1]:find("invalid resolved completion item", 1, true))
 
 package.loaded[source_name].resolve = function(_, item, callback)
   callback(item)
@@ -173,4 +183,23 @@ assert(#items == 1 and items[1].label == "healthy", "keep the healthy completion
 diagnostics = {}
 require("envi.snippets.health").check()
 assert(diagnostics[1]:find("bad individual record", 1, true))
+
+local replacement, fresh_instance = module()
+package.loaded[registry_name] = replacement
+fresh_instance.expand_vars = function(_, body)
+  return body .. " reloaded"
+end
+assert(require("envi.snippets.blink").resolve_body("body") == "body reloaded", "reload the Blink registry")
+
+local fresh_converter = fresh_instance.snippet_to_completion_item
+fresh_instance.snippet_to_completion_item = function(self, entry)
+  local item = fresh_converter(self, entry)
+  item.label = "wrong sample label"
+  return item
+end
+fresh_instance.expand_vars = function(_, body)
+  return body
+end
+local probe_ok, probe_error = require("envi.snippets.blink").probe()
+assert(not probe_ok and probe_error:find("sample completion was altered", 1, true))
 print("PASS Blink adapter, five private API failures, resolver fallback and health")
