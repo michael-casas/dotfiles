@@ -34,12 +34,16 @@ local function read_json(path)
   return value
 end
 
-local function append_pack(result, path, root, filetypes, tier, diagnostic)
+local function checked_path(path, root, diagnostic)
   local real = uv.fs_realpath(path)
   if not real or not inside(root, real) then
     diagnostic("file escapes its snippet directory or cannot be resolved", path)
     return
   end
+  return real
+end
+
+local function append_pack(result, path, real, filetypes, tier, diagnostic)
   local pack, err = read_json(real)
   if not pack then
     diagnostic(err, path)
@@ -59,7 +63,26 @@ local function append_pack(result, path, root, filetypes, tier, diagnostic)
   end
 end
 
-function M.owned(directory, tier, diagnostic, trusted_root)
+function M.filetypes(allowed)
+  local known = { all = true, mdx = true, ["typescript.tsx"] = true }
+  for _, ft in ipairs(vim.fn.getcompletion("", "filetype")) do
+    known[ft] = true
+  end
+  for _, ft in ipairs(allowed) do
+    known[ft] = true
+  end
+  return function(ft)
+    if known[ft] == nil then
+      -- Detect types registered for a matching extension or filename even if
+      -- Neovim has no syntax or ftplugin runtime file for that type.
+      known[ft] = vim.filetype.match({ filename = "snippet." .. ft }) == ft
+        or vim.filetype.match({ filename = ft }) == ft
+    end
+    return known[ft]
+  end
+end
+
+function M.owned(directory, tier, diagnostic, known_filetype, trusted_root)
   local result = {}
   local root = directory and uv.fs_realpath(directory)
   if not root then
@@ -87,10 +110,17 @@ function M.owned(directory, tier, diagnostic, trusted_root)
   for _, name in ipairs(filenames) do
     local ft = name:sub(1, -6)
     local path = root .. "/" .. name
-    if ft ~= "all" and not vim.tbl_contains(vim.fn.getcompletion(ft, "filetype"), ft) then
-      diagnostic("unknown filetype " .. ft, path)
+    if not schema.filetype(ft) then
+      diagnostic("invalid pack name " .. name, path)
     else
-      append_pack(result, path, root, { ft }, tier, diagnostic)
+      local real = checked_path(path, root, diagnostic)
+      if real then
+        if known_filetype(ft) then
+          append_pack(result, path, real, { ft }, tier, diagnostic)
+        else
+          diagnostic("unknown filetype " .. ft .. "; use setup({ filetypes = { ... } }) for custom types", path)
+        end
+      end
     end
   end
   return result
@@ -127,13 +157,16 @@ function M.friendly(directory, diagnostic)
     if type(record) == "table" and type(record.path) == "string" then
       local languages = type(record.language) == "string" and { record.language } or record.language
       if vim.islist(languages) then
-        local path = vim.fs.normalize(root .. "/" .. record.path)
+        local path = vim.fs.normalize(root .. "/" .. record.path, { expand_env = false })
         paths[path] = vim.list_extend(paths[path] or {}, languages)
       end
     end
   end
   for _, path in ipairs(vim.fn.sort(vim.tbl_keys(paths))) do
-    append_pack(result, path, root, vim.fn.uniq(vim.fn.sort(paths[path])), "friendly", diagnostic)
+    local real = checked_path(path, root, diagnostic)
+    if real then
+      append_pack(result, path, real, vim.fn.uniq(vim.fn.sort(paths[path])), "friendly", diagnostic)
+    end
   end
   return result
 end

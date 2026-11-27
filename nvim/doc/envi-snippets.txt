@@ -45,7 +45,9 @@ identical upstream aliases, and owned shadowing diagnostics separately.
 
 Project packs are JSON files in <project>/.envi/snippets/. They are opt-in
 for buffers within explicitly trusted real paths. Project files and symlinks
-cannot opt themselves into trust. Configure roots in user Lua: >lua
+cannot opt themselves into trust. The loader treats pack names and trusted
+roots as literal paths. A leading ~/ selects the home directory. Configure
+roots in user Lua: >lua
   require("envi.snippets").setup({
     trusted_projects = { vim.fn.expand("~/src/my-project") },
   })
@@ -54,7 +56,11 @@ An in-memory catalogue is built from validated records. Blink serves it
 through the existing snippets provider and native Neovim inserts the bodies.
 The repo suite expands its shipped snippets and visits their tab stops.
 Unknown filetype pack names are validation errors. If the pinned Blink
-adapter fails, other completion sources continue and health names the pin.
+adapter rejects one item, the rest of completion continues and health names
+the pin. Lua, repo and project bodies must pass native snippet validation.
+Upstream bodies also qualify if LazyVim's snippet repair makes them valid.
+The pinned packs report 108 invalid upstream entries, 49 identical aliases,
+and zero owned shadowing diagnostics with the shipped configuration.
 
 ==============================================================================
 LUA API                                                  *envi-snippets-api*
@@ -68,6 +74,10 @@ snippets.setup(opts)
     trusted_projects must be a list of nonempty directory paths. Missing
     roots are skipped with a warning. Invalid option types raise before
     replacing the previous configuration.
+    filetypes accepts additional filetype names for packs such as
+    project.notes.json. Types in Neovim's runtime and matching filename or
+    extension registrations are detected automatically. Use this list for
+    custom types whose detection rules use a different name.
 
 snippets.register(name, spec)
     Register a Lua record at repo priority. A spec has prefix, body,
@@ -94,10 +104,13 @@ snippets.list([ft[, bufnr]])
     current buffer. Use bufnr to resolve another buffer's project.
 snippets.get(name[, ft])  Look up a prefix, unambiguous name, or generated body.
     A prefix with multiple upstream bodies returns nil, err. Use a unique
-    snippet name or pick the variant from completion.
+    snippet name or pick the variant from completion. An upstream record's
+    body is the original text, including when it needs LazyVim's repair.
 snippets.expand(value[, ft])
     Expand a name or prefix at the cursor. For a literal LSP body, pass
-    { body = ... }. Returns true or nil, err.
+    { body = ... }. Named upstream expansion and the picker use the same
+    repair as completion. Literal bodies must pass native validation.
+    Returns true or nil, err.
 snippets.reload()         Invalidate the catalogue so the next use rebuilds it.
 snippets.validate()       Return diagnostics with severity, message, and path.
 

@@ -273,6 +273,9 @@ vim.cmd("Snippets reload")
 vim.cmd.enew({ bang = true })
 
 snippets.setup({ repo_dir = config .. "/snippets", friendly_dir = false })
+for _, diagnostic in ipairs(snippets.validate()) do
+  assert(diagnostic.severity ~= "error", (diagnostic.path or "snippet catalogue") .. ": " .. diagnostic.message)
+end
 local grammar = vim.lsp._snippet_grammar
 local inspected = {}
 for filename in vim.fs.dir(config .. "/snippets") do
@@ -309,7 +312,4 @@ for filename in vim.fs.dir(config .. "/snippets") do
   end
 end
 assert(vim.tbl_count(inspected) >= 2)
-assert(not vim.iter(snippets.validate()):any(function(item)
-  return item.severity == "error"
-end))
 print("PASS envi snippets sources, trust, precedence, providers, tooling, reload, and shipped stops")

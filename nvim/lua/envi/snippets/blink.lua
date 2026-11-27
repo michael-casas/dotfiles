@@ -2,6 +2,7 @@
 local M = { pinned_revision = "78336bc89ee5365633bcf754d93df01678b5c08f" }
 local converter, cached_constructor
 local warned = false
+local record_failure
 
 local function constructor()
   return require("blink.cmp.sources.snippets.default.registry").new
@@ -88,6 +89,9 @@ function M.probe()
     local resolved = resolve_item(item)
     assert(resolved.label == item.label and resolved.insertText == body, "sample resolution was altered")
   end)
+  if ok and record_failure then
+    return false, failure(record_failure)
+  end
   return ok, not ok and failure(err) or nil
 end
 
@@ -101,7 +105,13 @@ function M:get_completions(context, callback)
     local instance = registry()
     local items = {}
     for _, record in ipairs(snippets.list(nil, context.bufnr)) do
-      items[#items + 1] = convert(instance, record, context)
+      local converted, item = pcall(convert, instance, record, context)
+      if converted then
+        items[#items + 1] = item
+      else
+        record_failure = record_failure or ("snippet " .. record.prefix .. ": " .. tostring(item))
+        warn(record_failure)
+      end
     end
     return items
   end)

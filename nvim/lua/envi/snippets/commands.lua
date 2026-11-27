@@ -113,7 +113,10 @@ local function list()
       vim.schedule(function()
         if item and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
           vim.api.nvim_win_call(win, function()
-            expand({ body = item.record.body })
+            local ok, err = snippets._expand_record(item.record)
+            if not ok then
+              warn(err)
+            end
           end)
         end
       end)

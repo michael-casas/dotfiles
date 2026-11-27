@@ -13,11 +13,16 @@ end
 function M.setup(options)
   local candidate = vim.tbl_extend(
     "force",
-    { repo_dir = vim.fn.stdpath("config") .. "/snippets", trusted_projects = {} },
+    { repo_dir = vim.fn.stdpath("config") .. "/snippets", trusted_projects = {}, filetypes = {} },
     options or {}
   )
   assert(vim.islist(candidate.trusted_projects), "trusted_projects must be a list of directory paths")
   assert(type(candidate.repo_dir) == "string", "repo_dir must be a directory path")
+  assert(vim.islist(candidate.filetypes), "filetypes must be a list of filetype names")
+  for _, ft in ipairs(candidate.filetypes) do
+    assert(schema.filetype(ft), "filetypes must contain valid filetype names")
+  end
+  candidate.filetypes = vim.deepcopy(candidate.filetypes)
   assert(
     candidate.friendly_dir == nil or candidate.friendly_dir == false or type(candidate.friendly_dir) == "string",
     "friendly_dir must be a directory path or false"
@@ -25,7 +30,7 @@ function M.setup(options)
   local trusted = {}
   for _, path in ipairs(candidate.trusted_projects) do
     assert(type(path) == "string" and path ~= "", "trusted_projects must contain nonempty directory paths")
-    local root = vim.uv.fs_realpath(vim.fn.expand(path))
+    local root = vim.uv.fs_realpath(vim.fs.normalize(path, { expand_env = false }))
     local stat = root and vim.uv.fs_stat(root)
     if stat and stat.type == "directory" then
       trusted[#trusted + 1] = root
@@ -63,12 +68,13 @@ end
 local function read_shared()
   if not shared then
     local diagnostics = {}
-    local records = sources.owned(opts.repo_dir, "repo", recorder(diagnostics, "error"))
+    local known_filetype = sources.filetypes(opts.filetypes)
+    local records = sources.owned(opts.repo_dir, "repo", recorder(diagnostics, "error"), known_filetype)
     vim.list_extend(records, sources.friendly(opts.friendly_dir, recorder(diagnostics, "warning", "upstream_invalid")))
     for _, list in pairs(registered) do
       vim.list_extend(records, list)
     end
-    shared = { records = records, diagnostics = diagnostics }
+    shared = { records = records, diagnostics = diagnostics, known_filetype = known_filetype }
   end
   return shared
 end
@@ -79,7 +85,13 @@ local function project_pack(root)
   end
   if not projects[root] then
     local diagnostics = {}
-    local records = sources.owned(root .. "/.envi/snippets", "project", recorder(diagnostics, "error"), root)
+    local records = sources.owned(
+      root .. "/.envi/snippets",
+      "project",
+      recorder(diagnostics, "error"),
+      read_shared().known_filetype,
+      root
+    )
     projects[root] = { records = records, diagnostics = diagnostics }
   end
   return projects[root]
@@ -316,18 +328,8 @@ function M.get(name, filetype)
   return generated
 end
 
-function M.expand(value, filetype)
-  local body, err
-  if type(value) == "table" then
-    body, err = schema.body(value.body)
-  else
-    local entry
-    entry, err = M.get(value, filetype)
-    body = entry and entry.body
-  end
-  if not body then
-    return nil, err
-  end
+local function expand_body(body, repaired_body)
+  local err
   if not vim.bo.modifiable then
     return nil, "buffer is not modifiable"
   end
@@ -339,11 +341,30 @@ function M.expand(value, filetype)
   end
   vim.snippet.stop()
   local ok
-  ok, err = pcall(vim.snippet.expand, body)
+  ok, err = pcall(vim.snippet.expand, repaired_body or body)
   if not ok then
     return nil, tostring(err)
   end
   return true
+end
+
+function M._expand_record(entry)
+  return expand_body(entry.body, entry.repaired_body)
+end
+
+function M.expand(value, filetype)
+  if type(value) == "table" then
+    local body, err = schema.body(value.body)
+    if not body then
+      return nil, err
+    end
+    return expand_body(body)
+  end
+  local entry, err = M.get(value, filetype)
+  if not entry then
+    return nil, err
+  end
+  return M._expand_record(entry)
 end
 
 function M._repo_dir()

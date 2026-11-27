@@ -2,22 +2,13 @@ local grammar = vim.lsp._snippet_grammar
 local M = {}
 
 function M.filetype(name)
-  return type(name) == "string" and name:match("^[%w_][%w_.-]*$") ~= nil
+  return type(name) == "string"
+    and name:match("^[%w_][%w_.-]*$") ~= nil
+    and not name:find("..", 1, true)
+    and name:sub(-1) ~= "."
 end
 
-function M.body(body)
-  if vim.islist(body) then
-    for _, line in ipairs(body) do
-      if type(line) ~= "string" then
-        return nil, "body lines must be strings"
-      end
-    end
-    body = table.concat(body, "\n")
-  end
-  if type(body) ~= "string" or body == "" then
-    return nil, "body must be a nonempty string or list of lines"
-  end
-
+local function check_native(body)
   local ok, tree = pcall(grammar.parse, body)
   if not ok then
     return nil, "invalid native LSP snippet body"
@@ -42,6 +33,32 @@ function M.body(body)
   return body
 end
 
+function M.body(body, accept_upstream)
+  if vim.islist(body) then
+    for _, line in ipairs(body) do
+      if type(line) ~= "string" then
+        return nil, "body lines must be strings"
+      end
+    end
+    body = table.concat(body, "\n")
+  end
+  if type(body) ~= "string" or body == "" then
+    return nil, "body must be a nonempty string or list of lines"
+  end
+
+  local valid, err = check_native(body)
+  if not valid and accept_upstream then
+    local loaded, cmp = pcall(require, "lazyvim.util.cmp")
+    if loaded then
+      local fixed, repair = pcall(cmp.snippet_fix, body)
+      if fixed and type(repair) == "string" and repair ~= body and check_native(repair) then
+        return body, nil, repair
+      end
+    end
+  end
+  return valid, err
+end
+
 function M.records(name, spec, scope, source, path)
   if type(name) ~= "string" or name == "" or type(spec) ~= "table" or vim.islist(spec) then
     return nil, "expected a named snippet object"
@@ -59,7 +76,7 @@ function M.records(name, spec, scope, source, path)
       return nil, "invalid filetype " .. tostring(ft)
     end
   end
-  local body, err = M.body(spec.body)
+  local body, err, repaired_body = M.body(spec.body, source == "friendly")
   if not body then
     return nil, err
   end
@@ -89,7 +106,8 @@ function M.records(name, spec, scope, source, path)
       name = name,
       prefix = prefix,
       body = body,
-      description = description,
+      repaired_body = repaired_body,
+      description = description or (source == "friendly" and name or nil),
       filetypes = vim.deepcopy(filetypes),
       source = source,
       path = path,

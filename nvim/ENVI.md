@@ -160,8 +160,11 @@ API registers providers. `:Snippets expand ul>li*3` explicitly invokes the
 emmet-md provider. See `:help envi-snippets` for trust, provider and pipeline
 details. The main test runner validates and expands every shipped snippet.
 Distinct friendly-snippets bodies with the same prefix remain available in
-completion. `:checkhealth envi.snippets` reports invalid upstream bodies,
-identical aliases, and owned shadowing separately.
+completion, including bodies LazyVim can repair. Owned packs are validated
+against native Neovim. Use the `filetypes` setup option for additional pack
+names that Neovim cannot detect by name. `:checkhealth envi.snippets` reports
+invalid upstream entries, identical aliases, and owned shadowing separately.
+With the pinned packs it reports 108, 49, and zero, respectively.
 
 ## What exists (all uncommitted on `envi/main`)
 

@@ -46,6 +46,14 @@ vim.fn.readfile = function(path, ...)
   end
   return readfile(path, ...)
 end
+local match = vim.filetype.match
+vim.filetype.match = function(args)
+  if args.filename and args.filename:find("[^%w_.-]") then
+    write({ "unsafe filetype detection argument" }, sentinel)
+    error("unsafe filetype detection argument")
+  end
+  return match(args)
+end
 
 local snippets = require("envi.snippets")
 vim.filetype.add({ extension = { localtype = "localtype" } })
@@ -76,11 +84,13 @@ end
 local setup_ok = pcall(snippets.setup, {
   repo_dir = root .. "/repo",
   friendly_dir = false,
-  trusted_projects = { project, bracketed, root .. "/trust*" },
+  trusted_projects = { project, bracketed, root .. "/trust*", root .. "/outside-pack.json" },
   filetypes = { "project.notes" },
 })
 assert(not vim.uv.fs_stat(sentinel), "a trust root reached the unsafe expansion API")
-assert(setup_ok and #warnings == 2, "literal missing roots must be skipped")
+assert(setup_ok and #warnings == 3, "literal missing paths and nondirectories must be skipped")
+local valid, setup_error = pcall(snippets.setup, { repo_dir = true })
+assert(not valid and setup_error:find("repo_dir must be a directory path", 1, true))
 assert(snippets.get("owned").body == "body")
 assert(snippets.get("custom", "localtype"))
 for _, ft in ipairs({ "mdx", "norg", "templ", "typescript.tsx", "project.notes" }) do

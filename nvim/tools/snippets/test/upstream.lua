@@ -7,10 +7,14 @@ end
 local function write(path, value)
   vim.fn.writefile({ vim.json.encode(value) }, root .. "/" .. path)
 end
-local repairable = "try ${1:$2} then $0"
+local repairable = "try ${1:raise $2} then $0"
 local repaired = "try ${1:condition} then $0"
+local conflicting = "${1:first} ${1:second}$0"
 package.loaded["lazyvim.util.cmp"] = {
   snippet_fix = function(body)
+    if body == conflicting then
+      return "${1:first} ${1:first}$0"
+    end
     return body == repairable and repaired or body
   end,
 }
@@ -19,6 +23,7 @@ write("friendly/lua.json", {
   Recipe = { prefix = "recipe", body = repairable },
   ["Recipe duplicate"] = { prefix = "recipe", body = repairable },
   Broken = { prefix = "broken", body = "${1:missing" },
+  Conflicting = { prefix = "conflicting", body = conflicting },
   Shadowed = { prefix = "owned", body = "friendly" },
 })
 write("repo/lua.json", {
@@ -28,7 +33,9 @@ write("repo/lua.json", {
 snippets.setup({ repo_dir = root .. "/repo", friendly_dir = root .. "/friendly" })
 vim.bo.filetype = "lua"
 local entry = snippets.get("recipe")
-assert(entry and entry.description == "Recipe" and entry.body == repairable, "serve the original upstream body")
+assert(entry and entry.body == repairable, "serve the original upstream body")
+assert(entry.description == "Recipe", "fall back to the snippet name")
+assert(snippets.get("conflicting").body == conflicting)
 assert(not snippets.get("broken") and not snippets.get("strict"))
 assert(snippets.expand("recipe"))
 assert(vim.api.nvim_get_current_line() == "try condition then ")
