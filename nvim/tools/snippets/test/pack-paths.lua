@@ -21,9 +21,17 @@ assert(vim.uv.fs_symlink(root .. "/outside-pack.json", directory .. "/markdwon.j
 
 -- Stop at Vim's expansion boundary. The sentinel records attempts without
 -- allowing any filename or root to reach the real expanding function.
+local glob = vim.fn.glob
+vim.fn.glob = function(value, ...)
+  if value:find("`", 1, true) or value:find("*", 1, true) or value:find("$", 1, true) then
+    write({ "unsafe glob argument" }, sentinel)
+    error("unsafe glob argument")
+  end
+  return glob(value, ...)
+end
 local getcompletion = vim.fn.getcompletion
 vim.fn.getcompletion = function(value, kind, ...)
-  if kind == "filetype" and value ~= "" then
+  if (kind == "filetype" or kind == "file") and value ~= "" then
     write({ "unsafe completion argument" }, sentinel)
     error("unsafe completion argument")
   end
@@ -31,7 +39,7 @@ vim.fn.getcompletion = function(value, kind, ...)
 end
 local expand = vim.fn.expand
 vim.fn.expand = function(value, ...)
-  if value == bracketed or value == root .. "/trust*" then
+  if value:find(bracketed, 1, true) or value == root .. "/trust*" then
     write({ "unsafe root expansion" }, sentinel)
     error("unsafe root expansion")
   end

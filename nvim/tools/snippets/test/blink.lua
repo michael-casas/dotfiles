@@ -11,7 +11,9 @@ package.loaded[source_name] = {
 }
 vim.bo.filetype = "markdown"
 assert(snippets.register("Sample", { prefix = "sample", body = "text $1", filetypes = { "markdown" } }))
-snippets.setup({ repo_dir = vim.fn.tempname(), friendly_dir = false })
+local repo = vim.fn.tempname()
+vim.fn.mkdir(repo, "p")
+snippets.setup({ repo_dir = repo, friendly_dir = false })
 
 local diagnostics, warnings = {}, 0
 vim.health.start = function() end
@@ -183,6 +185,14 @@ assert(#items == 1 and items[1].label == "healthy", "keep the healthy completion
 diagnostics = {}
 require("envi.snippets.health").check()
 assert(diagnostics[1]:find("bad individual record", 1, true))
+
+instance.snippet_to_completion_item = convert
+source:get_completions(context, function(response)
+  items = response.items
+end)
+assert(#items == 2)
+local recovered, stale_error = require("envi.snippets.blink").probe()
+assert(recovered, stale_error or "a successful conversion must clear the earlier failure")
 
 local replacement, fresh_instance = module()
 package.loaded[registry_name] = replacement

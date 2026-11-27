@@ -11,3 +11,8 @@ nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/blink.lua
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/helptags.lua
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/pack-paths.lua
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/upstream.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/regular-packs.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/path-boundaries.lua
+ENVI_PATH_CASE=home nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/path-boundaries.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/repo-filetypes.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/picker.lua

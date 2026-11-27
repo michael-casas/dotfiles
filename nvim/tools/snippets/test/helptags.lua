@@ -20,6 +20,24 @@ vim.fn.writefile({ "*replacement-envi-tag*  Updated help" }, doc .. "/envi-snipp
 source()
 assert(has_tag("replacement-envi-tag") and not has_tag("initial-envi-tag"), "startup must refresh stale help tags")
 
+-- The platform helper must contain a command failure, even when emmet-md
+-- is absent, and return control to the startup script.
+local real_cmd = vim.api.nvim_cmd
+local calls = 0
+vim.api.nvim_cmd = function(command, opts)
+  if command.cmd == "helptags" then
+    calls = calls + 1
+    error("simulated platform help write failure")
+  end
+  return real_cmd(command, opts)
+end
+assert(vim.uv.fs_unlink(doc .. "/tags"))
+local cwd = vim.uv.cwd()
+source()
+assert(calls == 1 and vim.fn.exists(":Snippets") == 2)
+assert(vim.uv.cwd() == cwd, "failed tag generation must preserve the working directory")
+vim.api.nvim_cmd = real_cmd
+
 local plugin = vim.fn.stdpath("state") .. "/standalone-emmet-md"
 vim.fn.mkdir(plugin .. "/plugin", "p")
 vim.fn.mkdir(plugin .. "/doc", "p")
