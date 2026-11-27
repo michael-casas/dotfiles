@@ -122,7 +122,13 @@ source:resolve(original, function(item)
   resolved = item
 end)
 assert(resolved == original)
+diagnostics = {}
+require("envi.snippets.health").check()
+assert(#diagnostics == 1 and diagnostics[1]:find("incompatible resolver", 1, true))
 
+package.loaded[source_name].resolve = function(_, item, callback)
+  callback(item)
+end
 assert(snippets.register("Conflict", { prefix = "sample", body = "different", filetypes = { "markdown" } }))
 diagnostics = {}
 require("envi.snippets.health").check()

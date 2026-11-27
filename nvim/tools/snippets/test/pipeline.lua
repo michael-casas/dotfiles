@@ -69,8 +69,9 @@ equal(1, #with_prefix("same", "markdown"))
 equal(nil, snippets.get("upstream", "markdown"))
 equal("variant", snippets.get("Variant", "markdown").body)
 assert(vim.iter(snippets.validate()):any(function(item)
-  return item.kind == "upstream_alias"
+  return item.kind == "upstream_alias" and item.message == "markdown: identical upstream alias provided"
 end))
+equal(1, #with_prefix("provided", "markdown"))
 assert(contains(snippets.validate(), "warning", "same"))
 
 snippets.setup({ repo_dir = repo, friendly_dir = friendly, trusted_projects = { project } })
@@ -84,11 +85,11 @@ vim.cmd.enew({ bang = true })
 vim.api.nvim_buf_set_name(0, project .. "/other.md")
 vim.bo.filetype = "markdown"
 
-local escaping_pack = project .. "/.envi/snippets/escape.json"
+local escaping_pack = project .. "/.envi/snippets/lua.json"
 assert(vim.uv.fs_symlink(friendly .. "/pack.json", escaping_pack))
 snippets.reload()
-equal("friendly", snippets.get("upstream", "escape").source)
-assert(contains(snippets.validate(), "error", "escape.json"))
+equal("friendly", snippets.get("upstream", "lua").source)
+assert(contains(snippets.validate(), "error", "file escapes its snippet directory"))
 
 local function open_buffer(path)
   vim.cmd.enew({ bang = true })

@@ -11,21 +11,33 @@ function M.reload()
 end
 
 function M.setup(options)
-  opts = vim.tbl_extend(
+  local candidate = vim.tbl_extend(
     "force",
     { repo_dir = vim.fn.stdpath("config") .. "/snippets", trusted_projects = {} },
     options or {}
   )
+  assert(vim.islist(candidate.trusted_projects), "trusted_projects must be a list of directory paths")
+  assert(type(candidate.repo_dir) == "string", "repo_dir must be a directory path")
+  assert(
+    candidate.friendly_dir == nil or candidate.friendly_dir == false or type(candidate.friendly_dir) == "string",
+    "friendly_dir must be a directory path or false"
+  )
   local trusted = {}
-  for _, path in ipairs(opts.trusted_projects) do
+  for _, path in ipairs(candidate.trusted_projects) do
+    assert(type(path) == "string" and path ~= "", "trusted_projects must contain nonempty directory paths")
     local root = vim.uv.fs_realpath(vim.fn.expand(path))
-    assert(root and vim.uv.fs_stat(root).type == "directory", "trusted snippet root must be an existing directory")
-    trusted[#trusted + 1] = root
+    local stat = root and vim.uv.fs_stat(root)
+    if stat and stat.type == "directory" then
+      trusted[#trusted + 1] = root
+    else
+      vim.notify("Skipping unavailable trusted snippet root: " .. path, vim.log.levels.WARN)
+    end
   end
   table.sort(trusted, function(a, b)
     return #a > #b
   end)
-  opts.trusted_projects = trusted
+  candidate.trusted_projects = trusted
+  opts = candidate
   M.reload()
   vim.api.nvim_create_autocmd("BufWritePost", {
     group = vim.api.nvim_create_augroup("EnviSnippets", { clear = true }),
@@ -38,13 +50,13 @@ function M.setup(options)
   })
 end
 
-local function report(diagnostics, severity, message, path)
-  diagnostics[#diagnostics + 1] = { severity = severity, message = message, path = path }
+local function report(diagnostics, severity, message, path, kind)
+  diagnostics[#diagnostics + 1] = { severity = severity, message = message, path = path, kind = kind }
 end
 
-local function recorder(diagnostics, severity)
+local function recorder(diagnostics, severity, kind)
   return function(message, path)
-    report(diagnostics, severity, message, path)
+    report(diagnostics, severity, message, path, kind)
   end
 end
 
@@ -52,7 +64,7 @@ local function read_shared()
   if not shared then
     local diagnostics = {}
     local records = sources.owned(opts.repo_dir, "repo", recorder(diagnostics, "error"))
-    vim.list_extend(records, sources.friendly(opts.friendly_dir, recorder(diagnostics, "warning")))
+    vim.list_extend(records, sources.friendly(opts.friendly_dir, recorder(diagnostics, "warning", "upstream_invalid")))
     for _, list in pairs(registered) do
       vim.list_extend(records, list)
     end
@@ -125,11 +137,11 @@ local function resolve(records, filetype, diagnostics)
       return a.name < b.name
     end)
     local winner, conflicts = group[1], {}
-    local seen = {}
+    local seen, upstream, upstream_bodies = {}, {}, {}
     for _, entry in ipairs(group) do
       local previous = seen[entry.source]
-      if previous and (entry.source ~= "friendly" or entry.body ~= previous.body) then
-        local severity = entry.source == "friendly" and "warning" or "error"
+      if previous and entry.source ~= "friendly" then
+        local severity = "error"
         report(diagnostics, severity, filetype .. ": duplicate prefix " .. prefix .. " in " .. entry.source, entry.path)
         conflicts[entry.source] = severity == "error"
       elseif not previous and entry.source ~= winner.source then
@@ -137,13 +149,34 @@ local function resolve(records, filetype, diagnostics)
           diagnostics,
           "warning",
           filetype .. ": prefix " .. prefix .. " from " .. winner.source .. " shadows " .. entry.source,
-          entry.path
+          entry.path,
+          "owned_shadowing"
         )
+      end
+      if entry.source == "friendly" then
+        local repeated_scope = filetype ~= "all"
+          and vim.tbl_contains(entry.filetypes, "all")
+          and vim.tbl_contains(entry.filetypes, filetype)
+        if repeated_scope or upstream_bodies[entry.body] then
+          report(
+            diagnostics,
+            "warning",
+            filetype .. ": identical upstream alias " .. prefix,
+            entry.path,
+            "upstream_alias"
+          )
+        end
+        if not upstream_bodies[entry.body] then
+          upstream_bodies[entry.body] = true
+          upstream[#upstream + 1] = entry
+        end
       end
       seen[entry.source] = previous or entry
     end
     if conflicts[winner.source] then
       blocked[prefix] = true
+    elseif winner.source == "friendly" then
+      vim.list_extend(result, upstream)
     else
       result[#result + 1] = winner
     end
@@ -234,10 +267,17 @@ function M.get(name, filetype)
   if catalog.blocked[name] then
     return nil, "snippet prefix is ambiguous"
   end
+  local by_prefix
   for _, record in ipairs(catalog.records) do
     if record.prefix == name then
-      return vim.deepcopy(record)
+      if by_prefix then
+        return nil, "upstream prefix has multiple bodies; select a completion or use a unique name"
+      end
+      by_prefix = record
     end
+  end
+  if by_prefix then
+    return vim.deepcopy(by_prefix)
   end
   local named
   for _, record in ipairs(catalog.records) do
@@ -251,13 +291,13 @@ function M.get(name, filetype)
   if named then
     return vim.deepcopy(named)
   end
-  local generated
+  local generated, failure
   for _, provider_name in ipairs(ordered_names(providers)) do
     local generate = providers[provider_name].generate
     if generate then
       local ok, result = pcall(generate, name, ctx)
       if not ok then
-        return nil, "provider " .. provider_name .. " failed: " .. tostring(result)
+        failure = failure or ("provider " .. provider_name .. " failed: " .. tostring(result))
       elseif result ~= nil then
         if generated then
           return nil, "multiple providers accepted " .. name
@@ -271,7 +311,7 @@ function M.get(name, filetype)
     end
   end
   if not generated then
-    return nil, "unknown snippet " .. name
+    return nil, failure or ("unknown snippet " .. name)
   end
   return generated
 end
@@ -291,11 +331,14 @@ function M.expand(value, filetype)
   if not vim.bo.modifiable then
     return nil, "buffer is not modifiable"
   end
-  local ok, blink = pcall(require, "envi.snippets.blink")
-  if ok then
-    body = blink.resolve_body(body)
+  if package.loaded["blink.cmp"] or #vim.api.nvim_get_runtime_file("lua/blink/cmp/init.lua", false) > 0 then
+    body, err = require("envi.snippets.blink").resolve_body(body)
+    if not body then
+      return nil, err
+    end
   end
   vim.snippet.stop()
+  local ok
   ok, err = pcall(vim.snippet.expand, body)
   if not ok then
     return nil, tostring(err)

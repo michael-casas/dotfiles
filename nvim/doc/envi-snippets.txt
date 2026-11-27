@@ -38,8 +38,10 @@ SOURCES AND TRUST                                    *envi-snippets-sources*
 Project packs take precedence over repo and Lua registrations, provider
 entries, then friendly-snippets. Cross-tier shadowing appears in validation.
 Conflicting prefixes within an owned tier produce errors. The affected
-prefix is withheld. Upstream diagnostics are warnings and identical upstream
-aliases are combined.
+prefix is withheld. Distinct upstream bodies sharing a prefix all appear
+in completion. An owned definition shadows the upstream prefix. Identical
+upstream aliases are combined. Health reports upstream invalid bodies,
+identical upstream aliases, and owned shadowing diagnostics separately.
 
 Project packs are JSON files in <project>/.envi/snippets/. They are opt-in
 for buffers within explicitly trusted real paths. Project files and symlinks
@@ -51,11 +53,21 @@ cannot opt themselves into trust. Configure roots in user Lua: >lua
 An in-memory catalogue is built from validated records. Blink serves it
 through the existing snippets provider and native Neovim inserts the bodies.
 The repo suite expands its shipped snippets and visits their tab stops.
+Unknown filetype pack names are validation errors. If the pinned Blink
+adapter fails, other completion sources continue and health names the pin.
 
 ==============================================================================
 LUA API                                                  *envi-snippets-api*
 
 local snippets = require("envi.snippets")
+
+snippets.setup(opts)
+    repo_dir defaults to stdpath("config") .. "/snippets".
+    friendly_dir defaults to Blink's lazy-managed friendly-snippets pack.
+    Pass a directory to use another pack or false to disable the source.
+    trusted_projects must be a list of nonempty directory paths. Missing
+    roots are skipped with a warning. Invalid option types raise before
+    replacing the previous configuration.
 
 snippets.register(name, spec)
     Register a Lua record at repo priority. A spec has prefix, body,
@@ -77,8 +89,12 @@ snippets.register_provider(name, { list = ..., generate = ... })
       })
 <
 
-snippets.list(ft)         List resolved static records for the filetype.
+snippets.list([ft[, bufnr]])
+    List resolved static records. Filetype and project default to the
+    current buffer. Use bufnr to resolve another buffer's project.
 snippets.get(name[, ft])  Look up a prefix, unambiguous name, or generated body.
+    A prefix with multiple upstream bodies returns nil, err. Use a unique
+    snippet name or pick the variant from completion.
 snippets.expand(value[, ft])
     Expand a name or prefix at the cursor. For a literal LSP body, pass
     { body = ... }. Returns true or nil, err.

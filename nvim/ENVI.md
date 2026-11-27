@@ -159,6 +159,9 @@ Enable each project through `require("envi.snippets").setup`. The same Lua
 API registers providers. `:Snippets expand ul>li*3` explicitly invokes the
 emmet-md provider. See `:help envi-snippets` for trust, provider and pipeline
 details. The main test runner validates and expands every shipped snippet.
+Distinct friendly-snippets bodies with the same prefix remain available in
+completion. `:checkhealth envi.snippets` reports invalid upstream bodies,
+identical aliases, and owned shadowing separately.
 
 ## What exists (all uncommitted on `envi/main`)
 

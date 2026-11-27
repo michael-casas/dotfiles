@@ -86,7 +86,12 @@ function M.owned(directory, tier, diagnostic, trusted_root)
   table.sort(filenames)
   for _, name in ipairs(filenames) do
     local ft = name:sub(1, -6)
-    append_pack(result, root .. "/" .. name, root, { ft }, tier, diagnostic)
+    local path = root .. "/" .. name
+    if ft ~= "all" and not vim.tbl_contains(vim.fn.getcompletion(ft, "filetype"), ft) then
+      diagnostic("unknown filetype " .. ft, path)
+    else
+      append_pack(result, path, root, { ft }, tier, diagnostic)
+    end
   end
   return result
 end
