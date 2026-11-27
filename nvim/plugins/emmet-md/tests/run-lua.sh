@@ -9,10 +9,7 @@ export XDG_STATE_HOME="$sandbox/state" XDG_CACHE_HOME="$sandbox/cache"
 export NVIM_APPNAME=emmet-md-test
 
 if [ "$#" -eq 0 ]; then
-  set -- api expansion
-  if [ -n "${EMMET_MD_ENVI_CONFIG:-}" ]; then
-    set -- "$@" interaction
-  fi
+  set -- api expansion interaction helptags
 fi
 for suite do
   nvim --headless -u NONE -i NONE -n -l "tests/$suite.lua"
