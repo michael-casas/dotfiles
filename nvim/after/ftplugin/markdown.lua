@@ -1,3 +1,7 @@
+if vim.bo.filetype ~= "markdown" then
+  return
+end
+
 vim.keymap.set("i", "<C-g>e", function()
   require("envi.markdown_emmet").expand()
 end, { buffer = 0, desc = "Expand Markdown Emmet abbreviation" })

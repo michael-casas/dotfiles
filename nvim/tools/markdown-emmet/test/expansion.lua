@@ -74,6 +74,23 @@ reset("markdown", "table2x2")
 keys("A" .. trigger .. "Header 1<Tab>Header 2<Tab>Cell 1<Tab>Cell 2")
 equal({ "| Header 1 | Header 2 |", "| --- | --- |", "| Cell 1 | Cell 2 |" }, lines(), "table field navigation")
 
+reset("markdown", "h2")
+local cancel_mode
+package.loaded["blink.cmp"] = {
+  cancel = function(opts)
+    -- Blink can call back while Neovim is still in an Insert completion submode.
+    vim.fn.complete(1, { "h2" })
+    cancel_mode = vim.api.nvim_get_mode().mode
+    opts.callback()
+    return true
+  end,
+}
+keys("A" .. trigger)
+package.loaded["blink.cmp"] = nil
+equal("ic", cancel_mode, "native completion reproduces Blink's cancel callback mode")
+equal({ "## " }, lines(), "expand after completion cancellation")
+equal({ 1, 3 }, cursor, "cursor after completion cancellation")
+
 reset("markdown", "h2{Title}")
 keys("A<Left>" .. trigger)
 equal({ "## Title" }, lines(), "expand before a mini.pairs closing brace")
@@ -107,6 +124,9 @@ reset("markdown", "h2{Title}")
 equal(true, vim.fn.maparg(trigger, "i", false, true).buffer == 1, "Markdown-local trigger")
 vim.bo.filetype = "text"
 equal({}, vim.fn.maparg(trigger, "i", false, true), "trigger removed on filetype change")
+reset("rmd")
+vim.cmd("runtime! ftplugin/markdown.lua")
+equal({}, vim.fn.maparg(trigger, "i", false, true), "no trigger on inherited Markdown ftplugins")
 reset("text")
 keys("iul>li*3")
 equal({ "ul>li*3" }, lines(), "non-Markdown typing")

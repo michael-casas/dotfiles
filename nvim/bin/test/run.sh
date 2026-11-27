@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# The launcher, dev profile and cutover suites (sandboxed; nothing real is touched).
+# Sandboxed launcher, migration, and Markdown editing suites.
 #   nvim/bin/test/run.sh
 set -u
 cd "$(dirname "$0")" || exit 2
 failed=0
-for suite in launcher migrate; do
-  if out="$(./"$suite".sh 2>&1)"; then
+run_suite() {
+  local suite="$1" out
+  shift
+  if out="$("$@" 2>&1)"; then
     echo "ok   $suite ($(tail -n 1 <<<"$out"))"
   else
     echo "FAIL $suite"
     grep -v '^PASS' <<<"$out" | sed 's/^/     /'
     failed=1
   fi
-done
+}
+
+run_suite launcher ./launcher.sh
+run_suite migrate ./migrate.sh
+run_suite markdown-emmet ../../tools/markdown-emmet/test/run-lua.sh
 exit $failed

@@ -70,8 +70,8 @@ link, never what it points to), and the folders
 `$XDG_STATE_HOME/envi-dev/<slot>` and `$XDG_CACHE_HOME/envi-dev/<slot>`. End
 its session with `envi-dev kill dev-<slot>` inside any worktree.
 
-**Tests.** `nvim/bin/test/run.sh` proves the launcher, the dev profile and the
-cutover in a throwaway `HOME` (a fake `hc`; nothing real is touched).
+**Tests.** `nvim/bin/test/run.sh` tests the launcher, dev profile, cutover, and
+Markdown editing in isolated environments.
 
 ## Keys added for envi
 
@@ -115,8 +115,8 @@ snippets to `nvim/snippets/<filetype>.json` in VS Code format. Each entry has a
 empty field, and `$0` for the final cursor position. Blink also loads
 friendly-snippets.
 
-For Markdown Emmet, type an abbreviation on its own Markdown line, then
-press **Ctrl+g**, followed by **e**, in Insert mode. If blink's completion
+For Markdown Emmet, type an abbreviation on its own Markdown line without
+trailing spaces. In Insert mode, press **Ctrl+g**, followed by **e**. If blink's completion
 menu is open, the chord cancels it and expands the typed abbreviation.
 Typing the abbreviation by itself leaves it as text.
 
@@ -137,8 +137,10 @@ and parentheses to repeat or combine groups. Inside `{text}` or an element
 name, `$` uses the nearest repeat's index starting at 1. Repeat the dollar
 sign to zero-pad the number. Use `\$` for a literal dollar sign. Tab jumps
 through empty items and table cells in order, starting at the first one.
-Text supplied in braces is inserted directly. The trigger preserves line
-indentation and accepts closing braces and parentheses inserted by mini.pairs.
+Text supplied in braces is inserted directly, including empty text in `{}`.
+Markdown can render adjacent lists with the same marker as one loose list.
+The trigger preserves line indentation and accepts closing braces and
+parentheses inserted by mini.pairs.
 
 This grammar covers Markdown block elements. It accepts up to 50 repeats per
 element or group and tables up to 20 columns by 20 rows. Invalid
