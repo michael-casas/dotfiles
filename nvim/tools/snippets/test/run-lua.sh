@@ -9,3 +9,5 @@ export NVIM_APPNAME=envi-snippets-test
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/pipeline.lua
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/blink.lua
 nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/helptags.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/pack-paths.lua
+nvim --headless -u NONE -i NONE -n -l nvim/tools/snippets/test/upstream.lua

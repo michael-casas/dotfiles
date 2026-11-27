@@ -103,6 +103,14 @@ end)
 run("missing expand_vars", function(_, instance)
   instance.expand_vars = nil
 end)
+run("nil converter result", function(_, instance)
+  instance.snippet_to_completion_item = function() end
+end)
+run("invalid converter result", function(_, instance)
+  instance.snippet_to_completion_item = function()
+    return { insertText = "missing label" }
+  end
+end)
 run("changed constructor signature", function(registry)
   registry.new = function()
     error("incompatible constructor")
@@ -133,4 +141,33 @@ assert(snippets.register("Conflict", { prefix = "sample", body = "different", fi
 diagnostics = {}
 require("envi.snippets.health").check()
 assert(#diagnostics > 0 and diagnostics[1]:find("snippet errors", 1, true))
+
+-- Keep the targeted conversion failure separate from the collision fixture.
+vim.bo.filetype = "lua"
+assert(snippets.register("Healthy", { prefix = "healthy", body = "healthy", filetypes = { "lua" } }))
+assert(snippets.register("Faulty", { prefix = "faulty", body = "faulty", filetypes = { "lua" } }))
+local active_registry, instance = module()
+package.loaded[registry_name] = active_registry
+local convert = instance.snippet_to_completion_item
+instance.snippet_to_completion_item = function(self, entry)
+  if entry.prefix == "faulty" then
+    error("bad individual record")
+  end
+  return convert(self, entry)
+end
+instance.expand_vars = function(_, body)
+  return (body:gsub("%$CURRENT_YEAR", "2042"))
+end
+local ok, expand_error = snippets.expand({ body = "Year $CURRENT_YEAR" })
+assert(ok, expand_error)
+assert(vim.api.nvim_get_current_line() == "Year 2042", "explicit expansion must resolve Blink variables")
+vim.snippet.stop()
+local items
+source:get_completions(context, function(response)
+  items = response.items
+end)
+assert(#items == 1 and items[1].label == "healthy", "keep the healthy completion item")
+diagnostics = {}
+require("envi.snippets.health").check()
+assert(#diagnostics == 1 and diagnostics[1]:find("bad individual record", 1, true))
 print("PASS Blink adapter, five private API failures, resolver fallback and health")
