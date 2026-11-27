@@ -323,7 +323,7 @@ function M.expand()
     if
       vim.api.nvim_get_current_win() == win
       and vim.api.nvim_get_current_buf() == buf
-      and vim.api.nvim_get_mode().mode == "i"
+      and vim.fn.mode() == "i"
       and vim.bo.filetype == "markdown"
       and vim.bo.modifiable
     then
