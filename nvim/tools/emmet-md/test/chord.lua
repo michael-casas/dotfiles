@@ -254,11 +254,12 @@ local ok, err = xpcall(function()
       vim.api.nvim_get_current_win, vim.fn.mode, vim.api.nvim_feedkeys
     local listener
     local feeds = 0
+    local current_mode = "i"
     vim.on_key = function(callback)
       listener = callback
     end
     vim.fn.mode = function()
-      return "i"
+      return current_mode
     end
     vim.api.nvim_feedkeys = function()
       feeds = feeds + 1
@@ -277,6 +278,14 @@ local ok, err = xpcall(function()
         assert(listener == nil, "the listener must remove itself")
         vim.api.nvim_get_current_buf, vim.api.nvim_get_current_win = get_buf, get_win
       end
+      assert(feeds == 0, "a second key in another buffer or window cannot expand")
+      map.callback()
+      local mode_pending = assert(listener)
+      mode_pending(vim.keycode("<C-g>"))
+      current_mode = "n"
+      mode_pending("e")
+      assert(feeds == 0 and listener == nil, "a second key outside Insert mode cannot expand")
+      current_mode = "i"
       for _, event in ipairs({ "ModeChanged", "BufLeave", "WinLeave" }) do
         map.callback()
         assert(listener ~= nil)
