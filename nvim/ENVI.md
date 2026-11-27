@@ -141,6 +141,25 @@ See `:help emmet-md` for plugin setup and the Lua API. Run its standalone
 tests with `nvim/plugins/emmet-md/tests/run-lua.sh`. Run the envi chord tests
 through `nvim/bin/test/run.sh`.
 
+## envi snippets
+
+In Insert mode, type a snippet prefix and accept it from Blink with Enter
+or Ctrl+y. Ctrl+Space opens completion. Tab and Shift+Tab move through fields.
+
+Try `envi-decision` or `envi-callout` in Markdown. Author snippets in
+`nvim/snippets/<filetype>.json` in VS Code format or use `:Snippets new` to
+scaffold an entry. `:Snippets edit` opens the pack and `:Snippets list` opens
+the picker. The platform validates native snippet bodies, rebuilds its
+in-memory catalogue on demand after saves, and serves it through Blink.
+Use `:Snippets validate` for quickfix diagnostics and `:Snippets reload` to
+pick up edits made outside Neovim.
+
+Trusted project packs take precedence over repo snippets and friendly-snippets.
+Enable each project through `require("envi.snippets").setup`. The same Lua
+API registers providers. `:Snippets expand ul>li*3` explicitly invokes the
+emmet-md provider. See `:help envi-snippets` for trust, provider and pipeline
+details. The main test runner validates and expands every shipped snippet.
+
 ## What exists (all uncommitted on `envi/main`)
 
 | File | What it does |

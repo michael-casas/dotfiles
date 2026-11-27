@@ -1,0 +1,91 @@
+*envi-snippets.txt*  Snippet packs and providers for envi
+
+==============================================================================
+AUTHORING                                                        *envi-snippets*
+
+Add VS Code JSON to nvim/snippets/<filetype>.json. Use all.json for global
+snippets. Each key names a snippet. Its prefix is a string or a list of aliases.
+Its body is a string or a list of lines. A description is optional.
+
+Example for markdown.json: >json
+  {
+    "Example": {
+      "prefix": "envi-example",
+      "body": ["## ${1:Title}", "", "${2:Body}$0"],
+      "description": "A heading and its body"
+    }
+  }
+<
+Type the prefix and select it from Blink with Enter or Ctrl+y. Use Ctrl+Space
+to open completion. Tab and Shift+Tab move through native fields.
+
+==============================================================================
+TOOLING                                                        *:Snippets*
+
+:Snippets list         Browse and insert an entry with the Snacks picker.
+:Snippets new [prefix] Open the current filetype pack and scaffold an entry.
+:Snippets edit         Open the current filetype pack.
+:Snippets validate     Show a summary and put diagnostics in quickfix.
+:Snippets reload       Refresh the in-memory catalogue.
+:Snippets expand name  Expand a prefix, name, or explicit emmet-md abbreviation.
+
+Saving an owned pack refreshes the catalogue. Changes made outside Neovim can
+be loaded with :Snippets reload.
+
+==============================================================================
+SOURCES AND TRUST                                    *envi-snippets-sources*
+
+Project packs take precedence over repo and Lua registrations, provider
+entries, then friendly-snippets. Cross-tier shadowing appears in validation.
+Conflicting prefixes within an owned tier produce errors. The affected
+prefix is withheld. Upstream diagnostics are warnings and identical upstream
+aliases are combined.
+
+Project packs are JSON files in <project>/.envi/snippets/. They are opt-in
+for buffers within explicitly trusted real paths. Project files and symlinks
+cannot opt themselves into trust. Configure roots in user Lua: >lua
+  require("envi.snippets").setup({
+    trusted_projects = { vim.fn.expand("~/src/my-project") },
+  })
+<
+An in-memory catalogue is built from validated records. Blink serves it
+through the existing snippets provider and native Neovim inserts the bodies.
+The repo suite expands its shipped snippets and visits their tab stops.
+
+==============================================================================
+LUA API                                                  *envi-snippets-api*
+
+local snippets = require("envi.snippets")
+
+snippets.register(name, spec)
+    Register a Lua record at repo priority. A spec has prefix, body,
+    filetypes (a list), and optional description. Returns true or nil, err.
+
+snippets.register_provider(name, { list = ..., generate = ... })
+    Register a static list callback, an explicit generator, or both.
+    list(ctx) returns a list of named specs for ctx.filetype. generate(name,
+    ctx) returns one spec or nil. ctx.project is the trusted root when present.
+    Generators run only on explicit lookup, never during Blink completion.
+    Example: >lua
+      snippets.register_provider("notes", {
+        list = function(ctx)
+          if ctx.filetype ~= "markdown" then
+            return {}
+          end
+          return {{ name = "Note", prefix = "my-note", body = "> $1$0" }}
+        end,
+      })
+<
+
+snippets.list(ft)         List resolved static records for the filetype.
+snippets.get(name[, ft])  Look up a prefix, unambiguous name, or generated body.
+snippets.expand(value[, ft])
+    Expand a name or prefix at the cursor. For a literal LSP body, pass
+    { body = ... }. Returns true or nil, err.
+snippets.reload()         Invalidate the catalogue so the next use rebuilds it.
+snippets.validate()       Return diagnostics with severity, message, and path.
+
+The built-in emmet-md provider adapts its public Markdown lines and stops to
+a snippet body. It does not change emmet-md or its Insert-mode mapping.
+
+vim:tw=78:ts=8:noet:ft=help:norl:

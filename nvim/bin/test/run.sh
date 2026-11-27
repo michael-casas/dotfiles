@@ -19,4 +19,5 @@ run_suite() {
 run_suite launcher ./launcher.sh
 run_suite migrate ./migrate.sh
 EMMET_MD_ENVI_CONFIG="$(cd ../.. && pwd)" run_suite emmet-md ../../plugins/emmet-md/tests/run-lua.sh
+run_suite envi-snippets ../../tools/snippets/test/run-lua.sh
 exit $failed

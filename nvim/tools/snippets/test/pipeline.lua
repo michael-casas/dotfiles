@@ -9,7 +9,8 @@ end
 
 local function contains(diagnostics, severity, term)
   return vim.iter(diagnostics):any(function(item)
-    return item.severity == severity and item.message:find(term, 1, true) ~= nil
+    return item.severity == severity
+      and (item.message:find(term, 1, true) or (item.path or ""):find(term, 1, true)) ~= nil
   end)
 end
 
@@ -19,6 +20,8 @@ local function write(path, value)
 end
 
 local root = vim.fn.stdpath("state") .. "/test"
+vim.fn.mkdir(root, "p")
+root = assert(vim.uv.fs_realpath(root))
 local repo, project, friendly = root .. "/repo", root .. "/project", root .. "/friendly"
 local project_pack = project .. "/.envi/snippets/markdown.json"
 local function spec(prefix, body)
@@ -60,14 +63,17 @@ vim.bo.filetype = "markdown"
 
 local escaping_pack = project .. "/.envi/snippets/escape.json"
 assert(vim.uv.fs_symlink(friendly .. "/pack.json", escaping_pack))
-assert(not snippets.get("upstream", "escape"))
+snippets.reload()
+equal("friendly", snippets.get("upstream", "escape").source)
 assert(contains(snippets.validate(), "error", "escape.json"))
 
 assert(snippets.register("Registered", { prefix = "from-lua", body = "$1$0", filetypes = { "markdown" } }))
 assert(snippets.register_provider("static", {
   list = function(context)
-    equal("markdown", context.filetype)
-    return { { name = "Provided", prefix = "provided", body = "data" } }
+    if context.filetype == "markdown" then
+      return { { name = "Provided", prefix = "provided", body = "data" } }
+    end
+    return {}
   end,
 }))
 equal("Registered", snippets.get("from-lua").name)
@@ -111,30 +117,63 @@ for _, term in ipairs({ "invalid ft", "BadShape", "BadSyntax", "BadStops", "ambi
 end
 equal(nil, snippets.get("ambiguous"))
 
-snippets.setup({ repo_dir = config .. "/snippets", friendly_dir = false })
 vim.cmd("runtime plugin/envi-snippets.lua")
 assert(vim.fn.exists(":Snippets") == 2)
-local shipped = snippets.list("markdown")
-equal(2, #shipped)
-for _, entry in ipairs(shipped) do
-  vim.snippet.stop()
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "" })
-  vim.api.nvim_win_set_cursor(0, { 1, 0 })
-  assert(snippets.expand(entry.prefix, "markdown"))
-  local visited = {}
-  while vim.snippet.active({ direction = 1 }) do
-    local index = vim.snippet._session.current_tabstop.index
-    if index == 0 then
-      break
+local tool_repo = root .. "/tool-repo"
+snippets.setup({ repo_dir = tool_repo, friendly_dir = false })
+vim.cmd("Snippets new drafted")
+equal(tool_repo .. "/markdown.json", vim.api.nvim_buf_get_name(0))
+local scaffold = vim.json.decode(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"))
+equal("drafted", scaffold.drafted.prefix)
+vim.cmd.write()
+equal("${1:Text}\n$0", snippets.get("drafted", "markdown").body)
+vim.cmd.enew({ bang = true })
+vim.bo.filetype = "markdown"
+vim.cmd("Snippets edit")
+equal(tool_repo .. "/markdown.json", vim.api.nvim_buf_get_name(0))
+vim.cmd("Snippets validate")
+equal({}, vim.fn.getqflist())
+vim.cmd("Snippets reload")
+vim.cmd.enew({ bang = true })
+
+snippets.setup({ repo_dir = config .. "/snippets", friendly_dir = false })
+local grammar = vim.lsp._snippet_grammar
+local inspected = {}
+for filename in vim.fs.dir(config .. "/snippets") do
+  local filetype = filename:match("^(.*)%.json$")
+  if filetype then
+    vim.bo.filetype = filetype
+    for _, entry in ipairs(snippets.list(filetype)) do
+      if vim.startswith(entry.path, config .. "/snippets/") and not inspected[entry.path .. ":" .. entry.name] then
+        inspected[entry.path .. ":" .. entry.name] = true
+        local expected = {}
+        for _, node in ipairs(grammar.parse(entry.body).data.children) do
+          if node.data.tabstop and node.data.tabstop > 0 then
+            expected[node.data.tabstop] = true
+          end
+        end
+        vim.snippet.stop()
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { "" })
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        assert(snippets.expand(entry.prefix, filetype))
+        local visited = {}
+        while vim.snippet.active({ direction = 1 }) do
+          local index = vim.snippet._session.current_tabstop.index
+          if index == 0 then
+            break
+          end
+          assert(not visited[index], "tab stops must progress")
+          visited[index] = true
+          vim.snippet.jump(1)
+        end
+        equal(expected, visited)
+        equal(0, vim.snippet._session.current_tabstop.index)
+      end
     end
-    assert(not visited[index], "tab stops must progress")
-    visited[index] = true
-    vim.snippet.jump(1)
   end
-  equal({ [1] = true, [2] = true }, visited)
-  equal(0, vim.snippet._session.current_tabstop.index)
 end
+assert(vim.tbl_count(inspected) >= 2)
 assert(not vim.iter(snippets.validate()):any(function(item)
   return item.severity == "error"
 end))
-print("PASS envi snippets sources, trust, precedence, providers, reload, and shipped stops")
+print("PASS envi snippets sources, trust, precedence, providers, tooling, reload, and shipped stops")
