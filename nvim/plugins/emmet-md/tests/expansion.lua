@@ -1,9 +1,5 @@
-local envi = vim.env.EMMET_MD_ENVI_CONFIG
 vim.opt.rtp:prepend(vim.fn.getcwd())
 vim.cmd("runtime plugin/emmet-md.lua")
-if envi then
-  vim.opt.rtp:append(envi .. "/after")
-end
 vim.cmd.filetype("plugin on")
 vim.notify = function() end
 
@@ -33,7 +29,7 @@ local function reset(filetype, abbreviation)
   vim.api.nvim_set_current_line(abbreviation or "")
 end
 
-local trigger = envi and "<C-g>e" or "<Plug>(emmet-md-expand)"
+local trigger = "<Plug>(emmet-md-expand)"
 local function lines()
   return vim.api.nvim_buf_get_lines(0, 0, -1, false)
 end
@@ -250,17 +246,6 @@ vim.keymap.del("i", "<F6>")
 equal({ "## " }, lines(), "expand from an existing snippet")
 equal(clean_marks, snippet_marks(), "old snippet marks are removed")
 
-if envi then
-  reset("markdown", "h2{Title}")
-  local mapping = vim.fn.maparg("<C-g>", "i", false, true)
-  local lhs = next(mapping) and "<C-g>" or trigger
-  equal(true, vim.fn.maparg(lhs, "i", false, true).buffer == 1, "Markdown-local trigger")
-  vim.bo.filetype = "text"
-  equal({}, vim.fn.maparg(lhs, "i", false, true), "trigger removed on filetype change")
-  reset("rmd")
-  vim.cmd("runtime! ftplugin/markdown.lua")
-  equal({}, vim.fn.maparg(lhs, "i", false, true), "no trigger on inherited Markdown ftplugins")
-end
 reset("text")
 keys("iul>li*3")
 equal({ "ul>li*3" }, lines(), "non-Markdown typing")

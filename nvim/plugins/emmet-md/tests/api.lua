@@ -22,9 +22,33 @@ assert(type(reason) == "string" and #reason > 0)
 equal(nil, emmet.expand("ul>li*2", { max_repeat = 1 }))
 assert(emmet.expand("ul>li*2"))
 
+local function mappings()
+  local result = {}
+  for _, mode in ipairs({ "n", "x", "s", "o", "i", "c", "t", "l" }) do
+    result[mode] = vim
+      .iter(vim.api.nvim_get_keymap(mode))
+      :filter(function(map)
+        return mode ~= "i" or map.lhs ~= "<Plug>(emmet-md-expand)"
+      end)
+      :totable()
+  end
+  return result
+end
+
+local original_maps = mappings()
 vim.cmd("runtime plugin/emmet-md.lua")
-equal("", vim.fn.maparg("<C-g>", "i"))
+equal(original_maps, mappings())
 assert(vim.fn.maparg("<Plug>(emmet-md-expand)", "i") ~= "")
+assert(
+  vim.iter(vim.fn.readfile("doc/tags")):any(function(line)
+    return vim.startswith(line, "emmet-md\t")
+  end),
+  "the exact emmet-md help tag must exist"
+)
+vim.cmd.help("emmet-md")
+assert(vim.fs.basename(vim.api.nvim_buf_get_name(0)) == "emmet-md.txt")
+assert(vim.api.nvim_get_current_line():find("*emmet-md*", 1, true))
+vim.cmd.helpclose()
 
 emmet.setup({ filetypes = { "text" }, max_repeat = 2 })
 equal(nil, emmet.expand("ul>li*3"))

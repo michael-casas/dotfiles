@@ -104,8 +104,9 @@ Full reference: `nvim/lua/hcmux/README.md`.
 ## emmet-md
 
 For Markdown Emmet, type an abbreviation on its own Markdown line without
-trailing spaces. In Insert mode, press **Ctrl+g**, followed by **e**. If blink's completion
-menu is open, the chord cancels it and expands the typed abbreviation.
+trailing spaces. In Insert mode, press **Ctrl+g**, followed by **e**. The
+envi mapping lets Neovim handle native Ctrl+g commands. If Blink's completion
+menu is open, Ctrl+g then e cancels it and expands the typed abbreviation.
 Typing the abbreviation by itself leaves it as text.
 
 | Abbreviation | Output |
@@ -125,7 +126,8 @@ and parentheses to repeat or combine groups. Inside `{text}` or an element
 name, `$` uses the nearest repeat's index starting at 1. Repeat the dollar
 sign to zero-pad the number. Use `\$` for a literal dollar sign. Tab jumps
 through empty items and table cells in order, starting at the first one.
-In native snippets, a second Tab after the last field can return to field 1. Press Esc to leave the snippet.
+In native snippets, a second Tab after the last field can return to field 1.
+Press Esc to leave the snippet.
 Text supplied in braces is inserted directly, including empty text in `{}`.
 Markdown can render adjacent lists with the same marker as one loose list.
 The trigger preserves line indentation and accepts closing braces and
@@ -138,8 +140,8 @@ times, and tables can have up to 20 columns and 20 rows. A refused abbreviation
 leaves the buffer text intact and shows a warning.
 
 See `:help emmet-md` for plugin setup and the Lua API. Run its standalone
-tests with `nvim/plugins/emmet-md/tests/run-lua.sh`. Run the envi chord tests
-through `nvim/bin/test/run.sh`.
+tests with `nvim/plugins/emmet-md/tests/run-lua.sh`. The envi chord suite is
+`nvim/tools/emmet-md/test/run-lua.sh`. The repository runner includes both.
 
 ## envi snippets
 

@@ -10,8 +10,8 @@ USAGE                                                             *emmet-md*
 
 <Plug>(emmet-md-expand)                                 *<Plug>(emmet-md-expand)*
     In Insert mode, expand the abbreviation on the current line. Trailing
-    paired closing braces or parentheses are accepted. The plugin assigns
-    no user-facing key. Example: >lua
+    paired closing braces or parentheses are accepted. This is the plugin's
+    only mapping. Bind it to a key in your own config: >lua
       vim.keymap.set("i", "<M-e>", "<Plug>(emmet-md-expand)")
 <
     Examples: ul>li*3, ol>li*3, h2{A title}, todo*3, table3x2, and
