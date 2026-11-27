@@ -24,17 +24,30 @@ assert(has_tag("replacement-envi-tag") and not has_tag("initial-envi-tag"), "sta
 -- is absent, and return control to the startup script.
 local real_cmd = vim.api.nvim_cmd
 local calls = 0
+local fail_write = false
 vim.api.nvim_cmd = function(command, opts)
   if command.cmd == "helptags" then
     calls = calls + 1
-    error("simulated platform help write failure")
+    if fail_write then
+      error("simulated platform help write failure")
+    end
   end
   return real_cmd(command, opts)
 end
+local help = doc .. "/envi-snippets.txt"
+assert(vim.uv.fs_utime(help, 100, 100))
+assert(vim.uv.fs_utime(doc, 100, 100))
+assert(vim.uv.fs_utime(doc .. "/tags", 101, 101))
+source()
+assert(calls == 0, "fresh platform tags must remain untouched")
+assert(vim.uv.fs_utime(doc, 102, 102))
+source()
+assert(calls == 1, "platform tags must refresh after a directory change")
+fail_write = true
 assert(vim.uv.fs_unlink(doc .. "/tags"))
 local cwd = vim.uv.cwd()
 source()
-assert(calls == 1 and vim.fn.exists(":Snippets") == 2)
+assert(calls == 2 and vim.fn.exists(":Snippets") == 2)
 assert(vim.uv.cwd() == cwd, "failed tag generation must preserve the working directory")
 vim.api.nvim_cmd = real_cmd
 

@@ -12,6 +12,9 @@ local repaired = "try ${1:condition} then $0"
 local conflicting = "${1:first} ${1:second}$0"
 package.loaded["lazyvim.util.cmp"] = {
   snippet_fix = function(body)
+    if body == "${1:missing" then
+      return "${2:still missing"
+    end
     if body == conflicting then
       return "${1:first} ${1:first}$0"
     end

@@ -13,6 +13,7 @@ for _, file in ipairs(hostile) do
 end
 write({ '{"Owned":{"prefix":"owned","body":"body"}}' }, directory .. "/markdown.json")
 write({ '{"Custom":{"prefix":"custom","body":"body"}}' }, directory .. "/localtype.json")
+write({ '{"Unknown":{"prefix":"hidden","body":"body"}}' }, directory .. "/luua.json")
 for _, ft in ipairs({ "mdx", "norg", "templ", "typescript.tsx", "project.notes" }) do
   write({ '{"Example":{"prefix":"example","body":"body"}}' }, directory .. "/" .. ft .. ".json")
 end
@@ -66,6 +67,7 @@ end
 local snippets = require("envi.snippets")
 vim.filetype.add({ extension = { localtype = "localtype" } })
 local errors = {}
+vim.fn.mkdir(root .. "/repo", "p")
 for _, operation in ipairs({
   snippets.list,
   function()
@@ -106,6 +108,10 @@ for _, ft in ipairs({ "mdx", "norg", "templ", "typescript.tsx", "project.notes" 
 end
 
 local diagnostics = snippets.validate()
+assert(not snippets.get("hidden", "luua"))
+assert(vim.iter(diagnostics):any(function(item)
+  return item.severity == "error" and item.message:find("unknown filetype luua", 1, true)
+end))
 for _, name in ipairs(hostile) do
   assert(
     vim.iter(diagnostics):any(function(item)

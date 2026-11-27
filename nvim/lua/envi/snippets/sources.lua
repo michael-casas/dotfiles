@@ -23,6 +23,10 @@ function M.project(trusted, bufnr)
 end
 
 local function read_json(path)
+  local stat = uv.fs_stat(path)
+  if not stat or stat.type ~= "file" then
+    return nil, "expected a regular file"
+  end
   local ok, lines = pcall(vim.fn.readfile, path)
   if not ok then
     return nil, "could not read JSON"
@@ -85,15 +89,15 @@ end
 function M.owned(directory, tier, diagnostic, known_filetype, trusted_root)
   local result = {}
   local root = directory and uv.fs_realpath(directory)
-  if not root then
-    return result
-  end
-  if trusted_root and not inside(trusted_root, root) then
+  if root and trusted_root and not inside(trusted_root, root) then
     diagnostic("snippet directory escapes the trusted project", directory)
     return result
   end
-  local scanner = uv.fs_scandir(root)
+  local scanner = root and uv.fs_scandir(root)
   if not scanner then
+    if tier == "repo" then
+      vim.notify("Skipping unavailable snippet repository: " .. directory, vim.log.levels.WARN)
+    end
     return result
   end
   local filenames = {}

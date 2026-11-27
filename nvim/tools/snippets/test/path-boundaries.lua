@@ -1,5 +1,5 @@
 vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
-local root = vim.fn.stdpath("state") .. "/literal-paths"
+local root = vim.fs.normalize(vim.fn.stdpath("state") .. "/literal-paths", { expand_env = false })
 local repo = root .. "/`literal` % # [x]"
 local home = root .. "/home"
 local source = vim.fn.writefile

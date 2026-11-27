@@ -3,6 +3,10 @@ local function newer(left, right)
 end
 
 return function(directory)
+  if directory:match("^~[^/\\]") then
+    directory = "./" .. directory
+  end
+  directory = vim.fs.normalize(vim.fs.abspath(directory), { expand_env = false })
   local dir = vim.uv.fs_stat(directory)
   if not dir or dir.type ~= "directory" then
     return
@@ -23,5 +27,11 @@ return function(directory)
       return
     end
   end
-  pcall(vim.api.nvim_cmd, { cmd = "helptags", args = { directory } }, {})
+  -- :helptags globs its argument internally. Enter the directory through
+  -- libuv so only the fixed pattern "." reaches the command.
+  local cwd = vim.uv.cwd()
+  if cwd and vim.uv.chdir(directory) then
+    pcall(vim.api.nvim_cmd, { cmd = "helptags", args = { "." } }, {})
+    assert(vim.uv.chdir(cwd))
+  end
 end

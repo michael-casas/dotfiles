@@ -49,12 +49,13 @@ cannot opt themselves into trust. The loader treats pack names and trusted
 roots as literal paths. A leading ~/ selects the home directory. Configure
 roots in user Lua: >lua
   require("envi.snippets").setup({
-    trusted_projects = { vim.fn.expand("~/src/my-project") },
+    trusted_projects = { "~/src/my-project" },
   })
 <
 An in-memory catalogue is built from validated records. Blink serves it
 through the existing snippets provider and native Neovim inserts the bodies.
 The repo suite expands its shipped snippets and visits their tab stops.
+Pack entries must be regular files. Special files are skipped and reported.
 Unknown filetype pack names are validation errors. If the pinned Blink
 adapter rejects one item, the rest of completion continues and health names
 the pin. Lua, repo and project bodies must pass native snippet validation.
@@ -68,7 +69,9 @@ LUA API                                                  *envi-snippets-api*
 local snippets = require("envi.snippets")
 
 snippets.setup(opts)
-    repo_dir defaults to stdpath("config") .. "/snippets".
+    repo_dir defaults to stdpath("config") .. "/snippets". It uses literal
+    paths and accepts a leading ~/. An unavailable directory is skipped
+    with a warning when the catalogue is loaded.
     friendly_dir defaults to Blink's lazy-managed friendly-snippets pack.
     Pass a directory to use another pack or false to disable the source.
     trusted_projects must be a list of nonempty directory paths. Missing
@@ -76,8 +79,10 @@ snippets.setup(opts)
     replacing the previous configuration.
     filetypes accepts additional filetype names for packs such as
     project.notes.json. Types in Neovim's runtime and matching filename or
-    extension registrations are detected automatically. Use this list for
-    custom types whose detection rules use a different name.
+    extension registrations are detected automatically. Use this option for
+    local custom types. For a checked-in pack, add the type to the list in
+    lua/envi/snippets/filetypes.lua so startup and nvim/bin/test/run.sh use
+    the same defaults.
 
 snippets.register(name, spec)
     Register a Lua record at repo priority. A spec has prefix, body,

@@ -12,12 +12,18 @@ local function pack_path()
   if not schema.filetype(filetype) then
     return nil, "set a valid filetype before editing its snippets"
   end
-  return snippets._repo_dir() .. "/" .. filetype .. ".json"
+  local repo = snippets._repo_dir()
+  if repo == "" then
+    return nil, "configure a snippet repository before editing packs"
+  end
+  return repo .. "/" .. filetype .. ".json"
 end
 
 local function open_pack(path)
   vim.fn.mkdir(vim.fs.dirname(path), "p")
-  vim.cmd.edit({ args = { path } })
+  local buffer = vim.fn.bufadd(path)
+  vim.bo[buffer].buflisted = true
+  vim.api.nvim_set_current_buf(buffer)
 end
 
 local function edit()

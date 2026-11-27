@@ -104,15 +104,17 @@ function M:get_completions(context, callback)
     local snippets = require("envi.snippets")
     local instance = registry()
     local items = {}
+    local pass_failure
     for _, record in ipairs(snippets.list(nil, context.bufnr)) do
       local converted, item = pcall(convert, instance, record, context)
       if converted then
         items[#items + 1] = item
       else
-        record_failure = record_failure or ("snippet " .. record.prefix .. ": " .. tostring(item))
-        warn(record_failure)
+        pass_failure = pass_failure or ("snippet " .. record.prefix .. ": " .. tostring(item))
+        warn(pass_failure)
       end
     end
+    record_failure = pass_failure
     return items
   end)
   if not ok then

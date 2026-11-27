@@ -11,13 +11,20 @@ function M.reload()
 end
 
 function M.setup(options)
-  local candidate = vim.tbl_extend(
-    "force",
-    { repo_dir = vim.fn.stdpath("config") .. "/snippets", trusted_projects = {}, filetypes = {} },
-    options or {}
-  )
+  local candidate = vim.tbl_extend("force", {
+    repo_dir = vim.fn.stdpath("config") .. "/snippets",
+    trusted_projects = {},
+    filetypes = require("envi.snippets.filetypes"),
+  }, options or {})
   assert(vim.islist(candidate.trusted_projects), "trusted_projects must be a list of directory paths")
   assert(type(candidate.repo_dir) == "string", "repo_dir must be a directory path")
+  if candidate.repo_dir ~= "" then
+    local path = candidate.repo_dir
+    if path:match("^~[^/\\]") then
+      path = "./" .. path
+    end
+    candidate.repo_dir = vim.fs.normalize(vim.fs.abspath(path), { expand_env = false })
+  end
   assert(vim.islist(candidate.filetypes), "filetypes must be a list of filetype names")
   for _, ft in ipairs(candidate.filetypes) do
     assert(schema.filetype(ft), "filetypes must contain valid filetype names")
