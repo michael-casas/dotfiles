@@ -15,9 +15,9 @@ local ok, err = xpcall(function()
   end
 
   lua([[
-    local config = vim.fn.getcwd() .. "/nvim"
-    vim.opt.rtp:prepend(config)
-    vim.opt.rtp:append(config .. "/after")
+    vim.opt.rtp:prepend(vim.fn.getcwd())
+    vim.cmd("runtime plugin/emmet-md.lua")
+    vim.opt.rtp:append(vim.env.EMMET_MD_ENVI_CONFIG .. "/after")
     vim.cmd.filetype("plugin on")
     vim.o.timeoutlen = 300
     vim.notify = function(message, level)

@@ -1,0 +1,5 @@
+:EmmetMd	emmet-md.txt	/*:EmmetMd*
+<Plug>(emmet-md-expand)	emmet-md.txt	/*<Plug>(emmet-md-expand)*
+emmet-md	emmet-md.txt	/*emmet-md*
+emmet-md-api	emmet-md.txt	/*emmet-md-api*
+emmet-md.txt	emmet-md.txt	/*emmet-md.txt*

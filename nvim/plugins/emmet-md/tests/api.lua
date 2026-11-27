@@ -1,4 +1,4 @@
-vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim/plugins/emmet-md")
+vim.opt.rtp:prepend(vim.fn.getcwd())
 
 local function equal(expected, actual)
   assert(vim.deep_equal(expected, actual), vim.inspect({ expected = expected, actual = actual }))

@@ -101,19 +101,7 @@ T3 thread buffers show **T3 updating…** during a desktop update and
 
 Full reference: `nvim/lua/hcmux/README.md`.
 
-## Insert-mode snippets and Markdown Emmet
-
-Type a snippet prefix in Insert mode and select the snippet from blink's
-completion menu with Enter or Ctrl+y. Ctrl+Space opens the menu if it is
-closed. Use Tab to go to the next field and Shift+Tab to go back.
-
-In Markdown, try `envi-decision` for a decision heading and rationale or
-`envi-callout` for a callout with an editable type and body. Add your own
-snippets to `nvim/snippets/<filetype>.json` in VS Code format. Each entry has a
-`prefix` and a `body` (a string or an array of lines), with an optional
-`description`. Use `${1:Title}` for a field with default text, `$2` for an
-empty field, and `$0` for the final cursor position. Blink also loads
-friendly-snippets.
+## emmet-md
 
 For Markdown Emmet, type an abbreviation on its own Markdown line without
 trailing spaces. In Insert mode, press **Ctrl+g**, followed by **e**. If blink's completion
@@ -149,7 +137,9 @@ group iterations and table cells. Each element or group can repeat up to 50
 times, and tables can have up to 20 columns and 20 rows. A refused abbreviation
 leaves the buffer text intact and shows a warning.
 
-Run the isolated tests with `nvim/tools/markdown-emmet/test/run-lua.sh`.
+See `:help emmet-md` for plugin setup and the Lua API. Run its standalone
+tests with `nvim/plugins/emmet-md/tests/run-lua.sh`. Run the envi chord tests
+through `nvim/bin/test/run.sh`.
 
 ## What exists (all uncommitted on `envi/main`)
 

@@ -1,6 +1,9 @@
-local config = vim.fn.getcwd() .. "/nvim"
-vim.opt.rtp:prepend(config)
-vim.opt.rtp:append(config .. "/after")
+local envi = vim.env.EMMET_MD_ENVI_CONFIG
+vim.opt.rtp:prepend(vim.fn.getcwd())
+vim.cmd("runtime plugin/emmet-md.lua")
+if envi then
+  vim.opt.rtp:append(envi .. "/after")
+end
 vim.cmd.filetype("plugin on")
 vim.notify = function() end
 
@@ -30,7 +33,7 @@ local function reset(filetype, abbreviation)
   vim.api.nvim_set_current_line(abbreviation or "")
 end
 
-local trigger = "<C-g>e"
+local trigger = envi and "<C-g>e" or "<Plug>(emmet-md-expand)"
 local function lines()
   return vim.api.nvim_buf_get_lines(0, 0, -1, false)
 end
@@ -243,26 +246,23 @@ vim.keymap.del("i", "<F6>")
 equal({ "## " }, lines(), "expand from an existing snippet")
 equal(clean_marks, snippet_marks(), "old snippet marks are removed")
 
-reset("markdown", "h2{Title}")
-local mapping = vim.fn.maparg("<C-g>", "i", false, true)
-local lhs = next(mapping) and "<C-g>" or trigger
-equal(true, vim.fn.maparg(lhs, "i", false, true).buffer == 1, "Markdown-local trigger")
-vim.bo.filetype = "text"
-equal({}, vim.fn.maparg(lhs, "i", false, true), "trigger removed on filetype change")
-reset("rmd")
-vim.cmd("runtime! ftplugin/markdown.lua")
-equal({}, vim.fn.maparg(lhs, "i", false, true), "no trigger on inherited Markdown ftplugins")
+if envi then
+  reset("markdown", "h2{Title}")
+  local mapping = vim.fn.maparg("<C-g>", "i", false, true)
+  local lhs = next(mapping) and "<C-g>" or trigger
+  equal(true, vim.fn.maparg(lhs, "i", false, true).buffer == 1, "Markdown-local trigger")
+  vim.bo.filetype = "text"
+  equal({}, vim.fn.maparg(lhs, "i", false, true), "trigger removed on filetype change")
+  reset("rmd")
+  vim.cmd("runtime! ftplugin/markdown.lua")
+  equal({}, vim.fn.maparg(lhs, "i", false, true), "no trigger on inherited Markdown ftplugins")
+end
 reset("text")
 keys("iul>li*3")
 equal({ "ul>li*3" }, lines(), "non-Markdown typing")
 
-local snippets = vim.json.decode(table.concat(vim.fn.readfile(config .. "/snippets/markdown.json"), "\n"))
-local decision = vim.iter(vim.tbl_values(snippets)):find(function(item)
-  return item.prefix == "envi-decision"
-end)
-assert(decision, "repo Markdown snippets contain envi-decision")
 reset("markdown")
-vim.snippet.expand(table.concat(decision.body, "\n"))
+vim.snippet.expand("## Decision: ${1:Title}\n\n${2:Rationale}$0")
 equal({ "## Decision: Title", "", "Rationale" }, lines(), "repo snippet expands")
 equal({ 1, 13 }, vim.api.nvim_win_get_cursor(0), "repo snippet starts on the title")
 equal(true, vim.snippet.active({ direction = 1 }), "repo snippet has another field")

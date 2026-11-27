@@ -6,7 +6,7 @@ vim.keymap.set("i", "<C-g>", function()
   -- Read a whole key so the chord does not time out as a mapping prefix.
   local key = vim.fn.getcharstr()
   if key == "e" then
-    return "<Cmd>lua require('envi.markdown_emmet').expand()<CR>"
+    return "<Plug>(emmet-md-expand)"
   end
   return "<C-g>" .. key
 end, { buffer = 0, expr = true, desc = "Insert Ctrl+g commands and Markdown Emmet (e)" })

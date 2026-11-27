@@ -1,0 +1,59 @@
+*emmet-md.txt*  Emmet-style Markdown abbreviations
+
+==============================================================================
+USAGE                                                             *emmet-md*
+
+:EmmetMd [abbreviation]                                            *:EmmetMd*
+    Insert the supplied abbreviation at the cursor. With no argument,
+    replace the current line's abbreviation and preserve indentation.
+    The command works in configured filetypes only.
+
+<Plug>(emmet-md-expand)                                 *<Plug>(emmet-md-expand)*
+    In Insert mode, expand the abbreviation on the current line. Trailing
+    paired closing braces or parentheses are accepted. The plugin assigns
+    no user-facing key. Example: >lua
+      vim.keymap.set("i", "<M-e>", "<Plug>(emmet-md-expand)")
+<
+    Examples: ul>li*3, ol>li*3, h2{A title}, todo*3, table3x2, and
+    table>tr*2>td*3. Tables count the header as a row. The grammar supports
+    child (>), sibling (+), climb (^), groups, repeats, and numbering ($).
+    Text inside braces is literal apart from backslash escaping and
+    numbering. Markdown can render adjacent same-marker lists as a single
+    loose list.
+
+==============================================================================
+LUA API                                                       *emmet-md-api*
+
+require("emmet-md").setup(opts)
+    Configure editor entry points and default limits. Omitted keys reset to
+    defaults. Supported keys and defaults: >lua
+      {
+        max_length = 512,           -- input bytes
+        max_repeat = 50,            -- repeat count per element or group
+        max_nodes = 512,             -- total expanded nodes and table cells
+        max_table_dimension = 20,   -- rows or columns
+        filetypes = { "markdown" },
+        notify_level = vim.log.levels.WARN,
+      }
+<
+require("emmet-md").expand(abbr, opts)
+    Pure expansion using the configured limits. Optional opts override
+    limits for the call. Returns Markdown lines and an ordered list of
+    empty stops. Each stop has index, row (1-based), and col (0-based byte
+    offset). Index 0 is the final cursor position. Returns nil, err on
+    refusal. No buffer, cursor, or mode is read or modified.
+
+require("emmet-md").parse(abbr)
+    Pure syntax parse using configured limits. Returns a list of AST nodes
+    or nil, err. Element nodes contain name, optional text and count, and
+    children. Group nodes have group and optional count instead of name.
+    Rendering validates which elements can be combined in Markdown.
+
+require("emmet-md").expand_at_cursor()
+    Invoke the Insert-mode buffer operation. It requires a modifiable
+    buffer in a configured filetype. A refused abbreviation leaves the
+    text intact and reports a warning at the configured level.
+
+Run |:checkhealth| emmet-md to check native snippet support.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
