@@ -277,6 +277,20 @@ local ok, err = xpcall(function()
         assert(listener == nil, "the listener must remove itself")
         vim.api.nvim_get_current_buf, vim.api.nvim_get_current_win = get_buf, get_win
       end
+      for _, event in ipairs({ "ModeChanged", "BufLeave", "WinLeave" }) do
+        map.callback()
+        assert(listener ~= nil)
+        vim.api.nvim_exec_autocmds(event, {})
+        assert(listener == nil, event .. " must clear the listener")
+      end
+      map.callback()
+      local pending = assert(listener)
+      pending(vim.keycode("<C-g>"))
+      vim.api.nvim_get_current_win = function()
+        error("test failure while processing the second key")
+      end
+      local completed = pcall(pending, "e")
+      assert(not completed and listener == nil, "the listener must clear before handling a key")
       return feeds == 0
     end)
     vim.on_key, vim.api.nvim_get_current_buf, vim.api.nvim_get_current_win = on_key, get_buf, get_win
