@@ -72,7 +72,9 @@ assert(vim.iter(snippets.validate()):any(function(item)
   return item.kind == "upstream_alias" and item.message == "markdown: identical upstream alias provided"
 end))
 equal(1, #with_prefix("provided", "markdown"))
-assert(contains(snippets.validate(), "warning", "same"))
+assert(vim.iter(snippets.validate()):any(function(item)
+  return item.severity == "warning" and item.kind == "owned_shadowing" and item.message:find("prefix same", 1, true)
+end))
 
 snippets.setup({ repo_dir = repo, friendly_dir = friendly, trusted_projects = { project } })
 equal("project $1$0", snippets.get("same").body)
