@@ -245,6 +245,44 @@ local ok, err = xpcall(function()
 
   assert(#failures == 0, table.concat(failures, "\n"))
 
+  for _, key in ipairs({ "u", "E", "e" }) do
+    fresh({ "h2" })
+    local count = lua("return vim.on_key()")
+    keys("A<C-g>" .. key .. "<Esc>")
+    equal({ key == "e" and "## " or "h2" }, lines(), "only lowercase e expands")
+    equal({}, lua("return _G.emmet_test_notices"), "no notice after a valid or native chord")
+    equal(count, lua("return vim.on_key()"), "a finished chord removes its listener")
+    lua("vim.api.nvim_set_current_line('h2{Titl}')")
+    keys("A<Left>e<Esc>")
+    equal({ "h2{Title}" }, lines(), "a later plain e is text")
+  end
+
+  local function complete(abbreviation, second_key, after, filetype)
+    fresh({ abbreviation, "" }, filetype)
+    lua("vim.api.nvim_win_set_cursor(0, {2, 0})")
+    input("iul<C-x><C-l><C-n>")
+    assert(
+      vim.wait(1000, function()
+        return lua("return vim.fn.pumvisible()") == 1
+      end),
+      "native line completion did not open"
+    )
+    keys("<C-g>" .. second_key .. after .. "<Esc>")
+    return lines()
+  end
+  equal({ "ul>li*2", "- X", "- " }, complete("ul>li*2", "e", "X"), "first chord in native completion")
+  complete("ul gibberish", "e", "")
+  local notices = lua("return _G.emmet_test_notices")
+  equal(1, #notices, "one refusal from native completion")
+  equal(vim.log.levels.WARN, notices[1] and notices[1][2], "refusal from native completion is a warning")
+  for _, key in ipairs({ "u", "j" }) do
+    equal(
+      complete("ul>li*2", key, "X", "text"),
+      complete("ul>li*2", key, "X"),
+      "native completion preserves Ctrl+g " .. key
+    )
+  end
+
   fresh({ "h2" })
   equal(
     true,
@@ -252,11 +290,13 @@ local ok, err = xpcall(function()
     local map = vim.fn.maparg("<C-g>", "i", false, true)
     local on_key, get_buf, get_win, mode, feed = vim.on_key, vim.api.nvim_get_current_buf,
       vim.api.nvim_get_current_win, vim.fn.mode, vim.api.nvim_feedkeys
-    local listener
+    local slots = {}
+    local ns = assert(vim.api.nvim_get_namespaces()["envi-emmet-md-chord"])
     local feeds = 0
     local current_mode = "i"
-    vim.on_key = function(callback)
-      listener = callback
+    vim.on_key = function(callback, namespace)
+      assert(namespace == ns, "the same namespace must register and clear the listener")
+      slots[namespace] = callback
     end
     vim.fn.mode = function()
       return current_mode
@@ -267,7 +307,7 @@ local ok, err = xpcall(function()
     local ok, result = pcall(function()
       for _, changed in ipairs({ "buffer", "window" }) do
         map.callback()
-        local pending = assert(listener, "the chord should watch the native second key")
+        local pending = assert(slots[ns], "the chord should watch the native second key")
         pending(vim.keycode("<C-g>"))
         if changed == "buffer" then
           vim.api.nvim_get_current_buf = function() return -1 end
@@ -275,31 +315,31 @@ local ok, err = xpcall(function()
           vim.api.nvim_get_current_win = function() return -1 end
         end
         pending("e")
-        assert(listener == nil, "the listener must remove itself")
+        assert(slots[ns] == nil, "the listener must remove itself")
         vim.api.nvim_get_current_buf, vim.api.nvim_get_current_win = get_buf, get_win
       end
       assert(feeds == 0, "a second key in another buffer or window cannot expand")
       map.callback()
-      local mode_pending = assert(listener)
+      local mode_pending = assert(slots[ns])
       mode_pending(vim.keycode("<C-g>"))
       current_mode = "n"
       mode_pending("e")
-      assert(feeds == 0 and listener == nil, "a second key outside Insert mode cannot expand")
+      assert(feeds == 0 and slots[ns] == nil, "a second key outside Insert mode cannot expand")
       current_mode = "i"
       for _, event in ipairs({ "ModeChanged", "BufLeave", "WinLeave" }) do
         map.callback()
-        assert(listener ~= nil)
+        assert(slots[ns] ~= nil)
         vim.api.nvim_exec_autocmds(event, {})
-        assert(listener == nil, event .. " must clear the listener")
+        assert(slots[ns] == nil, event .. " must clear the listener")
       end
       map.callback()
-      local pending = assert(listener)
+      local pending = assert(slots[ns])
       pending(vim.keycode("<C-g>"))
       vim.api.nvim_get_current_win = function()
         error("test failure while processing the second key")
       end
       local completed = pcall(pending, "e")
-      assert(not completed and listener == nil, "the listener must clear before handling a key")
+      assert(not completed and slots[ns] == nil, "the listener must clear before handling a key")
       return feeds == 0
     end)
     vim.on_key, vim.api.nvim_get_current_buf, vim.api.nvim_get_current_win = on_key, get_buf, get_win
@@ -308,6 +348,30 @@ local ok, err = xpcall(function()
     return result
   ]]),
     "changing the buffer or window before the second key cannot expand"
+  )
+
+  fresh({ "h2" })
+  equal(
+    true,
+    lua([[
+    local group = "EnviEmmetMdChord" .. vim.api.nvim_get_current_buf()
+    assert(#vim.api.nvim_get_autocmds({ group = group }) == 3)
+    vim.cmd("runtime! ftplugin/markdown.lua")
+    assert(#vim.api.nvim_get_autocmds({ group = group }) == 3, "reload must clear prior cleanup hooks")
+    vim.bo.filetype = "text"
+    return not pcall(vim.api.nvim_get_autocmds, { group = group })
+  ]]),
+    "undo_ftplugin removes cleanup hooks"
+  )
+
+  lua("vim.keymap.del('i', '<Plug>(emmet-md-expand)')")
+  fresh({ "abc" })
+  keys("A<C-g>e<Esc>")
+  equal({ "abc" }, lines(), "absent plugin leaves the buffer intact")
+  equal(
+    pass_through("text", "u", 0, "ione", "two<Esc>u"),
+    pass_through("markdown", "u", 0, "ione", "two<Esc>u"),
+    "absent plugin preserves native Ctrl+g u"
   )
 
   assert(#failures == 0, table.concat(failures, "\n"))

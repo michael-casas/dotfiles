@@ -1,6 +1,6 @@
 local config = vim.fn.getcwd()
 
-local plugin = vim.fn.stdpath("state") .. "/standalone-emmet-md"
+local plugin = vim.fn.stdpath("state") .. "/standalone-emmet-md [x] $ % #"
 vim.fn.mkdir(plugin .. "/plugin", "p")
 vim.fn.mkdir(plugin .. "/doc", "p")
 local plugin_file = plugin .. "/plugin/emmet-md.lua"
