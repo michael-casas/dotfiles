@@ -1,0 +1,125 @@
+*envi-snippets.txt*  Snippet packs and providers for envi
+
+==============================================================================
+AUTHORING                                                        *envi-snippets*
+
+Add VS Code JSON to nvim/snippets/<filetype>.json. Use all.json for global
+snippets. Each key names a snippet. Its prefix is a string or a list of aliases.
+Its body is a string or a list of lines. A description is optional.
+
+Example for markdown.json: >json
+  {
+    "Example": {
+      "prefix": "envi-example",
+      "body": ["## ${1:Title}", "", "${2:Body}$0"],
+      "description": "A heading and its body"
+    }
+  }
+<
+Type the prefix and select it from Blink with Enter or Ctrl+y. Use Ctrl+Space
+to open completion. Tab and Shift+Tab move through native fields.
+
+==============================================================================
+TOOLING                                                        *:Snippets*
+
+:Snippets list         Browse and insert an entry with the Snacks picker.
+:Snippets new [prefix] Open the current filetype pack and scaffold an entry.
+:Snippets edit         Open the current filetype pack.
+:Snippets validate     Show a summary and put diagnostics in quickfix.
+:Snippets reload       Refresh the in-memory catalogue.
+:Snippets expand name  Expand a prefix, name, or explicit emmet-md abbreviation.
+
+Saving an owned pack refreshes the catalogue. Changes made outside Neovim can
+be loaded with :Snippets reload.
+
+==============================================================================
+SOURCES AND TRUST                                    *envi-snippets-sources*
+
+Project packs take precedence over repo and Lua registrations, provider
+entries, then friendly-snippets. Cross-tier shadowing appears in validation.
+Conflicting prefixes within an owned tier produce errors. The affected
+prefix is withheld. Distinct upstream bodies sharing a prefix all appear
+in completion. An owned definition shadows the upstream prefix. Identical
+upstream aliases are combined. Health reports upstream invalid bodies,
+identical upstream aliases, and owned shadowing diagnostics separately.
+
+Project packs are JSON files in <project>/.envi/snippets/. They are opt-in
+for buffers within explicitly trusted real paths. Project files and symlinks
+cannot opt themselves into trust. The loader treats pack names and trusted
+roots as literal paths. A leading ~/ selects the home directory. Configure
+roots in user Lua: >lua
+  require("envi.snippets").setup({
+    trusted_projects = { "~/src/my-project" },
+  })
+<
+An in-memory catalogue is built from validated records. Blink serves it
+through the existing snippets provider and native Neovim inserts the bodies.
+The repo suite expands its shipped snippets and visits their tab stops.
+Pack entries must be regular files. Special files are skipped and reported.
+Unknown filetype pack names are validation errors. If the pinned Blink
+adapter rejects one item, the rest of completion continues and health names
+the pin. Lua, repo and project bodies must pass native snippet validation.
+Upstream bodies also qualify if LazyVim's snippet repair makes them valid.
+The pinned packs report 121 invalid upstream entries, 49 identical aliases,
+and zero owned shadowing diagnostics with the shipped configuration.
+
+==============================================================================
+LUA API                                                  *envi-snippets-api*
+
+local snippets = require("envi.snippets")
+
+snippets.setup(opts)
+    repo_dir defaults to stdpath("config") .. "/snippets". It uses literal
+    paths and accepts a leading ~/. An unavailable directory is skipped
+    with a warning when the catalogue is loaded.
+    friendly_dir defaults to Blink's lazy-managed friendly-snippets pack.
+    Pass a directory to use another pack or false to disable the source.
+    trusted_projects must be a list of nonempty directory paths. Missing
+    roots are skipped with a warning. Invalid option types raise before
+    replacing the previous configuration.
+    filetypes accepts additional filetype names for packs such as
+    project.notes.json. Types in Neovim's runtime and matching filename or
+    extension registrations are detected automatically. Use this option for
+    local custom types. For a checked-in pack, add the type to the list in
+    lua/envi/snippets/filetypes.lua so startup and nvim/bin/test/run.sh use
+    the same defaults.
+
+snippets.register(name, spec)
+    Register a Lua record at repo priority. A spec has prefix, body,
+    filetypes (a list), and optional description. Returns true or nil, err.
+
+snippets.register_provider(name, { list = ..., generate = ... })
+    Register a static list callback, an explicit generator, or both.
+    list(ctx) returns a list of named specs for ctx.filetype. generate(name,
+    ctx) returns one spec or nil. ctx.project is the trusted root when present.
+    Generators run only on explicit lookup, never during Blink completion.
+    Example: >lua
+      snippets.register_provider("notes", {
+        list = function(ctx)
+          if ctx.filetype ~= "markdown" then
+            return {}
+          end
+          return {{ name = "Note", prefix = "my-note", body = "> $1$0" }}
+        end,
+      })
+<
+
+snippets.list([ft[, bufnr]])
+    List resolved static records. Filetype and project default to the
+    current buffer. Use bufnr to resolve another buffer's project.
+snippets.get(name[, ft])  Look up a prefix, unambiguous name, or generated body.
+    A prefix with multiple upstream bodies returns nil, err. Use a unique
+    snippet name or pick the variant from completion. An upstream record's
+    body is the original text, including when it needs LazyVim's repair.
+snippets.expand(value[, ft])
+    Expand a name or prefix at the cursor. For a literal LSP body, pass
+    { body = ... }. Named upstream expansion and the picker use the same
+    repair as completion. Literal bodies must pass native validation.
+    Returns true or nil, err.
+snippets.reload()         Invalidate the catalogue so the next use rebuilds it.
+snippets.validate()       Return diagnostics with severity, message, and path.
+
+The built-in emmet-md provider adapts its public Markdown lines and stops to
+a snippet body. It does not change emmet-md or its Insert-mode mapping.
+
+vim:tw=78:ts=8:noet:ft=help:norl:

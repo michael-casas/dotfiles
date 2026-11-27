@@ -1,0 +1,10 @@
+vim.opt.rtp:prepend(vim.fn.getcwd() .. "/nvim")
+local repo = vim.fn.tempname()
+vim.fn.mkdir(repo, "p")
+vim.fn.writefile({ '{"Example":{"prefix":"example","body":"template"}}' }, repo .. "/project.notes.json")
+package.loaded["envi.snippets.filetypes"] = { "project.notes" }
+local snippets = require("envi.snippets")
+snippets.setup({ repo_dir = repo, friendly_dir = false })
+assert(snippets.get("example", "project.notes"), "setup defaults must use the repository filetype list")
+assert(#snippets.validate() == 0, "the repository validation must accept its shared allowlist")
+print("PASS repository filetype defaults match headless validation")
