@@ -196,10 +196,10 @@ local ok, err = xpcall(function()
   fresh({ "h2{Title}" })
   equal(1, lua("return vim.fn.maparg('<C-g>', 'i', false, true).buffer"), "Markdown-local trigger")
   lua("vim.bo.filetype = 'text'")
-  equal({}, lua("return vim.fn.maparg('<C-g>', 'i', false, true)"), "trigger removed on filetype change")
+  equal("", lua("return vim.fn.maparg('<C-g>', 'i')"), "trigger removed on filetype change")
   fresh({ "h2{Title}" }, "rmd")
   lua("vim.cmd('runtime! ftplugin/markdown.lua')")
-  equal({}, lua("return vim.fn.maparg('<C-g>', 'i', false, true)"), "no trigger on inherited Markdown ftplugins")
+  equal("", lua("return vim.fn.maparg('<C-g>', 'i')"), "no trigger on inherited Markdown ftplugins")
 
   for _, gap in ipairs({ 0, 600 }) do
     for _, key in ipairs({ "—", "“", "…", "À", "。", "😀" }) do
@@ -259,8 +259,8 @@ local ok, err = xpcall(function()
 
   local function complete(abbreviation, second_key, after, filetype)
     fresh({ abbreviation, "" }, filetype)
-    lua("vim.api.nvim_win_set_cursor(0, {2, 0})")
-    input("iul<C-x><C-l><C-n>")
+    lua("vim.o.completeopt = 'menu,menuone'; vim.api.nvim_win_set_cursor(0, {2, 0})")
+    input("iul<C-x><C-l>")
     assert(
       vim.wait(1000, function()
         return lua("return vim.fn.pumvisible()") == 1
@@ -282,6 +282,7 @@ local ok, err = xpcall(function()
       "native completion preserves Ctrl+g " .. key
     )
   end
+  assert(#failures == 0, table.concat(failures, "\n"))
 
   fresh({ "h2" })
   equal(
@@ -326,11 +327,20 @@ local ok, err = xpcall(function()
       mode_pending("e")
       assert(feeds == 0 and slots[ns] == nil, "a second key outside Insert mode cannot expand")
       current_mode = "i"
+      map.callback()
+      local completion_pending = assert(slots[ns])
+      completion_pending(vim.keycode("<C-g>"))
+      vim.api.nvim_exec_autocmds("ModeChanged", { buffer = 0 })
+      assert(slots[ns] == completion_pending, "leaving native completion must retain the chord")
+      completion_pending(vim.keycode("<MouseMove>"))
+      assert(slots[ns] == completion_pending, "mouse motion must not consume the second key")
       for _, event in ipairs({ "ModeChanged", "BufLeave", "WinLeave" }) do
         map.callback()
         assert(slots[ns] ~= nil)
-        vim.api.nvim_exec_autocmds(event, {})
+        current_mode = "n"
+        vim.api.nvim_exec_autocmds(event, { buffer = 0 })
         assert(slots[ns] == nil, event .. " must clear the listener")
+        current_mode = "i"
       end
       map.callback()
       local pending = assert(slots[ns])

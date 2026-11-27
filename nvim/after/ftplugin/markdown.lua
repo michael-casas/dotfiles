@@ -4,13 +4,21 @@ end
 
 local plug = "<Plug>(emmet-md-expand)"
 local ns = vim.api.nvim_create_namespace("envi-emmet-md-chord")
+local mouse_move = vim.keycode("<MouseMove>")
+local group = "EnviEmmetMdChord" .. vim.api.nvim_get_current_buf()
 local function clear_listener()
   vim.on_key(nil, ns)
 end
 
 vim.api.nvim_create_autocmd({ "ModeChanged", "BufLeave", "WinLeave" }, {
-  group = vim.api.nvim_create_augroup("EnviEmmetMdChord", { clear = true }),
-  callback = clear_listener,
+  group = vim.api.nvim_create_augroup(group, { clear = true }),
+  buffer = 0,
+  callback = function(event)
+    -- Native Ctrl+G can dismiss the popup before reading its second key.
+    if event.event ~= "ModeChanged" or vim.fn.mode() ~= "i" then
+      clear_listener()
+    end
+  end,
 })
 
 vim.keymap.set("i", "<C-g>", function()
@@ -22,6 +30,9 @@ vim.keymap.set("i", "<C-g>", function()
   local win, buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
   local reading_second_key = false
   vim.on_key(function(key)
+    if key == mouse_move then
+      return
+    end
     if not reading_second_key then
       reading_second_key = true
       return -- The native Ctrl+G returned by this map.
@@ -39,5 +50,7 @@ vim.keymap.set("i", "<C-g>", function()
   return "<C-g>"
 end, { buffer = 0, expr = true, desc = "Insert Ctrl+g commands and Markdown Emmet (e)" })
 
-local undo = "silent! iunmap <buffer> <C-g>"
+local undo = ("silent! iunmap <buffer> <C-g> | silent! call luaeval('vim.api.nvim_del_augroup_by_name(_A)', %q)"):format(
+  group
+)
 vim.b.undo_ftplugin = vim.b.undo_ftplugin and (vim.b.undo_ftplugin .. " | " .. undo) or undo
