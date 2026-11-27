@@ -8,4 +8,9 @@ export XDG_CONFIG_HOME="$sandbox/config" XDG_DATA_HOME="$sandbox/data"
 export XDG_STATE_HOME="$sandbox/state" XDG_CACHE_HOME="$sandbox/cache"
 export NVIM_APPNAME=envi-markdown-emmet-test
 
-nvim --headless -u NONE -i NONE -n -l nvim/tools/markdown-emmet/test/expansion.lua
+if [ "$#" -eq 0 ]; then
+  set -- expansion interaction
+fi
+for suite do
+  nvim --headless -u NONE -i NONE -n -l "nvim/tools/markdown-emmet/test/$suite.lua"
+done
