@@ -2,13 +2,19 @@ local socket = vim.fn.tempname()
 local server = vim.system({ vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-n", "--listen", socket })
 
 local ok, err = xpcall(function()
+  local channel
   assert(
     vim.wait(3000, function()
-      return vim.uv.fs_stat(socket) ~= nil
+      if vim.uv.fs_stat(socket) then
+        local connected, id = pcall(vim.fn.sockconnect, "pipe", socket, { rpc = true })
+        if connected and id > 0 then
+          channel = id
+          return true
+        end
+      end
     end, 20),
     "test Neovim did not start"
   )
-  local channel = vim.fn.sockconnect("pipe", socket, { rpc = true })
 
   local function lua(source, ...)
     return vim.rpcrequest(channel, "nvim_exec_lua", source, { ... })
@@ -40,7 +46,7 @@ local ok, err = xpcall(function()
     lua(
       [[
       vim.snippet.stop()
-      vim.cmd.enew({ bang = true })
+      vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(true, false))
       local lines, filetype = ...
       vim.bo.filetype = filetype
       vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)

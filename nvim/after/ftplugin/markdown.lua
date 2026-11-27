@@ -50,7 +50,8 @@ vim.keymap.set("i", "<C-g>", function()
   return "<C-g>"
 end, { buffer = 0, expr = true, desc = "Insert Ctrl+g commands and Markdown Emmet (e)" })
 
-local undo = ("silent! iunmap <buffer> <C-g> | silent! call luaeval('vim.api.nvim_del_augroup_by_name(_A)', %q)"):format(
-  group
-)
+local undo = table.concat({
+  [[call luaeval('pcall(vim.api.nvim_buf_del_keymap, 0, "i", "<C-g>")')]],
+  ("call luaeval('pcall(vim.api.nvim_del_augroup_by_name, _A)', %q)"):format(group),
+}, " | ")
 vim.b.undo_ftplugin = vim.b.undo_ftplugin and (vim.b.undo_ftplugin .. " | " .. undo) or undo
