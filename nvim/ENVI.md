@@ -70,8 +70,8 @@ link, never what it points to), and the folders
 `$XDG_STATE_HOME/envi-dev/<slot>` and `$XDG_CACHE_HOME/envi-dev/<slot>`. End
 its session with `envi-dev kill dev-<slot>` inside any worktree.
 
-**Tests.** `nvim/bin/test/run.sh` proves the launcher, the dev profile and the
-cutover in a throwaway `HOME` (a fake `hc`; nothing real is touched).
+**Tests.** `nvim/bin/test/run.sh` tests the launcher, dev profile, cutover, and
+Markdown editing in isolated environments.
 
 ## Keys added for envi
 
@@ -100,6 +100,48 @@ T3 thread buffers show **T3 updating…** during a desktop update and
 **T3 server restarted (<version>)** once afterwards.
 
 Full reference: `nvim/lua/hcmux/README.md`.
+
+## emmet-md
+
+For Markdown Emmet, type an abbreviation on its own Markdown line without
+trailing spaces. In Insert mode, press **Ctrl+g**, followed by **e**. The
+envi mapping lets Neovim handle native Ctrl+g commands. If Blink's completion
+menu is open, Ctrl+g then e cancels it and expands the typed abbreviation.
+Typing the abbreviation by itself leaves it as text.
+
+| Abbreviation | Output |
+| --- | --- |
+| `ul>li*3` | Three bullet items |
+| `ol>li*3` | Three numbered items |
+| `h2{Title}` | `## Title`. Use `h1` through `h6` for other levels |
+| `todo*3` | Three unchecked task items |
+| `table3x2` or `table>tr*2>td*3` | Three columns and two rows total, with the first row as the header |
+| `p{Intro}+p{Next}` | Two paragraphs separated by a blank line |
+| `ul>(li{Parent}>ol>li*2)+li{Next}` | A nested numbered list and a second top-level bullet |
+| `ul>li*2^h2{Next}` | Two bullets followed by a heading |
+| `ul>li{Item $$}*3` | Bullets with Item 01, Item 02, and Item 03 |
+
+Use `>` for children, `+` for siblings, `^` to climb one container per caret,
+and parentheses to repeat or combine groups. Inside `{text}` or an element
+name, `$` uses the nearest repeat's index starting at 1. Repeat the dollar
+sign to zero-pad the number. Use `\$` for a literal dollar sign. Tab jumps
+through empty items and table cells in order, starting at the first one.
+In native snippets, a second Tab after the last field can return to field 1.
+Press Esc to leave the snippet.
+Text supplied in braces is inserted directly, including empty text in `{}`.
+Markdown can render adjacent lists with the same marker as one loose list.
+The trigger preserves line indentation and accepts closing braces and
+parentheses inserted by mini.pairs.
+
+This grammar covers Markdown block elements. An abbreviation can be at most
+512 bytes (512 ASCII characters) and generate at most 512 elements, including
+group iterations and table cells. Each element or group can repeat up to 50
+times, and tables can have up to 20 columns and 20 rows. A refused abbreviation
+leaves the buffer text intact and shows a warning.
+
+See `:help emmet-md` for plugin setup and the Lua API. Run its standalone
+tests with `nvim/plugins/emmet-md/tests/run-lua.sh`. The envi chord suite is
+`nvim/tools/emmet-md/test/run-lua.sh`. The repository runner includes both.
 
 ## What exists (all uncommitted on `envi/main`)
 
